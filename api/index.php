@@ -43,6 +43,7 @@ switch ($path) {
         break;
 
     case '/api/call/getUserInfoList':
+        $token = '1111';
         handle_get_user_info_list();
         break;
 

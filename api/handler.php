@@ -1,14 +1,20 @@
 <?php
 if (!defined('_GNUBOARD_')) exit;
 
+/** =========================
+ *  공통 상수(만료 등)
+ *  ========================= */
+define('API_SESSION_TTL_SECONDS', 60*60*24*30); // 30일
+
+/** =========================
+ *  업로드 핸들러 (기존 그대로)
+ *  ========================= */
 /**
  * 파일 포함 + 상태값 업로드 / 파일 없이 상태값 업로드
- * Kotlin 인터페이스와 동일 엔드포인트. (Multipart 또는 x-www-form-urlencoded)  :contentReference[oaicite:2]{index=2}
  * 필드: status, phoneNumber, (file?)
  * 응답: { success, message }
  */
 function handle_call_upload(): void {
-    // 입력 파싱
     $status = null;
     $phoneNumber = null;
     $savedFile = null;
@@ -48,34 +54,151 @@ function handle_call_upload(): void {
         send_json(['success' => false, 'message' => 'Missing required fields: status, phoneNumber'], 400);
     }
 
-    // TODO: 필요 시 DB 저장 (그누보드 sql_query 사용 가능). 여기서는 더미 처리.
-    // 예: sql_query("INSERT INTO ... (status, phone, file) VALUES (...)");
-
-    $payload = [
+    // TODO: 필요 시 DB 저장
+    send_json([
         'success' => true,
         'message' => $savedFile ? 'Uploaded with file' : 'Uploaded without file',
-        // 클라이언트 디버깅 편의용 더미 echo
         'echo'    => [
             'status'      => $status,
             'phoneNumber' => $phoneNumber,
-            'file'        => $savedFile, // null이면 파일 없음
+            'file'        => $savedFile,
         ],
-    ];
-    send_json($payload);
+    ]);
 }
 
-/**
- * 유저 정보 리스트 반환 (더미 데이터)
- * Kotlin: @POST("api/call/getUserInfoList") -> UserInfoResponse  :contentReference[oaicite:3]{index=3} :contentReference[oaicite:4]{index=4}
- * 응답: { success, message, data: [{phoneNumber, name, info}, ...] }
+/** =========================
+ *  세션 토큰 발급/저장 (옵션B 핵심)
+ *  ========================= */
+function issue_session_token_and_store($mb_no, $mb_group, ?string $device_id = null): string {
+    $raw    = random_token(48);               // 클라에 전달할 원문 토큰
+    $hash   = hash('sha256', $raw);           // DB 저장용 해시
+    $now    = date('Y-m-d H:i:s');
+    $exp    = date('Y-m-d H:i:s', time() + API_SESSION_TTL_SECONDS);
+
+    $ua   = $_SERVER['HTTP_USER_AGENT'] ?? '';
+    $ip   = $_SERVER['REMOTE_ADDR'] ?? '';
+    $ipbin = inet_pton($ip) ?: null;
+
+    $sql = "INSERT INTO api_sessions
+            (token_hash, user_id, mb_group, expires_at, last_seen, created_at, device_id, user_agent, ip_bin)
+            VALUES
+            ('{$hash}', ".(int)$mb_no.", ".(int)$mb_group.", '{$exp}', '{$now}', '{$now}', "
+            .($device_id ? "'".sql_escape($device_id)."'" : "NULL").", "
+            ."'".sql_escape($ua)."', ".($ipbin ? "'".bin2hex($ipbin)."'" : "NULL").")";
+
+    sql_query($sql);
+    return $raw;
+}
+
+/** =========================
+ *  토큰으로 mb_group, mb_no 구하기 (옵션B 구현)
+ *  =========================
+ * CALL_API_COUNT, CALL_LEASE_MIN은 환경/조직별로 member 테이블 등에서 가져오거나 상수 사용.
+ * campaign_id는 별도 테이블 없다 하셔서 0으로.
  */
-function handle_get_user_info_list(): void {
-    // 실제로는 DB에서 로드. 여기서는 더미 3건.
-    $list = [
-        ['phoneNumber' => '010-1111-2222', 'name' => '홍길동', 'info' => 'VIP 고객'],
-        ['phoneNumber' => '010-3333-4444', 'name' => '김아름', 'info' => '일반 고객'],
-        ['phoneNumber' => '010-5555-6666', 'name' => '이도현', 'info' => '미응답 2회'],
+function get_group_info($token) {
+    if (!$token) {
+        send_json(['success'=>false,'message'=>'missing token'], 401);
+    }
+
+    $hash = hash('sha256', $token);
+
+    // api_sessions + (예시) member 테이블 조인
+    // ※ 실제 컬럼명/테이블명에 맞게 수정하세요.
+    $row = sql_fetch("
+        SELECT 
+            s.user_id AS mb_no,
+            s.mb_group,
+            s.expires_at,
+            s.revoked_at,
+            m.call_api_count,
+            m.call_lease_min
+        FROM api_sessions s
+        JOIN g5_member m ON m.mb_no = s.user_id
+        WHERE s.token_hash = '{$hash}'
+        LIMIT 1
+    ");
+
+    if (!$row) {
+        send_json(['success'=>false,'message'=>'invalid token'], 401);
+    }
+    if (!empty($row['revoked_at']) || strtotime($row['expires_at']) <= time()) {
+        send_json(['success'=>false,'message'=>'expired or revoked token'], 401);
+    }
+
+    // sliding window 연장(선택): last_seen만 갱신
+    sql_query("UPDATE api_sessions SET last_seen = NOW() WHERE token_hash = '{$hash}'");
+
+    // 조직별 기본값 폴백(멤버 컬럼이 없으면 상수 사용)
+    $call_api_count = isset($row['call_api_count']) ? (int)$row['call_api_count'] : (int)CALL_API_COUNT;
+    $call_lease_min = isset($row['call_lease_min']) ? (int)$row['call_lease_min'] : (int)CALL_LEASE_MIN;
+
+    return [
+        'mb_group'       => (int)$row['mb_group'],
+        'mb_no'          => (int)$row['mb_no'],
+        'call_api_count' => $call_api_count,
+        'campaign_id'    => 0,                    // 요청하신 대로 캠페인 ID는 사용 안 함
+        'call_lease_min' => $call_lease_min,
     ];
+}
+
+/** =========================
+ *  작업할 정보 리스트 반환 (기존 흐름 + meta_json decode)
+ *  ========================= */
+function handle_get_user_info_list($token): void {
+    $info = get_group_info($token);
+    $mb_group       = $info['mb_group'];
+    $mb_no          = $info['mb_no'];
+    $call_api_count = $info['call_api_count'];
+    $call_lease_min = $info['call_lease_min'];
+    $campaign_id    = $info['campaign_id']; // = 0
+
+    // 1) 만료 회수
+    call_assign_release_expired($mb_group, $campaign_id);
+
+    // 2) 현재 보유 개수(통화전=1, 리스 유효)
+    $k = call_assign_count_my_queue($mb_group, $mb_no, $campaign_id, '1', true);
+
+    // 3) 모자라면 배정
+    $need = max(0, $call_api_count - $k);
+    if ($need > 0) {
+        $batch_id = get_uniqid();
+        $result = call_assign_pick_and_lock(
+            $mb_group,
+            $mb_no,
+            $need,
+            $call_lease_min,
+            $batch_id,
+            [
+                'use_skip_locked'        => true,
+                'assigned_status_to'     => 1,
+                'assigned_status_filter' => 0,
+                'order'                  => 'target_id',
+                'where_extra'            => 'AND do_not_call = 0'
+            ],
+            $campaign_id
+        );
+        if (!$result['ok'] && $need == $call_api_count) {
+            send_json([
+                'success' => false,
+                'message' => '배정실패',
+                'data'    => [],
+            ]);
+        }
+    }
+
+    // 4) 최종 조회
+    $rows = call_assign_list_my_queue($mb_group, $mb_no, $call_api_count, $campaign_id, '1', true);
+    $list = [];
+    foreach ($rows as $row) {
+        $list[] = [
+            'phoneNumber' => $row['call_hp'],
+            'name'        => $row['name'],
+            'info'        => safe_json_decode_or_null($row['meta_json']),
+            'targetId'    => (int)$row['target_id'],
+            'leaseUntil'  => $row['assign_lease_until'],
+        ];
+    }
 
     send_json([
         'success' => true,
@@ -85,37 +208,85 @@ function handle_get_user_info_list(): void {
 }
 
 /**
- * 로그인 (더미 검증)
- * Kotlin: @POST("api/auth/login") with body {username, password} -> LoginResponse  :contentReference[oaicite:5]{index=5} :contentReference[oaicite:6]{index=6}
- * Content-Type: application/json
+ * 로그인 (그누보드5 실제 검증) → 불투명 세션 토큰 발급
+ * 요청(JSON): { "username": "<mb_id>", "password": "<mb_password>", "deviceId": "optional" }
  * 응답: { success, message, token? }
  */
 function handle_login(): void {
     if (!is_json()) {
         send_json(['success' => false, 'message' => 'Content-Type must be application/json'], 400);
     }
-    $in = read_json();
-    $username = trim((string)($in['username'] ?? ''));
-    $password = (string)($in['password'] ?? '');
 
-    if ($username === '' || $password === '') {
+    $in        = read_json();
+    $mb_id     = trim((string)($in['username'] ?? ''));
+    $mb_passwd = (string)($in['password'] ?? '');
+    $device_id = isset($in['deviceId']) ? trim((string)$in['deviceId']) : null;
+
+    if ($mb_id === '' || $mb_passwd === '') {
         send_json(['success' => false, 'message' => 'Missing username or password'], 400);
     }
 
-    // TODO: 실제 로그인 연동(그누보드 member 테이블 등). 여기서는 더미 처리:
-    $ok = ($username === 'demo' && $password === 'demo1234'); // 데모 계정
-    if ($ok) {
-        $token = 'dummy-jwt.'.random_token(24); // 실제로는 JWT/세션 토큰 발급
-        send_json([
-            'success' => true,
-            'message' => 'Login success',
-            'token'   => $token,
-        ]);
-    } else {
-        send_json([
-            'success' => false,
-            'message' => 'Invalid credentials',
-            'token'   => null,
-        ], 401);
+    // 1) 회원 조회
+    $mb = get_member($mb_id); // g5 기본 함수
+
+    // 2) 비밀번호 검증 (소셜/예외처리 없이 심플하게)
+    if (!isset($mb['mb_id']) || !$mb['mb_id'] || !login_password_check($mb, $mb_passwd, $mb['mb_password'])) {
+        // 고의로 구체 사유 미공개(보안 관례)
+        send_json(['success' => false, 'message' => 'Invalid credentials'], 401);
     }
+
+    // 3) 차단/탈퇴/미인증 체크 (G5 login_check.php 로직 축약)
+    // 차단
+    if (!empty($mb['mb_intercept_date']) && $mb['mb_intercept_date'] <= date("Ymd", G5_SERVER_TIME)) {
+        send_json(['success' => false, 'message' => 'Access blocked account'], 403);
+    }
+    // 탈퇴
+    if (!empty($mb['mb_leave_date']) && $mb['mb_leave_date'] <= date("Ymd", G5_SERVER_TIME)) {
+        send_json(['success' => false, 'message' => 'Leaved account'], 403);
+    }
+    /*
+    // 메일 인증 사용 중이면 인증 확인
+    if (function_exists('is_use_email_certify') && is_use_email_certify()) {
+        if (!preg_match("/[1-9]/", (string)($mb['mb_email_certify'] ?? '0'))) {
+            send_json(['success' => false, 'message' => 'Email not certified'], 403);
+        }
+    }
+        */
+
+    // 4) mb_no / mb_group 결정
+    // - g5_member에 mb_no 기본 존재
+    // - mb_group은 커스텀 필드라고 하셨으니 없으면 기본값 1로 폴백
+    $mb_no    = (int)($mb['mb_no'] ?? 0);
+    $mb_group = isset($mb['mb_group']) ? (int)$mb['mb_group'] : 1;
+
+    if ($mb_no <= 0) {
+        // 환경에 따라 mb_no가 없을 수 있으면 mb_id 기반 별도 매핑 필요
+        // 현재 설계(get_group_info에서 member.m b_no 조인)와 일관 위해 mb_no 필수로 가정
+        send_json(['success' => false, 'message' => 'Account data error (mb_no missing)'], 500);
+    }
+
+    // 5) 세션 토큰 발급 + 저장(api_sessions)
+    $token = issue_session_token_and_store($mb_no, $mb_group, $device_id);
+
+    // (선택) 포인트/로그 기록/last_login 업데이트는 필요 시 추가
+    // 예: sql_query("UPDATE {$g5['member_table']} SET mb_today_login = NOW() WHERE mb_no = {$mb_no}");
+
+    send_json([
+        'success' => true,
+        'message' => 'Login success',
+        'token'   => $token, // Authorization: Bearer <token> 로 사용
+    ]);
+}
+
+/** =========================
+ *  로그아웃(선택): 토큰 즉시 무효화
+ *  ========================= */
+function handle_logout($token = null): void {
+    $token = $token ?: get_bearer_token_from_headers();
+    if (!$token) {
+        send_json(['success'=>false,'message'=>'missing token'], 400);
+    }
+    $hash = hash('sha256', $token);
+    sql_query("UPDATE api_sessions SET revoked_at = NOW() WHERE token_hash = '{$hash}'");
+    send_json(['success'=>true,'message'=>'logged out']);
 }
