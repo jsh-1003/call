@@ -152,7 +152,6 @@ function call_assign_pick_and_lock($mb_group, $mb_no, $n, $lease_min, $batch_id,
 function call_assign_release_expired($mb_group, $campaign_id=0) {
     $mb_group    = (int)$mb_group;
     $campaign_id = (int)$campaign_id;
-
     $where_campagin = '';
     if($campaign_id > 0) {
         $where_campagin = " AND campaign_id = {$campaign_id} ";

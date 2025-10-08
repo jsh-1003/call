@@ -16,6 +16,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 require_once './_common.php';
 require_once G5_LIB_PATH.'/call.lib.php';
+require_once G5_LIB_PATH.'/call.assign.lib.php';
 require_once './handler.php';
 
 
@@ -43,7 +44,6 @@ switch ($path) {
         break;
 
     case '/api/call/getUserInfoList':
-        $token = '1111';
         handle_get_user_info_list();
         break;
 

@@ -67,85 +67,10 @@ function handle_call_upload(): void {
 }
 
 /** =========================
- *  세션 토큰 발급/저장 (옵션B 핵심)
- *  ========================= */
-function issue_session_token_and_store($mb_no, $mb_group, ?string $device_id = null): string {
-    $raw    = random_token(48);               // 클라에 전달할 원문 토큰
-    $hash   = hash('sha256', $raw);           // DB 저장용 해시
-    $now    = date('Y-m-d H:i:s');
-    $exp    = date('Y-m-d H:i:s', time() + API_SESSION_TTL_SECONDS);
-
-    $ua   = $_SERVER['HTTP_USER_AGENT'] ?? '';
-    $ip   = $_SERVER['REMOTE_ADDR'] ?? '';
-    $ipbin = inet_pton($ip) ?: null;
-
-    $sql = "INSERT INTO api_sessions
-            (token_hash, user_id, mb_group, expires_at, last_seen, created_at, device_id, user_agent, ip_bin)
-            VALUES
-            ('{$hash}', ".(int)$mb_no.", ".(int)$mb_group.", '{$exp}', '{$now}', '{$now}', "
-            .($device_id ? "'".sql_escape($device_id)."'" : "NULL").", "
-            ."'".sql_escape($ua)."', ".($ipbin ? "'".bin2hex($ipbin)."'" : "NULL").")";
-
-    sql_query($sql);
-    return $raw;
-}
-
-/** =========================
- *  토큰으로 mb_group, mb_no 구하기 (옵션B 구현)
- *  =========================
- * CALL_API_COUNT, CALL_LEASE_MIN은 환경/조직별로 member 테이블 등에서 가져오거나 상수 사용.
- * campaign_id는 별도 테이블 없다 하셔서 0으로.
- */
-function get_group_info($token) {
-    if (!$token) {
-        send_json(['success'=>false,'message'=>'missing token'], 401);
-    }
-
-    $hash = hash('sha256', $token);
-
-    // api_sessions + (예시) member 테이블 조인
-    // ※ 실제 컬럼명/테이블명에 맞게 수정하세요.
-    $row = sql_fetch("
-        SELECT 
-            s.user_id AS mb_no,
-            s.mb_group,
-            s.expires_at,
-            s.revoked_at,
-            m.call_api_count,
-            m.call_lease_min
-        FROM api_sessions s
-        JOIN g5_member m ON m.mb_no = s.user_id
-        WHERE s.token_hash = '{$hash}'
-        LIMIT 1
-    ");
-
-    if (!$row) {
-        send_json(['success'=>false,'message'=>'invalid token'], 401);
-    }
-    if (!empty($row['revoked_at']) || strtotime($row['expires_at']) <= time()) {
-        send_json(['success'=>false,'message'=>'expired or revoked token'], 401);
-    }
-
-    // sliding window 연장(선택): last_seen만 갱신
-    sql_query("UPDATE api_sessions SET last_seen = NOW() WHERE token_hash = '{$hash}'");
-
-    // 조직별 기본값 폴백(멤버 컬럼이 없으면 상수 사용)
-    $call_api_count = isset($row['call_api_count']) ? (int)$row['call_api_count'] : (int)CALL_API_COUNT;
-    $call_lease_min = isset($row['call_lease_min']) ? (int)$row['call_lease_min'] : (int)CALL_LEASE_MIN;
-
-    return [
-        'mb_group'       => (int)$row['mb_group'],
-        'mb_no'          => (int)$row['mb_no'],
-        'call_api_count' => $call_api_count,
-        'campaign_id'    => 0,                    // 요청하신 대로 캠페인 ID는 사용 안 함
-        'call_lease_min' => $call_lease_min,
-    ];
-}
-
-/** =========================
  *  작업할 정보 리스트 반환 (기존 흐름 + meta_json decode)
  *  ========================= */
-function handle_get_user_info_list($token): void {
+function handle_get_user_info_list($token=null): void {
+    $token = $token ?: get_bearer_token_from_headers();
     $info = get_group_info($token);
     $mb_group       = $info['mb_group'];
     $mb_no          = $info['mb_no'];
@@ -158,7 +83,6 @@ function handle_get_user_info_list($token): void {
 
     // 2) 현재 보유 개수(통화전=1, 리스 유효)
     $k = call_assign_count_my_queue($mb_group, $mb_no, $campaign_id, '1', true);
-
     // 3) 모자라면 배정
     $need = max(0, $call_api_count - $k);
     if ($need > 0) {
@@ -276,17 +200,4 @@ function handle_login(): void {
         'message' => 'Login success',
         'token'   => $token, // Authorization: Bearer <token> 로 사용
     ]);
-}
-
-/** =========================
- *  로그아웃(선택): 토큰 즉시 무효화
- *  ========================= */
-function handle_logout($token = null): void {
-    $token = $token ?: get_bearer_token_from_headers();
-    if (!$token) {
-        send_json(['success'=>false,'message'=>'missing token'], 400);
-    }
-    $hash = hash('sha256', $token);
-    sql_query("UPDATE api_sessions SET revoked_at = NOW() WHERE token_hash = '{$hash}'");
-    send_json(['success'=>true,'message'=>'logged out']);
 }
