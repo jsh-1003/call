@@ -1,6 +1,59 @@
 <?php
 if (!defined('_GNUBOARD_')) exit;
 
+/**
+ * 상태코드 메타 조회 (조직 우선 → 기본(0) 폴백)
+ * 반환 예: ['found'=>true, 'result_group'=>1|0, 'is_do_not_call'=>0|1, 'ui_type'=>'primary', 'sort_order'=>10]
+ */
+function get_call_status_meta(int $call_status, int $mb_group = 0): array {
+    static $cache = [];
+
+    $ckey = $mb_group . ':' . $call_status;
+    if (isset($cache[$ckey])) return $cache[$ckey];
+
+    $call_status = (int)$call_status;
+    $mb_group    = (int)$mb_group;
+
+    // 조직 우선(= mb_group = ?), 없으면 기본(=0)
+    $sql = "
+        SELECT call_status, mb_group, result_group, is_do_not_call, ui_type, sort_order
+          FROM call_status_code
+         WHERE status = 1
+           AND call_status = {$call_status}
+           AND mb_group IN (0, {$mb_group})
+         ORDER BY (mb_group = {$mb_group}) DESC, mb_group DESC
+         LIMIT 1
+    ";
+    $row = sql_fetch($sql);
+
+    if ($row) {
+        $out = [
+            'found'         => true,
+            'call_status'   => (int)$row['call_status'],
+            'mb_group'      => (int)$row['mb_group'],
+            'result_group'  => (int)$row['result_group'],     // 0=실패, 1=성공
+            'is_do_not_call'=> (int)$row['is_do_not_call'],   // 0/1
+            'ui_type'       => (string)$row['ui_type'],
+            'sort_order'    => (int)$row['sort_order'],
+        ];
+        return $cache[$ckey] = $out;
+    }
+
+    // 폴백 규칙 (코드가 테이블에 없을 때)
+    // - 200대: 성공, 그 외는 실패
+    // - DNC: 기본 0
+    $fallback = [
+        'found'         => false,
+        'call_status'   => $call_status,
+        'mb_group'      => 0,
+        'result_group'  => ($call_status >= 200 && $call_status < 300) ? 1 : 0,
+        'is_do_not_call'=> 0,
+        'ui_type'       => 'secondary',
+        'sort_order'    => 999,
+    ];
+    return $cache[$ckey] = $fallback;
+}
+
 /** =========================
  *  토큰으로 mb_group, mb_no 구하기
  *  =========================

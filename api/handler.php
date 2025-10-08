@@ -1,68 +1,304 @@
 <?php
 if (!defined('_GNUBOARD_')) exit;
 
-/** =========================
- *  공통 상수(만료 등)
- *  ========================= */
-define('API_SESSION_TTL_SECONDS', 60*60*24*30); // 30일
-
-/** =========================
- *  업로드 핸들러 (기존 그대로)
- *  ========================= */
 /**
- * 파일 포함 + 상태값 업로드 / 파일 없이 상태값 업로드
- * 필드: status, phoneNumber, (file?)
- * 응답: { success, message }
+ * 통화 상태 코드 목록 내려주기 (간단 쿼리 + PHP 후처리)
+ * - 토큰 있으면: mb_group IN (0, 내 그룹) → 같은 code면 조직 코드가 기본(0) 덮어씀
+ * - 토큰 없으면: mb_group = 0
+ * - 정렬: sort_order ASC
  */
-function handle_call_upload(): void {
-    $status = null;
-    $phoneNumber = null;
-    $savedFile = null;
-
-    if (is_multipart()) {
-        $status = $_POST['status'] ?? null;
-        $phoneNumber = $_POST['phoneNumber'] ?? null;
-
-        if (isset($_FILES['file']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
-            $uploadDir = dirname(__DIR__).'/data/api_uploads/'.date('Ymd');
-            ensure_dir($uploadDir);
-
-            $orig = $_FILES['file']['name'];
-            $ext = pathinfo($orig, PATHINFO_EXTENSION);
-            $safe = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', pathinfo($orig, PATHINFO_FILENAME));
-            $fname = $safe.'_'.date('His').'_'.bin2hex(random_bytes(4)).($ext ? '.'.$ext : '');
-            $dest = $uploadDir.'/'.$fname;
-
-            if (!move_uploaded_file($_FILES['file']['tmp_name'], $dest)) {
-                send_json(['success' => false, 'message' => 'File save failed']);
-            }
-            $savedFile = [
-                'originalName' => $orig,
-                'savedPath'    => str_replace(dirname(__DIR__), '', $dest),
-                'size'         => (int)($_FILES['file']['size'] ?? 0),
-                'mimeType'     => $_FILES['file']['type'] ?? 'application/octet-stream',
-            ];
+function handle_get_call_status_codes(): void {
+    // 1) 토큰/그룹 결정
+    $token  = get_bearer_token_from_headers();
+    $groups = [0];
+    if ($token) {
+        try {
+            $info = get_group_info($token);
+            $g = (int)($info['mb_group'] ?? 0);
+            if ($g !== 0) $groups[] = $g;
+        } catch (\Throwable $e) {
+            // 토큰 유효X → 기본(0)만 사용
         }
-    } elseif (is_formurlencoded()) {
-        $status = $_POST['status'] ?? null;
-        $phoneNumber = $_POST['phoneNumber'] ?? null;
-    } else {
-        send_json(['success' => false, 'message' => 'Unsupported Content-Type']);
+    }
+    $groups = array_values(array_unique(array_map('intval', $groups)));
+    $grp_in = implode(',', $groups);
+
+    // 2) 간단 쿼리: 필요한 컬럼만, 정렬은 sort_order만
+    $sql = "
+        SELECT
+            call_status,
+            mb_group,
+            name_ko,
+            result_group,
+            is_do_not_call,
+            ui_type,
+            sort_order
+        FROM call_status_code
+        WHERE status = 1
+          AND mb_group IN ($grp_in)
+        ORDER BY sort_order ASC, call_status ASC
+    ";
+    $res = sql_query($sql);
+    if (!$res) {
+        send_json(['success' => false, 'message' => 'failed to load status codes'], 500);
     }
 
-    if (!$status || !$phoneNumber) {
-        send_json(['success' => false, 'message' => 'Missing required fields: status, phoneNumber'], 400);
+    // 3) PHP 후처리: 같은 call_status는 조직 코드(mb_group != 0)가 있으면 덮어쓰기
+    //    - 기본(0) 먼저 담기 → 조직 코드 나오면 교체
+    $byCode = [];   // key: call_status(int) -> row array
+    while ($row = sql_fetch_array($res)) {
+        $code    = (int)$row['call_status'];
+        $mbGroup = (int)$row['mb_group'];
+
+        if (!isset($byCode[$code])) {
+            // 최초 진입(보통 기본 0이 먼저 들어감)
+            $byCode[$code] = $row;
+        } else {
+            // 이미 기본이 있더라도, 조직 코드면 덮어씀
+            if ($mbGroup !== 0) {
+                $byCode[$code] = $row;
+            }
+        }
     }
 
-    // TODO: 필요 시 DB 저장
+    // 4) 값만 꺼내 정렬 유지(sort_order 기준)하여 배열화
+    //    위 쿼리가 sort_order ASC라서, $byCode는 삽입 순서를 유지하면 되지만
+    //    혹시나를 위해 다시 sort_order로 정렬
+    $list = array_values($byCode);
+    usort($list, function ($a, $b) {
+        $sa = (int)$a['sort_order'];
+        $sb = (int)$b['sort_order'];
+        if ($sa === $sb) return (int)$a['call_status'] <=> (int)$b['call_status'];
+        return $sa <=> $sb;
+    });
+
+    // 5) 응답 포맷 매핑
+    $out = [];
+    foreach ($list as $row) {
+        $out[] = [
+            'code'        => (int)$row['call_status'],
+            'label'       => (string)$row['name_ko'],
+            'group'       => (int)$row['result_group'],           // 0=실패, 1=성공
+            // 'isDoNotCall' => ((int)$row['is_do_not_call'] === 1), // bool
+            'uiType'      => (string)$row['ui_type'],
+            'sortOrder'   => (int)$row['sort_order'],
+            // 'mbGroup'     => (int)$row['mb_group'],
+        ];
+    }
+
     send_json([
         'success' => true,
-        'message' => $savedFile ? 'Uploaded with file' : 'Uploaded without file',
-        'echo'    => [
-            'status'      => $status,
-            'phoneNumber' => $phoneNumber,
-            'file'        => $savedFile,
-        ],
+        'message' => 'ok',
+        'data'    => $out,
+    ]);
+}
+
+/**
+ * 통화 업로드/저장 처리 (완성형)
+ * - 필수: target_id, call_status
+ * - 선택: call_start, call_end, memo, duration_sec
+ * - 파일: (선택) multipart/form-data 에서 'file' 필드
+ * - 인증: Authorization: Bearer <token>
+ * 응답: { success, message, call_id, recording_id, s3_key }
+ */
+function handle_call_upload(): void {
+    // AWS SDK (EC2 IAM Role 사용 권장). 루트/vendor 기준.
+    $vendor = dirname(__DIR__) . '/vendor/autoload.php';
+    if (file_exists($vendor)) {
+        require_once $vendor;
+    }
+
+    // 0) 인증 → 그룹/사용자
+    $token = get_bearer_token_from_headers();
+    $info  = get_group_info($token);
+    $mb_group = (int)$info['mb_group'];
+    $mb_no    = (int)$info['mb_no'];
+
+    // 1) 입력 파싱 (multipart | json | x-www-form-urlencoded)
+    $in = [];
+    if (is_multipart() || is_formurlencoded()) {
+        $in = array_merge($_POST ?? [], $_GET ?? []);
+    } elseif (is_json()) {
+        $in = read_json();
+    } else {
+        // 콘텐츠타입 미표시인 경우도 GET/POST 병합
+        $in = array_merge($_POST ?? [], $_GET ?? []);
+    }
+
+    // 필수 파라미터: target_id, call_status
+    $target_id    = isset($in['targetId'])    ? (int)$in['targetId']             : 0;
+    $call_status  = isset($in['callStatus'])  ? (int)$in['callStatus']           : 0;
+    $call_start   = isset($in['callStart'])   ? trim((string)$in['callStart'])   : null;
+    $call_end     = isset($in['callEnd'])     ? trim((string)$in['callEnd'])     : null;
+    $memo         = isset($in['memo'])        ? trim((string)$in['memo'])        : null;
+    $duration_sec = isset($in['durationSec']) ? (int)$in['durationSec']          : null;
+    $hp = isset($in['phoneNumber']) ? preg_replace('/\D+/', '', (string)$in['phoneNumber'] ?? '') : null;
+
+    if ($target_id <= 0 || $call_status === null || $hp === null) {
+        send_json(['success'=>false, 'message'=>'targetId나 callStatus나 phoneNumber가 없습니다.'], 400);
+    }
+
+    // 2) 대상 검증/조회 (권한: mb_group 일치)
+    $t = sql_fetch("
+        SELECT t.target_id, t.campaign_id, t.mb_group, t.call_hp, t.assigned_mb_no, t.attempt_count
+          FROM call_target t
+         WHERE t.target_id = {$target_id} AND t.mb_group = {$mb_group}
+         LIMIT 1
+    ");
+    if (!$t) {
+        send_json(['success'=>false, 'message'=>'잘못된 정보 입니다.'], 404);
+    }
+    $campaign_id   = (int)$t['campaign_id'];
+    $call_hp       = $t['call_hp'];
+    $attempt_count = (int)$t['attempt_count'];
+
+    if($hp != $call_hp) {
+        send_json(['success'=>false,'message'=>'전화번호가 다릅니다.'], 403);
+    }
+    // (정책에 따라 내 배정건만 허용하려면 아래 주석 해제)
+    // if ((int)$t['assigned_mb_no'] !== $mb_no) {
+    //     send_json(['success'=>false,'message'=>'not your assigned target'], 403);
+    // }
+
+    // 3) 시간 보정
+    $now = date('Y-m-d H:i:s');
+    if (!$call_start) $call_start = $now;
+    if ($call_end && strcmp($call_end, $call_start) < 0) {
+        $call_end = $call_start;
+    }
+
+    // 4) 트랜잭션 시작
+    sql_query("START TRANSACTION");
+
+    // 5) 통화 로그 적재
+    $call_end_sql = $call_end ? ("'".sql_escape_string($call_end)."'") : "NULL";
+    $memo_sql     = "'".sql_escape_string((string)$memo)."'";
+    $qlog = "
+        INSERT INTO call_log
+            (campaign_id, mb_group, target_id, mb_no, call_hp, call_status, call_start, call_end, memo)
+        VALUES
+            ({$campaign_id}, {$mb_group}, {$target_id}, {$mb_no}, '".sql_escape_string($call_hp)."',
+             {$call_status}, '".sql_escape_string($call_start)."', {$call_end_sql}, {$memo_sql})
+    ";
+    $ok = sql_query($qlog, true);
+    if (!$ok) {
+        sql_query("ROLLBACK");
+        send_json(['success'=>false, 'message'=>'failed to insert call_log'], 500);
+    }
+    $call_id = (int)sql_insert_id();
+
+    // 6) 대상 상태 업데이트 (상태코드 테이블 기반)
+    $set = [];
+    $set[] = "last_call_at = NOW()";
+    $set[] = "last_result  = {$call_status}";
+
+    $meta = get_call_status_meta($call_status, $mb_group);
+    // result_group: 1=성공, 0=실패
+    // is_do_not_call: 1이면 DNC
+
+    if ((int)$meta['result_group'] === 1) {
+        // 성공 → 완료 처리, 재시도 없음
+        $set[] = "assigned_status = 3";
+        $set[] = "next_try_at = NULL";
+    } else {
+        if ((int)$meta['is_do_not_call'] === 1) {
+            // 실패 + DNC → 완료 + DNC, 재시도 없음
+            $set[] = "assigned_status = 3";
+            $set[] = "do_not_call = 1";
+            $set[] = "next_try_at = NULL";
+        } else {
+            // 실패 + 재시도 대상 → 지수 백오프 (최대 60분), 상태=대기(1)
+            $next_min = min(60, max(1, pow(2, max(0, $attempt_count))));
+            $set[] = "attempt_count = attempt_count + 1";
+            $set[] = "next_try_at = DATE_ADD(NOW(), INTERVAL {$next_min} MINUTE)";
+            $set[] = "assigned_status = 1";
+        }
+    }
+
+    $uq = "
+        UPDATE call_target
+        SET ".implode(', ', $set)."
+        WHERE target_id = {$target_id} AND mb_group = {$mb_group}
+        LIMIT 1
+    ";
+    $ok = sql_query($uq, true);
+    if (!$ok) {
+        sql_query("ROLLBACK");
+        send_json(['success'=>false, 'message'=>'failed to update target'], 500);
+    }
+
+    // 7) (선택) 파일 처리 — multipart 에서 'file' 이 넘어온 경우만
+    $recording_id = null;
+    $s3_key       = null;
+
+    if (is_multipart() && isset($_FILES['file']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
+        // AWS SDK 확인
+        if (!class_exists(\Aws\S3\S3Client::class)) {
+            sql_query("ROLLBACK");
+            send_json(['success'=>false, 'message'=>'aws sdk not installed (composer require aws/aws-sdk-php)'], 500);
+        }
+
+        $tmp_path  = $_FILES['file']['tmp_name'];
+        $orig_name = $_FILES['file']['name'] ?? 'call_audio';
+        $ctype     = $_FILES['file']['type'] ?? 'application/octet-stream';
+        $fsize     = (int)($_FILES['file']['size'] ?? 0);
+
+        // S3 키 규칙: group/{mb_group}/{YYYY}/{MM}/{DD}/{call_id}.ext
+        $dt  = new DateTime($call_start);
+        $ext = get_file_ext_for_s3($orig_name, $ctype);
+        $key = sprintf(
+            "group/%d/%s/%s/%s/%d%s",
+            $mb_group,
+            $dt->format('Y'),
+            $dt->format('m'),
+            $dt->format('d'),
+            $call_id,
+            $ext
+        );
+
+        try {
+            $s3 = new \Aws\S3\S3Client([
+                'version' => 'latest',
+                'region'  => AWS_REGION,
+            ]);
+            $s3->putObject([
+                'Bucket'      => S3_BUCKET,
+                'Key'         => $key,
+                'SourceFile'  => $tmp_path,
+                'ContentType' => $ctype,
+                'ACL'         => 'private',
+            ]);
+            $s3_key = $key;
+
+            // call_recording 적재
+            $qrec = "
+                INSERT INTO call_recording
+                    (campaign_id, mb_group, call_id, s3_bucket, s3_key, content_type, file_size, duration_sec, created_at)
+                VALUES
+                    ({$campaign_id}, {$mb_group}, {$call_id},
+                     '".sql_escape_string(S3_BUCKET)."', '".sql_escape_string($key)."', '".sql_escape_string($ctype)."',
+                     {$fsize}, ".($duration_sec !== null ? (int)$duration_sec : "NULL").", NOW())
+            ";
+            $ok = sql_query($qrec, true);
+            if (!$ok) {
+                sql_query("ROLLBACK");
+                send_json(['success'=>false, 'message'=>'failed to insert call_recording'], 500);
+            }
+            $recording_id = (int)sql_insert_id();
+        } catch (\Throwable $e) {
+            sql_query("ROLLBACK");
+            send_json(['success'=>false, 'message'=>'s3 upload failed: '.$e->getMessage()], 500);
+        }
+    }
+
+    // 8) 커밋 및 응답
+    sql_query("COMMIT");
+    send_json([
+        'success'      => true,
+        'message'      => 'ok',
+        'call_id'      => $call_id,
+        'recording_id' => $recording_id,
+        's3_key'       => $s3_key,
     ]);
 }
 

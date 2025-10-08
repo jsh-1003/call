@@ -148,6 +148,7 @@ function call_assign_pick_and_lock($mb_group, $mb_no, $n, $lease_min, $batch_id,
 /**
  * 리스 만료 자동 회수
  * - assigned_status 가 1(배정) 또는 2(진행중)이고, assign_lease_until < NOW() 이면 회수(0) 처리
+ * - 1(배정) 상태만 회수 처리하자
  */
 function call_assign_release_expired($mb_group, $campaign_id=0) {
     $mb_group    = (int)$mb_group;
@@ -165,7 +166,7 @@ function call_assign_release_expired($mb_group, $campaign_id=0) {
             assign_batch_id    = NULL
         WHERE mb_group = {$mb_group}
           {$where_campagin}
-          AND assigned_status IN (1,2)
+          AND assigned_status = 1
           AND assign_lease_until IS NOT NULL
           AND assign_lease_until < NOW()
     ";

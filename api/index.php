@@ -39,16 +39,24 @@ if ($method !== 'POST') {
 }
 
 switch ($path) {
+    // 통화결과 처리
     case '/api/call/upload':
         handle_call_upload();
         break;
 
+    // 대상 내려보내기
     case '/api/call/getUserInfoList':
         handle_get_user_info_list();
         break;
 
+    // 로그인
     case '/api/auth/login':
         handle_login();
+        break;
+    
+    // 상태값 조회
+    case '/api/call/statusCodes':
+        handle_get_call_status_codes();
         break;
 
     default:
