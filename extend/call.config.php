@@ -10,3 +10,28 @@ define('API_SESSION_TTL_SECONDS', 60*60*24*30); // 30일
 
 define('AWS_REGION', 'ap-northeast-2'); // 서울 리전
 define('S3_BUCKET',  'call-save');
+
+if($is_admin != 'super') {
+    unset($auth);
+    if($member['mb_level'] >= 8) {
+        $is_admin = 'super';
+    } else if($member['mb_level'] == 7) {
+        $is_admin = 'group';
+        $auth = array(
+            '700000' => 'rw',
+            '700100' => 'rw',
+            '700110' => 'rw',
+            '700200' => 'rw',
+            '700700' => 'rw',
+            '700750' => 'rw',
+        );
+    } else if($member['mb_level'] >= 3) {
+        $is_admin = 'group';
+        $auth = array(
+            '700000' => 'r',
+            '700100' => 'r',
+            '700110' => 'r',
+            '700200' => 'r',
+        );
+    }
+}

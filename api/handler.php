@@ -71,7 +71,14 @@ function handle_get_call_status_codes(): void {
         if ($sa === $sb) return (int)$a['call_status'] <=> (int)$b['call_status'];
         return $sa <=> $sb;
     });
-
+    $list[] = array('call_status'=> '1111', 'name_ko'=>'라벨1111', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1111);
+    $list[] = array('call_status'=> '1112', 'name_ko'=>'라벨1112', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1112);
+    $list[] = array('call_status'=> '1113', 'name_ko'=>'라벨1113', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1113);
+    $list[] = array('call_status'=> '1114', 'name_ko'=>'라벨1114', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1114);
+    $list[] = array('call_status'=> '1115', 'name_ko'=>'라벨1115', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1115);
+    $list[] = array('call_status'=> '1116', 'name_ko'=>'라벨1116', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1116);
+    $list[] = array('call_status'=> '1117', 'name_ko'=>'라벨1117', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1117);
+    $list[] = array('call_status'=> '1118', 'name_ko'=>'라벨1118', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1118);
     // 5) 응답 포맷 매핑
     $out = [];
     foreach ($list as $row) {
@@ -135,7 +142,9 @@ function handle_call_upload(): void {
     $hp = isset($in['phoneNumber']) ? preg_replace('/\D+/', '', (string)$in['phoneNumber'] ?? '') : null;
 
     if ($target_id <= 0 || $call_status === null || $hp === null) {
-        send_json(['success'=>false, 'message'=>'targetId나 callStatus나 phoneNumber가 없습니다.'], 400);
+        send_json(['success'=>false, 'message'=>'targetId나 callStatus나 phoneNumber가 없습니다.'
+            .' / 타겟:'.$target_id.' / 스테이터스값:'.$call_status.' / phoneNumber:'.$call_status
+        ], 400);
     }
 
     // 2) 대상 검증/조회 (권한: mb_group 일치)
@@ -354,7 +363,7 @@ function handle_get_user_info_list($token=null): void {
         $list[] = [
             'phoneNumber' => $row['call_hp'],
             'name'        => $row['name'],
-            'info'        => safe_json_decode_or_null($row['meta_json']),
+            'info'        => implode(', ', safe_json_decode_or_null($row['meta_json'])),
             'targetId'    => (int)$row['target_id'],
             'leaseUntil'  => $row['assign_lease_until'],
         ];

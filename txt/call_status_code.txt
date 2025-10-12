@@ -1,0 +1,134 @@
+==========================================
+📘 Call Status Code & Button UI Guide
+for Android Pure App Integration
+==========================================
+
+본 문서는 안드로이드 앱에서 서버의 콜 상태 코드(call_status_code)
+및 버튼 UI(ui_type) 를 적용하기 위한 기준 정의입니다.
+
+앱은 서버로부터 상태 코드 목록을 API로 받아서
+각 코드에 대응되는 버튼을 표시하면 됩니다.
+
+------------------------------------------
+1. 통화 상태 코드 목록 (기준 값)
+------------------------------------------
+
+서버 전역 코드 (mb_group=0 기준)
+예시>
+CALL_STATUS_CODES = [
+    { code: 200, label: "접수",     group: 1, isDoNotCall: false, uiType: "success",   sortOrder: 10 },
+    { code: 201, label: "관심",     group: 1, isDoNotCall: false, uiType: "primary",   sortOrder: 20 },
+    { code: 202, label: "단순변심", group: 1, isDoNotCall: false, uiType: "secondary", sortOrder: 30 },
+
+    { code: 400, label: "부재",     group: 0, isDoNotCall: false, uiType: "secondary", sortOrder: 40 },
+    { code: 401, label: "결번",     group: 0, isDoNotCall: true,  uiType: "danger",    sortOrder: 50 },
+    { code: 402, label: "거부",     group: 0, isDoNotCall: false, uiType: "warning",   sortOrder: 60 }
+]
+
+필드 설명:
+- code         : 정수형 통화 상태 코드 (PK)
+- label        : 표시 이름
+- group        : 1=성공, 0=실패
+- isDoNotCall  : true일 경우 DNC(발신금지)
+- uiType       : 버튼 색상 구분용 키
+- sortOrder    : 표시 순서 (작을수록 먼저 표시)
+
+------------------------------------------
+2. 버튼 스타일 매핑 (안드로이드용)
+------------------------------------------
+
+앱에서 uiType 값을 받아 아래 매핑으로 버튼 색상 지정
+
+// Kotlin 예시
+val CALL_STATUS_BUTTON_STYLE = mapOf(
+    "primary"   to ButtonStyle("주요(파랑)",   Color.parseColor("#007bff"), Color.WHITE),
+    "success"   to ButtonStyle("성공(초록)",   Color.parseColor("#28a745"), Color.WHITE),
+    "warning"   to ButtonStyle("경고(주황)",   Color.parseColor("#fd7e14"), Color.WHITE),
+    "danger"    to ButtonStyle("위험(빨강)",   Color.parseColor("#dc3545"), Color.WHITE),
+    "info"      to ButtonStyle("안내(청록)",   Color.parseColor("#17a2b8"), Color.WHITE),
+    "secondary" to ButtonStyle("보통(회색)",   Color.parseColor("#6c757d"), Color.WHITE),
+    "ghost"     to ButtonStyle("테두리(라인)", Color.WHITE, Color.parseColor("#495057"), Color.parseColor("#ced4da"))
+)
+
+// Java 예시
+public static final Map<String, ButtonStyle> CALL_STATUS_BUTTON_STYLE = new HashMap<String, ButtonStyle>() {{
+    put("primary",   new ButtonStyle("주요(파랑)",   Color.parseColor("#007bff"), Color.WHITE));
+    put("success",   new ButtonStyle("성공(초록)",   Color.parseColor("#28a745"), Color.WHITE));
+    put("warning",   new ButtonStyle("경고(주황)",   Color.parseColor("#fd7e14"), Color.WHITE));
+    put("danger",    new ButtonStyle("위험(빨강)",   Color.parseColor("#dc3545"), Color.WHITE));
+    put("info",      new ButtonStyle("안내(청록)",   Color.parseColor("#17a2b8"), Color.WHITE));
+    put("secondary", new ButtonStyle("보통(회색)",   Color.parseColor("#6c757d"), Color.WHITE));
+    put("ghost",     new ButtonStyle("테두리(라인)", Color.WHITE, Color.parseColor("#495057")));
+}};
+
+ButtonStyle 클래스 예시:
+data class ButtonStyle(
+    val label: String,
+    val backgroundColor: Int,
+    val textColor: Int,
+    val borderColor: Int? = null
+)
+
+------------------------------------------
+3. DNC (Do Not Call) 처리 규칙
+------------------------------------------
+
+isDoNotCall = true 인 상태는 ‘발신 금지(DNC)’ 상태로 간주됩니다.
+
+앱 표시 권장:
+- 버튼 배경 빨강(danger) 계열
+- 텍스트 색상 흰색, 굵게
+- "🚫" 또는 "금지" 아이콘 표시
+
+예)
+if (status.isDoNotCall) {
+    button.setBackgroundColor(Color.parseColor("#dc3545"));
+    button.setTextColor(Color.WHITE);
+    button.setTypeface(null, Typeface.BOLD);
+    button.setText(status.label + " 🚫");
+}
+
+------------------------------------------
+4. 정렬 및 표시 순서
+------------------------------------------
+
+서버에서 내려준 sortOrder 값 기준으로 오름차순 정렬
+CALL_STATUS_CODES.sortBy { it.sortOrder }
+
+표시 순서 예:
+1. 접수 (success)
+2. 관심 (primary)
+3. 단순변심 (secondary)
+4. 부재 (secondary)
+5. 결번 (danger, DNC)
+6. 거부 (warning)
+
+------------------------------------------
+5. 예시 UI (권장 스타일)
+------------------------------------------
+
+[성공 그룹]
+✅ 접수 (초록 success)
+🟦 관심 (파랑 primary)
+⬜ 단순변심 (회색 secondary)
+
+[실패 그룹]
+⬜ 부재 (회색 secondary)
+🟥 결번 (빨강 danger / DNC 표시)
+🟧 거부 (주황 warning)
+
+------------------------------------------
+6. 요약
+------------------------------------------
+
+✔️ code(정수): 통화 결과 식별값
+✔️ uiType: 버튼 컬러 타입
+✔️ isDoNotCall: true면 발신금지(DNC)
+✔️ sortOrder: 표시 순서 (ASC)
+✔️ 버튼 색상: CALL_STATUS_BUTTON_STYLE 참조
+✔️ DNC는 빨간색으로 강조
+
+------------------------------------------
+📅 Last Updated: 2025-10-08
+Maintainer: Server Admin (그누보드5 기반 콜 시스템)
+==========================================

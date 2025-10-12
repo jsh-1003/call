@@ -1,6 +1,13 @@
 <?php
-exit;
 include_once('./_common.php');
+if($is_member && $member['mb_level'] > 2) {
+    header('Location: /adm/call/');
+} else if($is_member && $member['mb_level'] <= 2) {
+    header('Location: /bbs/logout.php');
+} else {
+    header('Location: /bbs/login.php');
+}
+exit;
 
 define('_INDEX_', true);
 if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
