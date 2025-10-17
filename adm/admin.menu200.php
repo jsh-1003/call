@@ -1,5 +1,5 @@
 <?php
-if($member['mb_level'] >= 10) {
+if($member['mb_level'] > 10) {
     $menu['menu200'] = array(
         array('200000', '회원관리', G5_ADMIN_URL . '/member_list.php', 'member'),
         array('200100', '회원관리', G5_ADMIN_URL . '/member_list.php', 'mb_list'),

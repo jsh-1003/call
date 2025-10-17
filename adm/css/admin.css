@@ -1288,13 +1288,16 @@ a:hover{ color:var(--primary-700); }
 
 /* Primary (기존 .btn_submit / .btn_01 / .btn_03 색상 통합) */
 .btn_submit, a.btn_submit,
-.btn_01, a.btn_01,
 .btn_03, a.btn_03{
   background:var(--primary-600) !important; color:#fff !important; border:0 !important;
 }
 .btn_submit:hover, a.btn_submit:hover,
-.btn_01:hover, a.btn_01:hover,
 .btn_03:hover, a.btn_03:hover{ background:var(--primary-700) !important; }
+
+/*
+.btn_01, a.btn_01,
+.btn_01:hover, a.btn_01:hover,
+*/
 
 /* Secondary (기존 .btn_02 / 회색 버튼류) */
 .btn_02, a.btn_02,

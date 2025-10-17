@@ -3,7 +3,7 @@
 $sub_menu = '700100';
 require_once './_common.php';
 
-// 접근 권한: 관리자 레벨 7 이상 권장이나, 요청에 따라 7 미만도 "자기건" 열람 가능하게 처리
+// 접근 권한
 if ($is_admin !== 'super' && (int)$member['mb_level'] < 3) {
     alert('접근 권한이 없습니다.');
 }
@@ -44,7 +44,7 @@ $ASSIGN_LABEL = [
 ];
 
 // ----------------------------------------------------------------------------------
-// WHERE 구성
+// WHERE 구성 (+ 삭제 캠페인 제외 조건)
 // ----------------------------------------------------------------------------------
 $where = [];
 // 권한별 범위
@@ -53,8 +53,6 @@ if ($mb_level >= 8) {
 } elseif ($mb_level == 7) {
     $where[] = "t.mb_group = {$my_group}";
 } else {
-    // 7 미만 → "자기거": 본인이 배정된 건만
-    // 진행중/배정/완료 구분 없이 전체 "자기 배정" 노출
     $where[] = "t.assigned_mb_no = {$mb_no}";
 }
 
@@ -86,17 +84,25 @@ if ($f_asgn !== '' && in_array($f_asgn, ['0','1','2','3'], true)) {
     $where[] = "t.assigned_status = ".(int)$f_asgn;
 }
 
+// ★ 삭제 캠페인 제외
+$where[] = "c.status <> 9";
+
 $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
 
 // ----------------------------------------------------------------------------------
-// count
+// count (캠페인 조인 포함)
 // ----------------------------------------------------------------------------------
-$sql_cnt = "SELECT COUNT(*) AS cnt FROM call_target t {$where_sql}";
+$sql_cnt = "
+    SELECT COUNT(*) AS cnt
+    FROM call_target t
+    JOIN call_campaign c ON c.campaign_id = t.campaign_id
+    {$where_sql}
+";
 $row_cnt = sql_fetch($sql_cnt);
 $total_count = (int)($row_cnt['cnt'] ?? 0);
 
 // ----------------------------------------------------------------------------------
-// 목록
+// 목록 (캠페인 조인 + 상태/이름 가져오기)
 // ----------------------------------------------------------------------------------
 $sql_list = "
     SELECT
@@ -104,8 +110,11 @@ $sql_list = "
         t.name, t.birth_date, t.meta_json,
         t.assigned_status, t.assigned_mb_no, t.assigned_at, t.assign_lease_until, t.assign_batch_id,
         t.do_not_call, t.last_call_at, t.last_result, t.attempt_count, t.next_try_at,
-        t.created_at, t.updated_at
+        t.created_at, t.updated_at,
+        c.status AS campaign_status,
+        c.name AS campaign_name
     FROM call_target t
+    JOIN call_campaign c ON c.campaign_id = t.campaign_id
     {$where_sql}
     ORDER BY t.target_id DESC
     LIMIT {$offset}, {$rows}
@@ -137,9 +146,12 @@ include_once(G5_ADMIN_PATH.'/admin.head.php');
 .badge-dnc { background:#dc3545; color:#fff; }
 .badge-ok  { background:#28a745; color:#fff; }
 .badge-warn{ background:#ffc107; color:#222; }
+.badge-camp-inactive { background:#eaeaea; color:#666; border:1px solid #d0d0d0; }
 .small-muted { color:#888; font-size:12px; }
 pre.json { text-align:left; white-space:pre-wrap; background:#f8f9fa; padding:8px; border:1px solid #eee; border-radius:4px; }
 td.meta { text-align:left !important; }
+td.camp-cell { text-align:left !important; }
+tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.025), rgba(0,0,0,0.025)); }
 </style>
 
 <div class="local_ov01 local_ov">
@@ -150,7 +162,6 @@ td.meta { text-align:left !important; }
     <form method="get" action="./index.php" class="form-row">
         <label for="q_type">검색구분</label>
         <select name="q_type" id="q_type">
-            <option value="">전체</option>
             <option value="name"  <?php echo $q_type==='name'?'selected':'';?>>이름</option>
             <option value="last4" <?php echo $q_type==='last4'?'selected':'';?>>전화번호(끝4자리)</option>
             <option value="full"  <?php echo $q_type==='full'?'selected':'';?>>전화번호(전체)</option>
@@ -197,16 +208,17 @@ td.meta { text-align:left !important; }
     <table class="table-fixed">
         <thead>
             <tr>
-                <th style="width:70px">ID</th>
+                <!-- <th style="width:70px">ID</th> -->
                 <th style="width:90px">그룹</th>
+                <th style="width:220px">캠페인</th> <!-- 추가 -->
                 <th style="width:140px">전화번호</th>
                 <th style="width:140px">이름/나이</th>
                 <th style="width:110px">배정상태</th>
                 <th style="width:120px">담당자</th>
                 <th style="width:80px">DNC</th>
-                <th style="width:130px">최근결과</th>
-                <th style="width:80px">시도수</th>
-                <th style="width:160px">다음시도</th>
+                <th style="width:130px">통화결과</th>
+                <!-- <th style="width:80px">시도수</th>
+                <th style="width:160px">다음시도</th> -->
                 <th>추가정보</th>
                 <th style="width:150px">업데이트</th>
             </tr>
@@ -214,8 +226,9 @@ td.meta { text-align:left !important; }
         <tbody>
         <?php
         if ($total_count === 0){
-            echo '<tr><td colspan="12" class="empty_table">데이터가 없습니다.</td></tr>';
+            echo '<tr><td colspan="10" class="empty_table">데이터가 없습니다.</td></tr>';
         } else {
+            $cached_group_name = [];
             while ($row = sql_fetch_array($res)) {
                 $hp_fmt = format_korean_phone($row['call_hp']);
                 $age = calc_age_years($row['birth_date']);
@@ -225,14 +238,35 @@ td.meta { text-align:left !important; }
                 $dnc = (int)$row['do_not_call']===1;
                 $last_result = (int)$row['last_result'];
                 $last_label  = $last_result ? status_label($last_result) : '';
-                // $meta_html   = pretty_json_preview($row['meta_json']);
+                $group_name = get_group_name($row['mb_group']);
+                // meta (짧게)
+                // $meta_arr = json_decode($row['meta_json'], true);
+                // $meta_html = '';
+                // if (is_array($meta_arr) && $meta_arr) {
+                //     $pairs = [];
+                //     $i=0;
+                //     foreach ($meta_arr as $k=>$v) { $pairs[] = _h($k).': '._h($v); if (++$i>=5) break; }
+                //     $meta_html = implode(', ', $pairs);
+                // }
+                // $meta_html   = implode(', ', json_decode($row['meta_json'], true));
                 $meta_html   = implode(', ', json_decode($row['meta_json'], true));
                 $agent_txt   = $row['assigned_mb_no'] ? (int)$row['assigned_mb_no'] : '-';
+
+                $camp_inactive = ((int)$row['campaign_status'] === 0);
+                $tr_class = $camp_inactive ? 'camp-inactive' : '';
                 ?>
-                <tr>
-                    <td><?php echo (int)$row['target_id'];?></td>
-                    <td><?php echo (int)$row['mb_group'];?></td>
+                <tr class="<?php echo $tr_class; ?>">
+                    <!-- <td><?php // echo (int)$row['target_id'];?></td> -->
+                    <td><?php echo $group_name; ?></td>
+                    <!-- 캠페인 표시(denorm 우선, 없으면 c.name) + 비활성 배지 -->
+                    <td class="camp-cell">
+                        <?php echo _h($row['campaign_name']); ?>
+                        <?php if ($camp_inactive) { ?>
+                            <span class="badge badge-camp-inactive">비활성 캠페인</span>
+                        <?php } ?>
+                    </td>
                     <td><?php echo _h($hp_fmt);?></td>
+
                     <td><?php echo _h($row['name']);?> / <?php echo _h($age_txt);?></td>
                     <td><?php echo _h($as_label);?></td>
                     <td><?php echo _h($agent_txt);?></td>
@@ -247,8 +281,8 @@ td.meta { text-align:left !important; }
                         <?php if ($last_result){ echo (int)$last_result.' - '._h($last_label); } ?>
                         <?php if ($row['last_call_at']){ echo '<div class="small-muted">'._h($row['last_call_at']).'</div>'; } ?>
                     </td>
-                    <td><?php echo (int)$row['attempt_count'];?></td>
-                    <td><?php echo _h($row['next_try_at'] ?: ''); ?></td>
+                    <!-- <td><?php echo (int)$row['attempt_count'];?></td>
+                    <td><?php echo _h($row['next_try_at'] ?: ''); ?></td> -->
                     <td class="meta"><?php echo $meta_html; ?></td>
                     <td><?php echo substr(_h($row['updated_at']), 2, 17);?></td>
                 </tr>
@@ -261,28 +295,25 @@ td.meta { text-align:left !important; }
 </div>
 
 <?php
-// 페이징
+// 페이징 (그누보드 get_paging 사용)
 $total_page = max(1, (int)ceil($total_count / $rows));
-$qstr = $_GET; unset($qstr['page']);
-$base = './index.php?'.http_build_query($qstr);
+
+// 기존 쿼리에서 page만 제거해 보존
+$qstr_arr = $_GET;
+unset($qstr_arr['page']);
+$qstr = http_build_query($qstr_arr);
+
+// get_paging 출력 (모바일/웹 설정값 반영)
+echo '<div class="pg_wrap">';
+echo get_paging(
+    $config['cf_write_pages'],
+    $page,
+    $total_page,
+    "./index.php?{$qstr}&amp;page="
+);
+echo '</div>';
 ?>
-<div class="pg_wrap">
-    <span class="pg">
-        <?php if ($page > 1) { ?>
-            <a href="<?php echo $base.'&page=1';?>" class="pg_page">처음</a>
-            <a href="<?php echo $base.'&page='.($page-1);?>" class="pg_page">이전</a>
-        <?php } else { ?>
-            <span class="pg_page">처음</span><span class="pg_page">이전</span>
-        <?php } ?>
-        <span class="pg_current"><?php echo $page;?> / <?php echo $total_page;?></span>
-        <?php if ($page < $total_page) { ?>
-            <a href="<?php echo $base.'&page='.($page+1);?>" class="pg_page">다음</a>
-            <a href="<?php echo $base.'&page='.$total_page;?>" class="pg_page">끝</a>
-        <?php } else { ?>
-            <span class="pg_page">다음</span><span class="pg_page">끝</span>
-        <?php } ?>
-    </span>
-</div>
+
 
 <?php
 include_once(G5_ADMIN_PATH.'/admin.tail.php');

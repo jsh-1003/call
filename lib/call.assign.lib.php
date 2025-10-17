@@ -17,26 +17,26 @@ if (!defined('_GNUBOARD_')) exit;
  * N건 배정(트랜잭션)
  *
  * @param int   $mb_group
- * @param int   $campaign_id
- * @param int   $mb_no                 상담원/담당자 번호
- * @param int   $n                     배정할 건수
- * @param int   $lease_min             리스(분) – 자동 회수 기준
- * @param int   $batch_id              배치 ID(감사/그룹핑용)
- * @param array $opts                  ['use_skip_locked'=>true, 'assigned_status_to'=>1, 'assigned_status_filter'=>0, 'order'=>'target_id', 'where_extra'=>null]
- * @return array                       ['ok'=>bool, 'picked'=>int, 'ids'=>[...], 'err'=>string|null]
+ * @param int   $campaign_id            // 0이면 캠페인 미지정(활성 캠페인들 중에서 픽)
+ * @param int   $mb_no                  // 상담원/담당자 번호
+ * @param int   $need                   // 배정할 건수
+ * @param int   $lease_min              // 리스(분) – 자동 회수 기준
+ * @param int   $batch_id               // 배치 ID(감사/그룹핑용)
+ * @param array $opts                   // ['use_skip_locked'=>true, 'assigned_status_to'=>1, 'assigned_status_filter'=>0, 'order'=>'target_id', 'where_extra'=>null]
+ * @return array                        // ['ok'=>bool, 'picked'=>int, 'ids'=>[...], 'err'=>string|null]
  */
-function call_assign_pick_and_lock($mb_group, $mb_no, $n, $lease_min, $batch_id, $opts = [], $campaign_id=0) {
-    $use_skip_locked      = isset($opts['use_skip_locked']) ? (bool)$opts['use_skip_locked'] : true;
-    $assigned_status_to   = isset($opts['assigned_status_to']) ? (int)$opts['assigned_status_to'] : 1;  // 배정(통화전)
+function call_assign_pick_and_lock($mb_group, $mb_no, $need, $lease_min, $batch_id, $opts = [], $campaign_id=0) {
+    $use_skip_locked        = isset($opts['use_skip_locked']) ? (bool)$opts['use_skip_locked'] : true;
+    $assigned_status_to     = isset($opts['assigned_status_to']) ? (int)$opts['assigned_status_to'] : 1;  // 배정(통화전)
     $assigned_status_filter = isset($opts['assigned_status_filter']) ? (int)$opts['assigned_status_filter'] : 0; // 미배정
-    $order_col            = isset($opts['order']) ? $opts['order'] : 'target_id'; // 우선순위 컬럼 (인덱스와 일치 권장)
-    $where_extra          = isset($opts['where_extra']) ? trim($opts['where_extra']) : null; // 추가 필터 (예: AND do_not_call=0)
+    $order_col              = isset($opts['order']) ? $opts['order'] : 'target_id'; // 우선순위 컬럼 (인덱스와 일치 권장)
+    $where_extra            = isset($opts['where_extra']) ? trim($opts['where_extra']) : null; // 추가 필터 (예: AND do_not_call=0)
 
     // 안전 캐스팅
     $mb_group    = (int)$mb_group;
     $campaign_id = (int)$campaign_id;
     $mb_no       = (int)$mb_no;
-    $n           = max(0, (int)$n);
+    $n           = max(0, (int)$need);
     $lease_min   = max(1, (int)$lease_min);
     $batch_id    = (int)$batch_id;
 
@@ -54,29 +54,37 @@ function call_assign_pick_and_lock($mb_group, $mb_no, $n, $lease_min, $batch_id,
         sql_query("DROP TEMPORARY TABLE IF EXISTS {$tmp}");
         sql_query("CREATE TEMPORARY TABLE {$tmp} (target_id BIGINT PRIMARY KEY) ENGINE=MEMORY");
 
-        // 1) 후보 픽 (잠금 포함)
+        // 1) 후보 픽 (잠금 포함) - 활성 캠페인(status=1)만
         $where_extra_sql = '';
         if ($where_extra) {
             // 개발자가 직접 안전한 조건만 넣도록 가정 (ex: "AND do_not_call=0")
             $where_extra_sql = "\n      " . $where_extra;
         }
-        $where_campagin = '';
-        if($campaign_id > 0) {
-            $where_campagin = " AND t.campaign_id = {$campaign_id} ";
+
+        $where_campaign = '';
+        if ($campaign_id > 0) {
+            // 특정 캠페인만 + 활성 캠페인 보장
+            $where_campaign = " AND t.campaign_id = {$campaign_id} ";
         }
+
+        // 활성 캠페인(status=1) 필수 조인
         $pick_sql = "INSERT INTO {$tmp} (target_id)
             SELECT t.target_id
             FROM call_target AS t
+            JOIN call_campaign AS c
+              ON c.campaign_id = t.campaign_id
+             AND c.mb_group    = t.mb_group
+             AND c.status      = 1
             WHERE t.mb_group = {$mb_group}
               AND t.assigned_status = {$assigned_status_filter}
-              {$where_campagin}
+              {$where_campaign}
               {$where_extra_sql}
             ORDER BY t.{$order_col}
             LIMIT {$n}
         ";
 
         if ($use_skip_locked) {
-            // MySQL 8.x 권장: 경합 회피
+            // MySQL 8.x: 경합 회피
             $pick_sql .= " FOR UPDATE SKIP LOCKED";
         }
         sql_query($pick_sql);
@@ -90,7 +98,7 @@ function call_assign_pick_and_lock($mb_group, $mb_no, $n, $lease_min, $batch_id,
         }
 
         // 2) 상태 업데이트(배정)
-        //   SKIP LOCKED가 아닌 경우 동시성 보완 위해 WHERE에 현재 상태 재확인
+        //   SKIP LOCKED 미사용 시 동시성 보완: 현재 상태 재확인
         $status_guard = $use_skip_locked ? '' : "AND t.assigned_status = {$assigned_status_filter}";
 
         $upd_sql = "UPDATE call_target AS t
@@ -104,7 +112,7 @@ function call_assign_pick_and_lock($mb_group, $mb_no, $n, $lease_min, $batch_id,
         ";
         sql_query($upd_sql);
 
-        // 실제 배정된 수 재확인 (특히 SKIP LOCKED 미사용 시)
+        // 실제 배정된 수 재확인
         $row2 = sql_fetch("
             SELECT COUNT(*) AS cnt
             FROM call_target t
@@ -120,10 +128,12 @@ function call_assign_pick_and_lock($mb_group, $mb_no, $n, $lease_min, $batch_id,
         }
 
         // 3) 배정 이력 적재
+        //   ※ 캠페인 미지정(0)일 때도 실제 타겟의 campaign_id를 기록
         $ins_hist_sql = "
             INSERT INTO call_assignment (campaign_id, mb_group, target_id, mb_no, assigned_at, status)
-            SELECT {$campaign_id}, {$mb_group}, p.target_id, {$mb_no}, NOW(), 1
+            SELECT t.campaign_id, {$mb_group}, p.target_id, {$mb_no}, NOW(), 1
             FROM {$tmp} AS p
+            JOIN call_target AS t ON t.target_id = p.target_id
         ";
         sql_query($ins_hist_sql);
 

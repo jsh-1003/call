@@ -1,11 +1,9 @@
 <?php
-require 'vendor/autoload.php';
-use Aws\S3\S3Client;
+include_once('./_common.php');
 
-$s3 = new S3Client([
-    'region'  => 'ap-northeast-2',
-    'version' => 'latest',
-]);
 
-$result = $s3->listBuckets();
-print_r($result['Buckets']);
+$sql = "";
+
+
+$code_list = get_code_list($sel_mb_group);
+print_r2($code_list);

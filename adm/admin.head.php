@@ -109,6 +109,8 @@ if (!empty($_COOKIE['g5_admin_btn_gnb'])) {
     }
 </script>
 
+<?php if(empty($is_popup_page)) { ?>
+
 <div id="to_content"><a href="#container">본문 바로가기</a></div>
 
 <header id="hd">
@@ -213,3 +215,5 @@ if (!empty($_COOKIE['g5_admin_btn_gnb'])) {
 
         <h1 id="container_title"><?php echo $g5['title'] ?></h1>
         <div class="container_wr">
+
+<?php } ?>

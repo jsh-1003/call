@@ -71,14 +71,14 @@ function handle_get_call_status_codes(): void {
         if ($sa === $sb) return (int)$a['call_status'] <=> (int)$b['call_status'];
         return $sa <=> $sb;
     });
-    $list[] = array('call_status'=> '1111', 'name_ko'=>'라벨1111', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1111);
-    $list[] = array('call_status'=> '1112', 'name_ko'=>'라벨1112', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1112);
-    $list[] = array('call_status'=> '1113', 'name_ko'=>'라벨1113', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1113);
-    $list[] = array('call_status'=> '1114', 'name_ko'=>'라벨1114', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1114);
-    $list[] = array('call_status'=> '1115', 'name_ko'=>'라벨1115', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1115);
-    $list[] = array('call_status'=> '1116', 'name_ko'=>'라벨1116', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1116);
-    $list[] = array('call_status'=> '1117', 'name_ko'=>'라벨1117', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1117);
-    $list[] = array('call_status'=> '1118', 'name_ko'=>'라벨1118', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1118);
+    // $list[] = array('call_status'=> '1111', 'name_ko'=>'라벨1111', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1111);
+    // $list[] = array('call_status'=> '1112', 'name_ko'=>'라벨1112', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1112);
+    // $list[] = array('call_status'=> '1113', 'name_ko'=>'라벨1113', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1113);
+    // $list[] = array('call_status'=> '1114', 'name_ko'=>'라벨1114', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1114);
+    // $list[] = array('call_status'=> '1115', 'name_ko'=>'라벨1115', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1115);
+    // $list[] = array('call_status'=> '1116', 'name_ko'=>'라벨1116', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1116);
+    // $list[] = array('call_status'=> '1117', 'name_ko'=>'라벨1117', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1117);
+    // $list[] = array('call_status'=> '1118', 'name_ko'=>'라벨1118', 'result_group'=>1, 'ui_type'=>'secondary', 'sort_order'=>1118);
     // 5) 응답 포맷 매핑
     $out = [];
     foreach ($list as $row) {
@@ -175,6 +175,33 @@ function handle_call_upload(): void {
     if ($call_end && strcmp($call_end, $call_start) < 0) {
         $call_end = $call_start;
     }
+    // 3-1) 통화시간(초)
+    $call_time = 0;
+    if (!empty($call_end)) {
+        $ts_start = strtotime($call_start);
+        $ts_end   = strtotime($call_end);
+        if ($ts_start !== false && $ts_end !== false) {
+            $call_time = max(0, $ts_end - $ts_start); // 음수 방지
+        }
+    }
+
+    if($call_status == CALL_STATUS_AUTO_SKIP) {
+        $gid = (int)$mb_group; // 안전하게 정수화
+        $sql = "SELECT call_status
+            FROM call_status_code
+        WHERE `status` = 1
+            AND is_auto_skip = 1
+            AND mb_group IN (0, {$gid})
+        ORDER BY (mb_group = {$gid}) DESC,  -- 내 그룹(1) 먼저, 없으면 0
+                    sort_order ASC,
+                    call_status ASC
+        LIMIT 1";
+        $skip_call_status = sql_fetch($sql);
+        if($skip_call_status) {
+            $call_status = $skip_call_status['call_status'];
+            $memo = '[SYSTEM] AUTO_SKIP'.PHP_EOL.$memo;
+        }
+    }
 
     // 4) 트랜잭션 시작
     sql_query("START TRANSACTION");
@@ -184,10 +211,10 @@ function handle_call_upload(): void {
     $memo_sql     = "'".sql_escape_string((string)$memo)."'";
     $qlog = "
         INSERT INTO call_log
-            (campaign_id, mb_group, target_id, mb_no, call_hp, call_status, call_start, call_end, memo)
+            (campaign_id, mb_group, target_id, mb_no, call_hp, call_status, call_start, call_end, call_time, memo)
         VALUES
             ({$campaign_id}, {$mb_group}, {$target_id}, {$mb_no}, '".sql_escape_string($call_hp)."',
-             {$call_status}, '".sql_escape_string($call_start)."', {$call_end_sql}, {$memo_sql})
+             {$call_status}, '".sql_escape_string($call_start)."', {$call_end_sql}, {$call_time}, {$memo_sql})
     ";
     $ok = sql_query($qlog, true);
     if (!$ok) {
@@ -319,7 +346,7 @@ function handle_get_user_info_list($token=null): void {
     $info = get_group_info($token);
     $mb_group       = $info['mb_group'];
     $mb_no          = $info['mb_no'];
-    $call_api_count = $info['call_api_count'];
+    $call_api_count = max(1, $info['call_api_count']);
     $call_lease_min = $info['call_lease_min'];
     $campaign_id    = $info['campaign_id']; // = 0
 
@@ -360,6 +387,7 @@ function handle_get_user_info_list($token=null): void {
     $rows = call_assign_list_my_queue($mb_group, $mb_no, $call_api_count, $campaign_id, '1', true);
     $list = [];
     foreach ($rows as $row) {
+        if($row['target_id'] == 14) $row['assign_lease_until'] = '2025-10-13 13:20:45';
         $list[] = [
             'phoneNumber' => $row['call_hp'],
             'name'        => $row['name'],

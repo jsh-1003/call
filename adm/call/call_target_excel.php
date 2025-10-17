@@ -6,7 +6,8 @@ include_once('./_common.php');
 auth_check_menu($auth, $sub_menu, "w");
 
 $g5['title'] = '엑셀 등록';
-include_once(G5_PATH.'/head.sub.php');
+$is_popup_page=true;
+include_once (G5_ADMIN_PATH.'/admin.head.php');
 
 // CSRF
 if (!isset($_SESSION['call_upload_token'])) {
@@ -31,7 +32,15 @@ if ($my_level >= 8) {
     while ($row = sql_fetch_array($res)) $group_options[] = $row;
 }
 ?>
-
+<style>
+.input_wrap {
+    margin: 10px;
+    padding: 20px;
+    border: 1px solid #e9e9e9;
+    background: #fff;
+}
+#memo {width:80%}
+</style>
 <div class="new_win">
     <h1><?php echo $g5['title']; ?></h1>
 
@@ -47,6 +56,7 @@ if ($my_level >= 8) {
 
     <form name="fcallexcel" method="post" action="./call_target_excel_update.php" enctype="MULTIPART/FORM-DATA" autocomplete="off">
         <input type="hidden" name="csrf_token" value="<?php echo $csrf_token; ?>">
+        <input type="hidden" name="token" value="">
 
         <?php if ($my_level >= 8) { ?>
         <div id="mb_group_select" class="tbl_frm01">
@@ -75,6 +85,11 @@ if ($my_level >= 8) {
             <input type="file" name="excelfile" id="excelfile" accept=".xls,.xlsx" required>
         </div>
 
+        <div class="input_wrap">
+            <label for="memo"><b>DB메모</b></label>
+            <input type="text" class="frm_input" name="memo" id="memo" placeholder="필요시 메모를 입력하세요.">
+        </div>
+
         <div class="win_btn btn_confirm">
             <input type="submit" value="타겟 엑셀파일 등록" class="btn_submit btn">
             <button type="button" onclick="window.close();" class="btn_close btn">닫기</button>
@@ -83,4 +98,4 @@ if ($my_level >= 8) {
 </div>
 
 <?php
-include_once(G5_PATH.'/tail.sub.php');
+include_once (G5_ADMIN_PATH.'/admin.tail.php');

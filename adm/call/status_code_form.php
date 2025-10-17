@@ -13,6 +13,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
     $call_status  = (int)($_POST['call_status'] ?? 0);
     $name_ko      = trim((string)($_POST['name_ko'] ?? ''));
     $result_group = (int)($_POST['result_group'] ?? 0);         // 0=실패, 1=성공
+    $is_after     = (int)($_POST['is_after_call'] ?? 0);       // 0/1
     $is_dnc       = (int)($_POST['is_do_not_call'] ?? 0);       // 0/1
     $ui_type      = trim((string)($_POST['ui_type'] ?? ''));    // primary/success/...
     $sort_order   = (int)($_POST['sort_order'] ?? 100);
@@ -25,9 +26,9 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
         if ($dup) alert('이미 존재하는 상태 코드입니다.');
         $sql = "
             INSERT INTO call_status_code
-              (call_status, mb_group, name_ko, result_group, is_do_not_call, ui_type, sort_order, status, created_at, updated_at)
+              (call_status, mb_group, name_ko, result_group, is_after_call, is_do_not_call, ui_type, sort_order, status, created_at, updated_at)
             VALUES
-              ({$call_status}, 0, '".sql_escape_string($name_ko)."', {$result_group}, {$is_dnc},
+              ({$call_status}, 0, '".sql_escape_string($name_ko)."', {$result_group}, {$is_after}, {$is_dnc},
                '".sql_escape_string($ui_type)."', {$sort_order}, {$status}, NOW(), NOW())
         ";
         sql_query($sql, true);
@@ -39,6 +40,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
             UPDATE call_status_code
                SET name_ko='".sql_escape_string($name_ko)."',
                    result_group={$result_group},
+                   is_after_call={$is_after},
                    is_do_not_call={$is_dnc},
                    ui_type='".sql_escape_string($ui_type)."',
                    sort_order={$sort_order},
@@ -58,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
 $row = null;
 if ($w === 'u' && $call_status > 0) {
     $row = sql_fetch("
-        SELECT call_status, name_ko, result_group, is_do_not_call, ui_type, sort_order, status
+        SELECT *
           FROM call_status_code
          WHERE call_status={$call_status} AND mb_group=0
          LIMIT 1
@@ -118,10 +120,20 @@ include_once(G5_ADMIN_PATH.'/admin.head.php');
             <tr>
                 <th scope="row">결과 그룹</th>
                 <td>
-                    <label><input type="radio" name="result_group" value="1" <?php echo (($row['result_group'] ?? 0)==1?'checked':''); ?>> 성공</label>
+                    <label><input type="radio" name="result_group" value="1" <?php echo (($row['result_group'] ?? 0)==1?'checked':''); ?>> 통화성공</label>
                     &nbsp;&nbsp;
-                    <label><input type="radio" name="result_group" value="0" <?php echo (($row['result_group'] ?? 0)==0?'checked':''); ?>> 실패</label>
+                    <label><input type="radio" name="result_group" value="0" <?php echo (($row['result_group'] ?? 0)==0?'checked':''); ?>> 통화실패</label>
                     <span class="help">통계 집계 시 성공/실패를 구분하는 값입니다.</span>
+                </td>
+            </tr>
+            
+            <tr>
+                <th scope="row">2차 콜 대상</th>
+                <td>
+                    <label><input type="checkbox" name="is_after_call" value="1" <?php echo ((int)($row['is_after_call'] ?? 0)===1?'checked':''); ?>> 적용</label>
+                    <span class="help">
+                        체크 시, 이 상태로 저장될 경우 해당 대상은 <b>접수관리</b> 대상으로 표시됩니다.
+                    </span>
                 </td>
             </tr>
 
