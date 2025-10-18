@@ -133,7 +133,8 @@ function handle_call_upload(): void {
     }
 
     // 필수 파라미터: target_id, call_status
-    $target_id    = isset($in['targetId'])    ? (int)$in['targetId']             : 0;
+    $mode         = isset($in['mode'])        ? trim((string)$in['mode'])        : 'auto';
+    $target_id    = isset($in['targetId'])    ? (int)$in['targetId']             : -1;
     $call_status  = isset($in['callStatus'])  ? (int)$in['callStatus']           : 0;
     $call_start   = isset($in['callStart'])   ? trim((string)$in['callStart'])   : null;
     $call_end     = isset($in['callEnd'])     ? trim((string)$in['callEnd'])     : null;
@@ -141,10 +142,17 @@ function handle_call_upload(): void {
     $duration_sec = isset($in['durationSec']) ? (int)$in['durationSec']          : null;
     $hp = isset($in['phoneNumber']) ? preg_replace('/\D+/', '', (string)$in['phoneNumber'] ?? '') : null;
 
-    if ($target_id <= 0 || $call_status === null || $hp === null) {
+    if ($target_id < 0 || $call_status === null || $hp === null) {
         send_json(['success'=>false, 'message'=>'targetId나 callStatus나 phoneNumber가 없습니다.'
             .' / 타겟:'.$target_id.' / 스테이터스값:'.$call_status.' / phoneNumber:'.$call_status
         ], 400);
+    }
+
+    if ($mode == 'manual') {
+        send_json([
+            'success'      => true,
+            'message'      => 'ok_no_job'
+        ]);
     }
 
     // 2) 대상 검증/조회 (권한: mb_group 일치)
@@ -462,6 +470,11 @@ function handle_login(): void {
         send_json(['success' => false, 'message' => 'Account data error (mb_no missing)'], 500);
     }
 
+    $config = get_call_config($mb_no);
+    if(!$config) {
+        send_json(['success' => false, 'message' => 'Config 확인 실패'], 500);
+    }
+    
     // 5) 세션 토큰 발급 + 저장(api_sessions)
     $token = issue_session_token_and_store($mb_no, $mb_group, $device_id);
 
@@ -472,5 +485,6 @@ function handle_login(): void {
         'success' => true,
         'message' => 'Login success',
         'token'   => $token, // Authorization: Bearer <token> 로 사용
+        'call_auto_skip_sec'  => $config['call_auto_skip_sec'], // Authorization: Bearer <token> 로 사용
     ]);
 }

@@ -543,29 +543,7 @@ if ($mb_level >= 8) {
 }
 ?>
 <style>
-.form-row { margin:10px 0; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
-.form-row .frm_input, .form-row select { height:28px; }
-.tbl_head01 th, .tbl_head01 td { text-align:center; }
-.badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; }
-.badge-success { background:#28a745; color:#fff; }
-.badge-fail    { background:#6c757d; color:#fff; }
-.badge-dnc     { background:#dc3545; color:#fff; }
-.small-muted { color:#888; font-size:12px; }
-.table-fixed td { word-break:break-all; }
-.btn-line { display:flex; gap:6px; align-items:center; }
-.btn-mini { padding:3px 8px; border:1px solid #ccc; background:#f8f9fa; border-radius:4px; cursor:pointer; }
-.btn-mini:hover { background:#eef1f4; }
-.btn-mini.active {background-color:#28a745;color:#fff}
-.row-split { width:100%; height:0; }
-/* 그룹 구분자 옵션 */
-#agent option.opt-sep { font-weight: bold; color: #495057; background: #f1f3f5;}
-/* 상태 컬럼 경량 하이라이트 */
-.status-col { transition: background-color .2s }
-.status-success  { background: #eaf7ee; }   /* 녹색 매우 연함 */
-.status-primary  { background: #eef4ff; }   /* 파랑 매우 연함 */
-.status-secondary{ background: #f6f7f9; }   /* 회색 매우 연함 */
-.status-warning  { background: #fff8e6; }   /* 노랑 매우 연함 */
-.status-danger   { background: #ffefef; }   /* 빨강 매우 연함 */
+
 </style>
 
 <!-- 검색/필터 -->

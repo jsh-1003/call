@@ -8,6 +8,20 @@ if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
     alert('접근 권한이 없습니다.');
 }
 
+// 활성 캠페인/타깃 기준 그룹 필터 (날짜와 무관)
+function build_campaign_group_where($mb_level, $my_group, $sel_mb_group) {
+    $w = [];
+    if ($mb_level == 7) {
+        $w[] = "cc.mb_group = {$my_group}";
+    } elseif ($mb_level < 7) {
+        // 레벨 7 미만은 개인 권한이라 가정하되, 그룹 고정
+        $w[] = "cc.mb_group = {$my_group}";
+    } else {
+        if ($sel_mb_group > 0) $w[] = "cc.mb_group = {$sel_mb_group}";
+    }
+    return $w ? (' AND '.implode(' AND ', $w)) : '';
+}
+
 // --------------------------------------------------
 // APCu 마이크로 캐시 (옵션)
 // --------------------------------------------------
@@ -123,6 +137,20 @@ if ($ajax) {
             {$where_sql}
         ";
         $r = sql_fetch($sql);
+        // 잔여DB: 활성 캠페인(status=1) + target.status=0(대기)
+        $pending_where = build_campaign_group_where($mb_level, $my_group, $sel_mb_group);
+        $sql_pending = "
+            SELECT COUNT(*) AS remain_cnt
+            FROM call_campaign cc
+            JOIN call_target t
+                ON t.campaign_id = cc.campaign_id
+            WHERE cc.status = 1
+            AND t.assigned_status = 0
+            {$pending_where}
+        ";
+        $r2 = sql_fetch($sql_pending);
+        $remain = (int)($r2['remain_cnt'] ?? 0);
+
         $total   = (int)($r['total_cnt'] ?? 0);
         $success = (int)($r['success_cnt'] ?? 0);
         $fail    = (int)($r['fail_cnt'] ?? 0);
@@ -131,7 +159,7 @@ if ($ajax) {
         $dnc     = (int)($r['dnc_cnt'] ?? 0);
         $agents  = (int)($r['active_agents'] ?? 0);
         $groups  = (int)($r['active_groups'] ?? 0);
-        $json = json_encode(['ok'=>true, 'total'=>$total, 'success'=>$success, 'fail'=>$fail, 'successRate'=>$rate, 'avgSecs'=>$avg, 'dnc'=>$dnc, 'agents'=>$agents, 'groups'=>$groups], JSON_UNESCAPED_UNICODE);
+        $json = json_encode(['ok'=>true,     'remainDb'=>$remain, 'total'=>$total, 'success'=>$success, 'fail'=>$fail, 'successRate'=>$rate, 'avgSecs'=>$avg, 'dnc'=>$dnc, 'agents'=>$agents, 'groups'=>$groups], JSON_UNESCAPED_UNICODE);
         microcache_set($cacheKey, $json, 10);
         echo $json; exit;
     }
@@ -541,6 +569,7 @@ canvas { background:#fff; }
 
 <!-- KPI -->
 <div class="kpi" id="kpiWrap">
+    <div class="card"><div>잔여DB</div><div class="big" id="kpiRemainDb">-</div></div>
     <div class="card"><div>총 통화</div><div class="big" id="kpiTotal">-</div></div>
     <div class="card"><div>통화성공</div><div class="big" id="kpiSuccess">-</div></div>
     <div class="card"><div>통화실패</div><div class="big" id="kpiFail">-</div></div>
@@ -643,6 +672,7 @@ canvas { background:#fff; }
 <script>
 (function(){
     const el = {
+        kpiRemainDb: document.getElementById('kpiRemainDb'),
         kpiTotal:   document.getElementById('kpiTotal'),
         kpiSuccess: document.getElementById('kpiSuccess'),
         kpiFail:    document.getElementById('kpiFail'),
@@ -691,6 +721,7 @@ canvas { background:#fff; }
 
     async function loadKPI(){
         const r = await fetchJson('kpi'); if (!r.ok) return;
+        el.kpiRemainDb.textContent = (r.remainDb ?? 0).toLocaleString();
         el.kpiTotal.textContent   = r.total.toLocaleString();
         el.kpiSuccess.textContent = r.success.toLocaleString();
         el.kpiFail.textContent    = r.fail.toLocaleString();

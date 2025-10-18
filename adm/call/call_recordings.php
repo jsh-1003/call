@@ -1,0 +1,536 @@
+<?php
+// /adm/call/call_recordings.php
+$sub_menu = '700300';
+require_once './_common.php';
+
+// 접근 권한: 관리자 레벨 7 이상만
+if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
+    alert('접근 권한이 없습니다.');
+}
+
+// 공통 변수
+$mb_no      = (int)($member['mb_no'] ?? 0);
+$mb_level   = (int)($member['mb_level'] ?? 0);
+$my_group   = isset($member['mb_group']) ? (int)$member['mb_group'] : 0;
+$member_table = $g5['member_table']; // g5_member
+
+$today      = date('Y-m-d');
+$default_start = $today;
+$default_end   = $today;
+
+// --------------------------------------------------
+// 입력 파라미터 (통계 페이지와 동일 구성)
+// --------------------------------------------------
+$start_date = _g('start', $default_start);
+$end_date   = _g('end',   $default_end);
+
+// 그룹/담당자 선택(레벨별)
+$sel_mb_group = ($mb_level >= 8) ? (int)($_GET['mb_group'] ?? 0) : $my_group; // 레벨8+: 전체/특정그룹 선택 가능, 레벨7: 본인그룹 고정
+$sel_agent_no = (int)($_GET['agent'] ?? 0); // 담당자 선택(선택사항)
+
+// 검색/필터
+$q         = _g('q', '');
+$q_type    = _g('q_type', '');           // name | last4 | full | all
+$f_status  = isset($_GET['status']) ? (int)$_GET['status'] : 0;  // 0=전체
+$page      = max(1, (int)(_g('page', '1')));
+$page_rows = 30; // 상세 리스트 15건 고정
+$offset    = ($page - 1) * $page_rows;
+
+// --------------------------------------------------
+// WHERE 구성 (기간: 녹취 생성 r.created_at 기준)
+// --------------------------------------------------
+$where = [];
+
+$start_esc = sql_escape_string($start_date.' 00:00:00');
+$end_esc   = sql_escape_string($end_date.' 23:59:59');
+$where[]   = "r.created_at BETWEEN '{$start_esc}' AND '{$end_esc}'";
+
+// 상태코드 필터
+if ($f_status > 0) {
+    $where[] = "l.call_status = {$f_status}";
+}
+
+// 검색어 (통계쪽 로직과 동일한 패턴/우선순위)
+if ($q !== '' && $q_type !== '') {
+    if ($q_type === 'name') {
+        $q_esc = sql_escape_string($q);
+        $where[] = "t.name LIKE '%{$q_esc}%'";
+    } elseif ($q_type === 'last4') {
+        $q4 = preg_replace('/\D+/', '', $q);
+        $q4 = substr($q4, -4);
+        if ($q4 !== '') {
+            $q4_esc = sql_escape_string($q4);
+            $where[] = "t.hp_last4 = '{$q4_esc}'";
+        }
+    } elseif ($q_type === 'full') {
+        $hp = preg_replace('/\D+/', '', $q);
+        if ($hp !== '') {
+            $hp_esc = sql_escape_string($hp);
+            $where[] = "l.call_hp = '{$hp_esc}'";
+        }
+    } elseif ($q_type === 'all') {
+        $q_esc = sql_escape_string($q);
+        $q4 = preg_replace('/\D+/', '', $q);
+        $q4 = substr($q4, -4);
+        $hp = preg_replace('/\D+/', '', $q);
+
+        $conds = [];
+        $conds[] = "t.name LIKE '%{$q_esc}%'";
+        if ($q4 !== '') {
+            $q4_esc = sql_escape_string($q4);
+            $conds[] = "t.hp_last4 = '{$q4_esc}'";
+        }
+        if ($hp !== '') {
+            $hp_esc = sql_escape_string($hp);
+            $conds[] = "l.call_hp = '{$hp_esc}'";
+        }
+        if (!empty($conds)) {
+            $where[] = '(' . implode(' OR ', $conds) . ')';
+        }
+    }
+}
+
+// 권한/선택 필터 (통계쪽과 동일한 규칙)
+if ($mb_level == 7) {
+    $where[] = "l.mb_group = {$my_group}";
+} elseif ($mb_level < 7) {
+    $where[] = "l.mb_no = {$mb_no}";
+} else { // 레벨 8+
+    if ($sel_mb_group > 0) {
+        $where[] = "l.mb_group = {$sel_mb_group}";
+    }
+}
+
+// 담당자 선택(가능한 경우)
+if ($sel_agent_no > 0) {
+    $where[] = "l.mb_no = {$sel_agent_no}";
+}
+
+$where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
+
+// --------------------------------------------------
+// 전역: 상태코드 목록 (셀렉트 박스용) — 통계 페이지와 동일
+// --------------------------------------------------
+$codes = [];
+$qc = "
+    SELECT call_status, name_ko, status
+      FROM call_status_code
+     WHERE mb_group=0
+     ORDER BY sort_order ASC, call_status ASC
+";
+$rc = sql_query($qc);
+while ($r = sql_fetch_array($rc)) $codes[] = $r;
+
+// 코드 리스트(상태 라벨/색상용)
+$code_list = []; // 필요 시 확장 대비
+$code_list_status = [];
+$status_ui = [];
+$qcl = "
+    SELECT call_status, name_ko, ui_type
+      FROM call_status_code
+     WHERE mb_group=0
+     ORDER BY sort_order ASC, call_status ASC
+";
+$rcl = sql_query($qcl);
+while ($v = sql_fetch_array($rcl)) {
+    $code_list[] = $v;
+    $code_list_status[(int)$v['call_status']] = $v;
+    $status_ui[(int)$v['call_status']] = $v['ui_type'] ?? 'secondary';
+}
+
+// --------------------------------------------------
+// 드롭다운 옵션 (권한 범위 내 기본 전체 노출) — 통계 페이지 규칙 준용
+// --------------------------------------------------
+// 에이전트
+$agent_options = [];
+$agent_where = [];
+$agent_order = " ORDER BY mb_group ASC, mb_name ASC, mb_no ASC ";
+
+if ($mb_level >= 8) {
+    if ($sel_mb_group > 0) $agent_where[] = "mb_group = {$sel_mb_group}";
+    else $agent_where[] = "mb_group > 0";
+} else { // 레벨7 이하는 본인 그룹만
+    $agent_where[] = "mb_group = {$my_group}";
+}
+$agent_where_sql = $agent_where ? ('WHERE '.implode(' AND ', $agent_where)) : '';
+
+$qr = sql_query("
+    SELECT 
+        mb_no, 
+        mb_name,
+        mb_group,
+        COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_group)) AS mb_group_name
+    FROM {$member_table}
+    {$agent_where_sql}
+    {$agent_order}
+");
+while ($r = sql_fetch_array($qr)) {
+    $agent_options[] = [
+        'mb_no'         => (int)$r['mb_no'],
+        'mb_name'       => get_text($r['mb_name']),
+        'mb_group'      => (int)$r['mb_group'],
+        'mb_group_name' => get_text($r['mb_group_name']),
+    ];
+}
+
+// 그룹(레벨 8+ 전용, 그룹명 사용)
+$group_options = [];
+if ($mb_level >= 8) {
+    $sql = "
+        SELECT DISTINCT mb_group,
+               COALESCE(mb_group_name, CONCAT('그룹 ', mb_group)) AS mb_group_name
+          FROM {$member_table}
+         WHERE mb_group > 0
+           AND mb_group_name IS NOT NULL AND mb_group_name <> ''
+         ORDER BY mb_group_name ASC
+    ";
+    $res = sql_query($sql);
+    while ($row = sql_fetch_array($res)) {
+        $group_options[] = [
+            'mb_group'      => (int)$row['mb_group'],
+            'mb_group_name' => $row['mb_group_name'],
+        ];
+    }
+}
+
+// --------------------------------------------------
+// 총 건수
+// --------------------------------------------------
+$sql_cnt = "
+    SELECT COUNT(*) AS cnt
+      FROM call_recording r
+      JOIN call_log l
+        ON l.call_id = r.call_id
+       AND l.campaign_id = r.campaign_id
+       AND l.mb_group = r.mb_group
+      JOIN call_target t
+        ON t.target_id = l.target_id
+      JOIN call_campaign cc
+        ON cc.campaign_id = r.campaign_id
+       AND cc.mb_group = r.mb_group
+    {$where_sql}
+";
+$row_cnt = sql_fetch($sql_cnt);
+$total_count = (int)($row_cnt['cnt'] ?? 0);
+
+// --------------------------------------------------
+// 상세 목록 쿼리 (15건 고정)
+// - 상태 라벨: call_status_code (mb_group=0)
+// --------------------------------------------------
+$sql_list = "
+    SELECT
+        r.recording_id, 
+        r.created_at        AS rec_created_at,
+        r.file_size,
+        r.duration_sec,
+        r.s3_bucket,
+        r.s3_key,
+        r.content_type,
+
+        l.call_id, 
+        l.mb_group,
+        l.campaign_id,
+        l.mb_no             AS agent_id,
+        l.call_status,
+        sc.name_ko          AS status_label, -- 통화결과 라벨
+        l.call_start, 
+        l.call_end,
+        l.call_time,
+        l.call_hp,
+
+        t.name              AS target_name,
+        t.birth_date,
+        t.hp_last4,
+        t.meta_json,
+
+        m.mb_name           AS agent_name,
+        m.mb_id             AS agent_mb_id,
+
+        COALESCE(g.mv_group_name, CONCAT('그룹 ', l.mb_group)) AS group_name,
+        cc.name             AS campaign_name
+    FROM call_recording r
+    JOIN call_log l
+      ON l.call_id = r.call_id
+     AND l.campaign_id = r.campaign_id
+     AND l.mb_group = r.mb_group
+    JOIN call_target t ON t.target_id = l.target_id
+    LEFT JOIN {$member_table} m ON m.mb_no = l.mb_no
+    /* 그룹명: 그룹별 대표명 뽑는 파생 테이블 */
+    LEFT JOIN (
+        SELECT mb_group, MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_group))) AS mv_group_name
+          FROM {$member_table}
+         WHERE mb_group > 0
+         GROUP BY mb_group
+    ) AS g ON g.mb_group = l.mb_group
+    /* 통화결과 라벨(공통셋) */
+    LEFT JOIN call_status_code sc
+      ON sc.call_status = l.call_status AND sc.mb_group = 0
+    /* 캠페인명 */
+    JOIN call_campaign cc
+      ON cc.campaign_id = r.campaign_id
+     AND cc.mb_group = r.mb_group
+    {$where_sql}
+    ORDER BY r.created_at DESC, r.recording_id DESC
+    LIMIT {$offset}, {$page_rows}
+";
+$res_list = sql_query($sql_list);
+
+// --------------------------------------------------
+// 화면 출력
+// --------------------------------------------------
+$token = get_token();
+$g5['title'] = '녹취확인';
+include_once(G5_ADMIN_PATH.'/admin.head.php');
+$listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목록</a>';
+
+// 프록시(사인 URL/스트리밍)
+function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['recording_id']; }
+
+?>
+
+<!-- 검색/필터 (통계 페이지와 동일한 구성) -->
+<div class="local_sch01 local_sch">
+    <form method="get" action="./call_recordings.php" class="form-row" id="searchForm">
+        <!-- 1줄차: 기간/바로가기/검색기본 -->
+        <label for="start">기간</label>
+        <input type="date" id="start" name="start" value="<?php echo get_text($start_date);?>" class="frm_input">
+        <span class="tilde">~</span>
+        <input type="date" id="end" name="end" value="<?php echo get_text($end_date);?>" class="frm_input">
+
+        <span class="btn-line">
+            <button type="button" class="btn-mini" id="btnYesterday">어제</button>
+            <button type="button" class="btn-mini" id="btnToday">오늘</button>
+        </span>
+
+        <span class="pipe">|</span>
+
+        <label for="q_type">검색구분</label>
+        <select name="q_type" id="q_type">
+            <option value="all">전체</option>
+            <option value="name"  <?php echo $q_type==='name'?'selected':'';?>>이름</option>
+            <option value="last4" <?php echo $q_type==='last4'?'selected':'';?>>전화번호(끝4자리)</option>
+            <option value="full"  <?php echo $q_type==='full'?'selected':'';?>>전화번호(전체)</option>
+        </select>
+        <input type="text" name="q" value="<?php echo get_text($q);?>" class="frm_input" placeholder="검색어 입력">
+
+        <span class="pipe">|</span>
+
+        <label for="status">상태코드</label>
+        <select name="status" id="status">
+            <option value="0">전체</option>
+            <?php foreach ($codes as $c) { ?>
+                <option value="<?php echo (int)$c['call_status'];?>" <?php echo ($f_status===(int)$c['call_status']?'selected':'');?>>
+                    <?php echo (int)$c['call_status'].' - '.get_text($c['name_ko']);?><?php echo ((int)$c['status']===1?'':' (비활성)'); ?>
+                </option>
+            <?php } ?>
+        </select>
+
+        <button type="submit" class="btn btn_01">검색</button>
+        <?php if ($where_sql) { ?>
+        <a href="./call_recordings.php" class="btn btn_02">초기화</a>
+        <?php } ?>
+        <span class="small-muted">권한:
+            <?php
+            if ($mb_level >= 8) echo '전체';
+            elseif ($mb_level == 7) echo '조직';
+            else echo '개인';
+            ?>
+        </span>
+
+        <span class="row-split"></span>
+
+        <!-- 2줄차: 레벨별 그룹/담당자 셀렉트 (통계와 동일) -->
+        <?php if ($mb_level >= 8) { ?>
+            <label for="mb_group">그룹선택</label>
+            <select name="mb_group" id="mb_group">
+                <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
+                <?php foreach ($group_options as $g) { ?>
+                    <option value="<?php echo (int)$g['mb_group'];?>"
+                        <?php echo ($sel_mb_group===(int)$g['mb_group']?' selected':'');?>>
+                        <?php echo get_text($g['mb_group_name']);?>
+                    </option>
+                <?php } ?>
+            </select>
+        <?php } else { ?>
+            <input type="hidden" name="mb_group" value="<?php echo $sel_mb_group; ?>">
+            <?php
+            // 레벨7에서 옆에 노출할 그룹명 (선택된 그룹 이름)
+            $sel_group_name = '';
+            if ($sel_mb_group > 0) {
+                $row = sql_fetch("
+                    SELECT COALESCE(mb_group_name, CONCAT('그룹 ', mb_group)) AS nm
+                      FROM {$member_table}
+                     WHERE mb_group = {$sel_mb_group}
+                     LIMIT 1
+                ");
+                $sel_group_name = $row ? $row['nm'] : ('그룹 '.$sel_mb_group);
+            }
+            ?>
+            <span class="small-muted">그룹: <?php echo $sel_mb_group>0 ? get_text($sel_group_name) : '전체';?></span>
+        <?php } ?>
+
+        <?php if ($sel_mb_group > 0 || $mb_level >= 7) { ?>
+        <label for="agent">담당자</label>
+        <select name="agent" id="agent">
+            <option value="0">전체 담당자</option>
+            <?php echo render_agent_options($agent_options, $sel_agent_no); ?>
+        </select>
+        <?php } ?>
+    </form>
+</div>
+
+<!-- 상세 목록 : 15건 고정 -->
+<div class="tbl_head01 tbl_wrap">
+    <table class="table-fixed">
+        <thead>
+            <tr>
+                <th>그룹명</th>
+                <th>아이디</th>
+                <th>상담원명</th>
+                <th>통화결과</th> <!-- ✅ 상태값 추가 -->
+                <th>통화시작</th>
+                <th>통화종료</th>
+                <th>통화시간</th>
+                <th>상담시간</th>
+                <th>고객명</th>
+                <th>전화번호</th>
+                <th>파일크기</th>
+                <th>재생</th>
+                <th>다운로드</th>
+                <th>업로드시각</th>
+                <th>캠페인명</th>
+            </tr>
+        </thead>
+        <tbody>
+        <?php
+        if ($total_count === 0) {
+            echo '<tr><td colspan="15" class="empty_table">데이터가 없습니다.</td></tr>';
+        } else {
+            while ($row = sql_fetch_array($res_list)) {
+                // 포맷팅
+                $hp_fmt   = format_korean_phone($row['call_hp']);
+                $talk_sec = is_null($row['duration_sec']) ? '-' : fmt_hms((int)$row['duration_sec']);
+                $call_sec = is_null($row['call_time']) ? '-' : fmt_hms((int)$row['call_time']);
+                $agent    = $row['agent_name'] ? get_text($row['agent_name']) : (string)$row['agent_mb_id'];
+                $gname    = $row['group_name'] ?: ('그룹 '.(int)$row['mb_group']);
+                $status   = $row['status_label'] ?: ('코드 '.$row['call_status']);
+                $ui       = !empty($status_ui[$row['call_status']]) ? $status_ui[$row['call_status']] : 'secondary';
+                $status_class = 'status-col status-'.get_text($ui); // 인라인 스타일 없이 클래스만
+
+                $dl_url   = make_recording_url($row); // 프록시 경유(사인URL)
+                $mime     = guess_audio_mime($row['s3_key'], $row['content_type']);
+                ?>
+                <tr>
+                    <td><?php echo get_text($gname); ?></td>
+                    <td><?php echo get_text($row['agent_mb_id']); ?></td>
+                    <td><?php echo get_text($agent); ?></td>
+                    <td class="<?php echo $status_class; ?>"><?php echo get_text($status); ?></td>
+                    <td><?php echo fmt_datetime(get_text($row['call_start']), 'mdhi'); ?></td>
+                    <td><?php echo fmt_datetime(get_text($row['call_end']), 'mdhi'); ?></td>
+                    <td><?php echo $call_sec; ?></td>
+                    <td><?php echo $talk_sec; ?></td>
+                    <td><?php echo get_text($row['target_name'] ?: '-'); ?></td>
+                    <td><?php echo get_text($hp_fmt); ?></td>
+                    <td><?php echo fmt_bytes($row['file_size']); ?></td>
+                    <td class="audio-ctl">
+                        <audio controls preload="none" class="audio">
+                            <source src="<?php echo $dl_url; ?>" type="<?php echo get_text($mime); ?>">
+                            브라우저가 audio 태그를 지원하지 않습니다.
+                        </audio>
+                    </td>
+                    <td><a href="<?php echo $dl_url; ?>" class="btn btn_02">다운로드</a></td>
+                    <td><?php echo fmt_datetime(get_text($row['rec_created_at']), 'mdhis'); ?></td>
+                    <td><?php echo get_text($row['campaign_name'] ?: '-'); ?></td>
+                </tr>
+                <?php
+            }
+        }
+        ?>
+        </tbody>
+    </table>
+</div>
+
+<!-- 페이징 -->
+<?php
+$total_page = max(1, (int)ceil($total_count / $page_rows));
+$qstr = $_GET; unset($qstr['page']);
+$base = './call_recordings.php?'.http_build_query($qstr);
+?>
+<div class="pg_wrap">
+    <span class="pg">
+        <?php if ($page > 1) { ?>
+            <a href="<?php echo $base.'&page=1';?>" class="pg_page">처음</a>
+            <a href="<?php echo $base.'&page='.($page-1);?>" class="pg_page">이전</a>
+        <?php } else { ?>
+            <span class="pg_page">처음</span><span class="pg_page">이전</span>
+        <?php } ?>
+        <span class="pg_current"><?php echo $page;?> / <?php echo $total_page;?></span>
+        <?php if ($page < $total_page) { ?>
+            <a href="<?php echo $base.'&page='.($page+1);?>" class="pg_page">다음</a>
+            <a href="<?php echo $base.'&page='.$total_page;?>" class="pg_page">끝</a>
+        <?php } else { ?>
+            <span class="pg_page">다음</span><span class="pg_page">끝</span>
+        <?php } ?>
+    </span>
+</div>
+
+<script>
+// 날짜 유틸
+function pad2(n){ return (n<10?'0':'')+n; }
+function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
+
+// 어제/오늘 버튼 및 자동검색 + 그룹/담당자 변경 자동검색 (통계와 동일)
+(function(){
+    var $start = document.getElementById('start');
+    var $end   = document.getElementById('end');
+    var $form  = document.getElementById('searchForm');
+
+    document.getElementById('btnYesterday').addEventListener('click', function(){
+        var now = new Date(); now.setDate(now.getDate()-1);
+        var y = fmt(now);
+        $start.value = y;
+        $end.value   = y;
+        $form.submit();
+    });
+
+    document.getElementById('btnToday').addEventListener('click', function(){
+        var now = new Date();
+        var t = fmt(now);
+        $start.value = t;
+        $end.value   = t;
+        $form.submit();
+    });
+
+    const start = $start.value;
+    const end = $end.value;
+    const today = fmt(new Date());
+    const yestDate = new Date(); yestDate.setDate(yestDate.getDate() - 1);
+    const yesterday = fmt(yestDate);
+    if (start === yesterday && end === yesterday) {
+        btnYesterday.classList.add('active');
+    } else if (start === today && end === today) {
+        btnToday.classList.add('active');
+    }
+
+    // 그룹 변경 시 담당자 초기화 후 자동검색
+    var mbGroup = document.getElementById('mb_group');
+    if (mbGroup) {
+        mbGroup.addEventListener('change', function(){
+            var agent = document.getElementById('agent');
+            if (agent) agent.selectedIndex = 0;
+            $form.submit();
+        });
+    }
+
+    // 담당자 변경 시 자동검색
+    var agentSel = document.getElementById('agent');
+    if (agentSel) {
+        agentSel.addEventListener('change', function(){
+            $form.submit();
+        });
+    }
+})();
+</script>
+
+<?php
+include_once(G5_ADMIN_PATH.'/admin.tail.php');
