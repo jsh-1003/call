@@ -92,7 +92,9 @@ function get_group_info($token=null) {
     // sliding window 연장(선택): last_seen만 갱신
     sql_query("UPDATE api_sessions SET last_seen = NOW() WHERE token_hash = '{$hash}'");
 
-    $set_info = sql_fetch("SELECT call_api_count, call_lease_min FROM g5_member WHERE mb_no = '{$row['mb_group']}' LIMIT 1 ");
+    // $set_info = sql_fetch("SELECT call_api_count, call_lease_min FROM g5_member WHERE mb_no = '{$row['mb_group']}' LIMIT 1 ");
+    $set_info = get_call_config($row['mb_group']);
+
     // 조직별 기본값 폴백(멤버 컬럼이 없으면 상수 사용)
     $call_api_count = isset($set_info['call_api_count']) ? (int)$set_info['call_api_count'] : (int)CALL_API_COUNT;
     $call_lease_min = isset($set_info['call_lease_min']) ? (int)$set_info['call_lease_min'] : (int)CALL_LEASE_MIN;

@@ -3,42 +3,55 @@
 $sub_menu = '700300';
 require_once './_common.php';
 
-// 접근 권한: 관리자 레벨 7 이상만
+// -----------------------------
+// 접근 권한: 레벨 7 미만 금지
+// -----------------------------
 if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
     alert('접근 권한이 없습니다.');
 }
 
-// 공통 변수
-$mb_no      = (int)($member['mb_no'] ?? 0);
-$mb_level   = (int)($member['mb_level'] ?? 0);
-$my_group   = isset($member['mb_group']) ? (int)$member['mb_group'] : 0;
+// -----------------------------
+// 내 정보
+// -----------------------------
+$mb_no        = (int)($member['mb_no'] ?? 0);
+$mb_level     = (int)($member['mb_level'] ?? 0);
+$my_group     = (int)($member['mb_group'] ?? 0);
+$my_company_id= (int)($member['company_id'] ?? 0);
 $member_table = $g5['member_table']; // g5_member
 
 $today      = date('Y-m-d');
 $default_start = $today;
 $default_end   = $today;
 
-// --------------------------------------------------
-// 입력 파라미터 (통계 페이지와 동일 구성)
-// --------------------------------------------------
+// -----------------------------
+// 입력 파라미터
+// -----------------------------
 $start_date = _g('start', $default_start);
 $end_date   = _g('end',   $default_end);
 
-// 그룹/담당자 선택(레벨별)
-$sel_mb_group = ($mb_level >= 8) ? (int)($_GET['mb_group'] ?? 0) : $my_group; // 레벨8+: 전체/특정그룹 선택 가능, 레벨7: 본인그룹 고정
-$sel_agent_no = (int)($_GET['agent'] ?? 0); // 담당자 선택(선택사항)
+//
+// ★ 변경된 권한 스코프에 따른 "회사/그룹" 선택 값
+//
+if ($mb_level >= 9) {
+    $sel_company_id = (int)($_GET['company_id'] ?? 0); // 0=전체 회사
+} else {
+    $sel_company_id = $my_company_id; // 8/7은 자기 회사 고정
+}
+
+$sel_mb_group = ($mb_level >= 8) ? (int)($_GET['mb_group'] ?? 0) : $my_group; // 8+=전체/특정그룹, 7=본인그룹
+$sel_agent_no = (int)($_GET['agent'] ?? 0); // 상담원 선택(선택사항)
 
 // 검색/필터
 $q         = _g('q', '');
 $q_type    = _g('q_type', '');           // name | last4 | full | all
 $f_status  = isset($_GET['status']) ? (int)$_GET['status'] : 0;  // 0=전체
 $page      = max(1, (int)(_g('page', '1')));
-$page_rows = 30; // 상세 리스트 15건 고정
+$page_rows = 30;
 $offset    = ($page - 1) * $page_rows;
 
-// --------------------------------------------------
+// -----------------------------
 // WHERE 구성 (기간: 녹취 생성 r.created_at 기준)
-// --------------------------------------------------
+// -----------------------------
 $where = [];
 
 $start_esc = sql_escape_string($start_date.' 00:00:00');
@@ -50,7 +63,7 @@ if ($f_status > 0) {
     $where[] = "l.call_status = {$f_status}";
 }
 
-// 검색어 (통계쪽 로직과 동일한 패턴/우선순위)
+// 검색어
 if ($q !== '' && $q_type !== '') {
     if ($q_type === 'name') {
         $q_esc = sql_escape_string($q);
@@ -90,27 +103,40 @@ if ($q !== '' && $q_type !== '') {
     }
 }
 
-// 권한/선택 필터 (통계쪽과 동일한 규칙)
+//
+// ★ 권한/선택 필터 (회사/그룹 스코프 적용)
+// - 회사 스코프는 agent 조인(m) 의 company_id 기준
+//
 if ($mb_level == 7) {
     $where[] = "l.mb_group = {$my_group}";
+    // 회사 스코프는 자연스럽게 그룹에 종속되어 생략
 } elseif ($mb_level < 7) {
     $where[] = "l.mb_no = {$mb_no}";
-} else { // 레벨 8+
+} else {
+    // 8+: 회사 스코프
+    if ($mb_level == 8) {
+        $where[] = "m.company_id = {$my_company_id}";
+    } elseif ($mb_level >= 9) {
+        if ($sel_company_id > 0) {
+            $where[] = "m.company_id = {$sel_company_id}";
+        }
+    }
+    // 그룹 선택
     if ($sel_mb_group > 0) {
         $where[] = "l.mb_group = {$sel_mb_group}";
     }
 }
 
-// 담당자 선택(가능한 경우)
+// 담당자 선택
 if ($sel_agent_no > 0) {
     $where[] = "l.mb_no = {$sel_agent_no}";
 }
 
 $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
 
-// --------------------------------------------------
-// 전역: 상태코드 목록 (셀렉트 박스용) — 통계 페이지와 동일
-// --------------------------------------------------
+// -----------------------------
+// 상태코드 목록 (셀렉트용)
+// -----------------------------
 $codes = [];
 $qc = "
     SELECT call_status, name_ko, status
@@ -121,8 +147,7 @@ $qc = "
 $rc = sql_query($qc);
 while ($r = sql_fetch_array($rc)) $codes[] = $r;
 
-// 코드 리스트(상태 라벨/색상용)
-$code_list = []; // 필요 시 확장 대비
+// 상태 라벨/컬러 매핑
 $code_list_status = [];
 $status_ui = [];
 $qcl = "
@@ -133,23 +158,80 @@ $qcl = "
 ";
 $rcl = sql_query($qcl);
 while ($v = sql_fetch_array($rcl)) {
-    $code_list[] = $v;
     $code_list_status[(int)$v['call_status']] = $v;
     $status_ui[(int)$v['call_status']] = $v['ui_type'] ?? 'secondary';
 }
 
-// --------------------------------------------------
-// 드롭다운 옵션 (권한 범위 내 기본 전체 노출) — 통계 페이지 규칙 준용
-// --------------------------------------------------
-// 에이전트
+// -----------------------------
+// ★ 드롭다운 옵션
+// - 회사(9+ 전용)
+// - 그룹(8+ 전용, 회사 스코프 반영)
+// - 담당자(선택된 회사/그룹 스코프 반영)
+// -----------------------------
+
+// (1) 회사 옵션 (레벨 9+)
+$company_options = [];
+if ($mb_level >= 9) {
+    $res = sql_query("
+        SELECT m.company_id AS company_id
+          FROM {$member_table} m
+         WHERE m.mb_level = 8
+         GROUP BY m.company_id
+         ORDER BY COALESCE(NULLIF(m.company_name,''), CONCAT('회사-', m.company_id)) ASC, m.company_id ASC
+    ");
+    while ($r = sql_fetch_array($res)) {
+        $cid   = (int)$r['company_id'];
+        $cname = get_company_name_cached($cid);
+        $company_options[] = [
+            'company_id'   => $cid,
+            'company_name' => $cname,
+        ];
+    }
+}
+
+// (2) 그룹 옵션 (레벨 8+)
+$group_options = [];
+if ($mb_level >= 8) {
+    $where_g = " WHERE m.mb_level = 7 ";
+    if ($mb_level >= 9) {
+        if ($sel_company_id > 0) {
+            $where_g .= " AND m.company_id = '{$sel_company_id}' ";
+        } // 0이면 전체 회사
+    } else {
+        $where_g .= " AND m.company_id = '{$my_company_id}' ";
+    }
+
+    $sql_groups = "
+        SELECT m.mb_group,
+               COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹 ', m.mb_group)) AS mb_group_name
+          FROM {$member_table} m
+          {$where_g}
+         GROUP BY m.mb_group, mb_group_name
+         ORDER BY mb_group_name ASC, m.mb_group ASC
+    ";
+    $rs = sql_query($sql_groups);
+    while ($row = sql_fetch_array($rs)) {
+        $group_options[] = [
+            'mb_group'      => (int)$row['mb_group'],
+            'mb_group_name' => get_text($row['mb_group_name']),
+        ];
+    }
+}
+
+// (3) 담당자 옵션 (회사/그룹 스코프 반영)
 $agent_options = [];
 $agent_where = [];
 $agent_order = " ORDER BY mb_group ASC, mb_name ASC, mb_no ASC ";
 
 if ($mb_level >= 8) {
+    if ($mb_level == 8) {
+        $agent_where[] = "company_id = {$my_company_id}";
+    } elseif ($mb_level >= 9 && $sel_company_id > 0) {
+        $agent_where[] = "company_id = {$sel_company_id}";
+    }
     if ($sel_mb_group > 0) $agent_where[] = "mb_group = {$sel_mb_group}";
     else $agent_where[] = "mb_group > 0";
-} else { // 레벨7 이하는 본인 그룹만
+} else { // 7 이하는 본인 그룹만
     $agent_where[] = "mb_group = {$my_group}";
 }
 $agent_where_sql = $agent_where ? ('WHERE '.implode(' AND ', $agent_where)) : '';
@@ -173,29 +255,10 @@ while ($r = sql_fetch_array($qr)) {
     ];
 }
 
-// 그룹(레벨 8+ 전용, 그룹명 사용)
-$group_options = [];
-if ($mb_level >= 8) {
-    $sql = "
-        SELECT DISTINCT mb_group,
-               COALESCE(mb_group_name, CONCAT('그룹 ', mb_group)) AS mb_group_name
-          FROM {$member_table}
-         WHERE mb_group > 0
-           AND mb_group_name IS NOT NULL AND mb_group_name <> ''
-         ORDER BY mb_group_name ASC
-    ";
-    $res = sql_query($sql);
-    while ($row = sql_fetch_array($res)) {
-        $group_options[] = [
-            'mb_group'      => (int)$row['mb_group'],
-            'mb_group_name' => $row['mb_group_name'],
-        ];
-    }
-}
-
-// --------------------------------------------------
+// -----------------------------
 // 총 건수
-// --------------------------------------------------
+// - 회사 필터는 agent 조인(m.company_id) 기준으로 동작
+// -----------------------------
 $sql_cnt = "
     SELECT COUNT(*) AS cnt
       FROM call_recording r
@@ -208,15 +271,16 @@ $sql_cnt = "
       JOIN call_campaign cc
         ON cc.campaign_id = r.campaign_id
        AND cc.mb_group = r.mb_group
+      LEFT JOIN {$member_table} m
+        ON m.mb_no = l.mb_no
     {$where_sql}
 ";
 $row_cnt = sql_fetch($sql_cnt);
 $total_count = (int)($row_cnt['cnt'] ?? 0);
 
-// --------------------------------------------------
-// 상세 목록 쿼리 (15건 고정)
-// - 상태 라벨: call_status_code (mb_group=0)
-// --------------------------------------------------
+// -----------------------------
+// 상세 목록
+// -----------------------------
 $sql_list = "
     SELECT
         r.recording_id, 
@@ -232,7 +296,7 @@ $sql_list = "
         l.campaign_id,
         l.mb_no             AS agent_id,
         l.call_status,
-        sc.name_ko          AS status_label, -- 통화결과 라벨
+        sc.name_ko          AS status_label,
         l.call_start, 
         l.call_end,
         l.call_time,
@@ -245,8 +309,9 @@ $sql_list = "
 
         m.mb_name           AS agent_name,
         m.mb_id             AS agent_mb_id,
+        m.company_id        AS agent_company_id,
 
-        COALESCE(g.mv_group_name, CONCAT('그룹 ', l.mb_group)) AS group_name,
+        gg.mv_group_name    AS group_name,
         cc.name             AS campaign_name
     FROM call_recording r
     JOIN call_log l
@@ -255,13 +320,13 @@ $sql_list = "
      AND l.mb_group = r.mb_group
     JOIN call_target t ON t.target_id = l.target_id
     LEFT JOIN {$member_table} m ON m.mb_no = l.mb_no
-    /* 그룹명: 그룹별 대표명 뽑는 파생 테이블 */
+    /* 그룹명 파생 */
     LEFT JOIN (
         SELECT mb_group, MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_group))) AS mv_group_name
           FROM {$member_table}
          WHERE mb_group > 0
          GROUP BY mb_group
-    ) AS g ON g.mb_group = l.mb_group
+    ) AS gg ON gg.mb_group = l.mb_group
     /* 통화결과 라벨(공통셋) */
     LEFT JOIN call_status_code sc
       ON sc.call_status = l.call_status AND sc.mb_group = 0
@@ -275,9 +340,9 @@ $sql_list = "
 ";
 $res_list = sql_query($sql_list);
 
-// --------------------------------------------------
+// -----------------------------
 // 화면 출력
-// --------------------------------------------------
+// -----------------------------
 $token = get_token();
 $g5['title'] = '녹취확인';
 include_once(G5_ADMIN_PATH.'/admin.head.php');
@@ -288,10 +353,10 @@ function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['reco
 
 ?>
 
-<!-- 검색/필터 (통계 페이지와 동일한 구성) -->
+<!-- 검색/필터 -->
 <div class="local_sch01 local_sch">
     <form method="get" action="./call_recordings.php" class="form-row" id="searchForm">
-        <!-- 1줄차: 기간/바로가기/검색기본 -->
+        <!-- 1줄차: 기간/바로가기/검색 -->
         <label for="start">기간</label>
         <input type="date" id="start" name="start" value="<?php echo get_text($start_date);?>" class="frm_input">
         <span class="tilde">~</span>
@@ -331,17 +396,32 @@ function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['reco
         <?php } ?>
         <span class="small-muted">권한:
             <?php
-            if ($mb_level >= 8) echo '전체';
+            if     ($mb_level >= 8) echo '전체';
             elseif ($mb_level == 7) echo '조직';
-            else echo '개인';
+            else                    echo '개인';
             ?>
         </span>
 
         <span class="row-split"></span>
 
-        <!-- 2줄차: 레벨별 그룹/담당자 셀렉트 (통계와 동일) -->
+        <!-- 2줄차: 회사/그룹/담당자 (권한별) -->
+        <?php if ($mb_level >= 9) { ?>
+            <label for="company_id">회사</label>
+            <select name="company_id" id="company_id">
+                <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
+                <?php foreach ($company_options as $c) { ?>
+                    <option value="<?php echo (int)$c['company_id'];?>" <?php echo ($sel_company_id===(int)$c['company_id']?' selected':'');?>>
+                        <?php echo get_text($c['company_name']);?>
+                    </option>
+                <?php } ?>
+            </select>
+        <?php } else { ?>
+            <input type="hidden" name="company_id" value="<?php echo (int)$sel_company_id; ?>">
+            <span class="small-muted">회사: <?php echo get_text(get_company_name_cached($sel_company_id));?></span>
+        <?php } ?>
+
         <?php if ($mb_level >= 8) { ?>
-            <label for="mb_group">그룹선택</label>
+            <label for="mb_group">그룹</label>
             <select name="mb_group" id="mb_group">
                 <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
                 <?php foreach ($group_options as $g) { ?>
@@ -354,7 +434,6 @@ function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['reco
         <?php } else { ?>
             <input type="hidden" name="mb_group" value="<?php echo $sel_mb_group; ?>">
             <?php
-            // 레벨7에서 옆에 노출할 그룹명 (선택된 그룹 이름)
             $sel_group_name = '';
             if ($sel_mb_group > 0) {
                 $row = sql_fetch("
@@ -370,16 +449,16 @@ function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['reco
         <?php } ?>
 
         <?php if ($sel_mb_group > 0 || $mb_level >= 7) { ?>
-        <label for="agent">담당자</label>
-        <select name="agent" id="agent">
-            <option value="0">전체 담당자</option>
-            <?php echo render_agent_options($agent_options, $sel_agent_no); ?>
-        </select>
+            <label for="agent">담당자</label>
+            <select name="agent" id="agent">
+                <option value="0">전체 담당자</option>
+                <?php echo render_agent_options($agent_options, $sel_agent_no); ?>
+            </select>
         <?php } ?>
     </form>
 </div>
 
-<!-- 상세 목록 : 15건 고정 -->
+<!-- 상세 목록 -->
 <div class="tbl_head01 tbl_wrap">
     <table class="table-fixed">
         <thead>
@@ -387,7 +466,7 @@ function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['reco
                 <th>그룹명</th>
                 <th>아이디</th>
                 <th>상담원명</th>
-                <th>통화결과</th> <!-- ✅ 상태값 추가 -->
+                <th>통화결과</th>
                 <th>통화시작</th>
                 <th>통화종료</th>
                 <th>통화시간</th>
@@ -407,7 +486,6 @@ function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['reco
             echo '<tr><td colspan="15" class="empty_table">데이터가 없습니다.</td></tr>';
         } else {
             while ($row = sql_fetch_array($res_list)) {
-                // 포맷팅
                 $hp_fmt   = format_korean_phone($row['call_hp']);
                 $talk_sec = is_null($row['duration_sec']) ? '-' : fmt_hms((int)$row['duration_sec']);
                 $call_sec = is_null($row['call_time']) ? '-' : fmt_hms((int)$row['call_time']);
@@ -415,9 +493,9 @@ function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['reco
                 $gname    = $row['group_name'] ?: ('그룹 '.(int)$row['mb_group']);
                 $status   = $row['status_label'] ?: ('코드 '.$row['call_status']);
                 $ui       = !empty($status_ui[$row['call_status']]) ? $status_ui[$row['call_status']] : 'secondary';
-                $status_class = 'status-col status-'.get_text($ui); // 인라인 스타일 없이 클래스만
+                $status_class = 'status-col status-'.get_text($ui);
 
-                $dl_url   = make_recording_url($row); // 프록시 경유(사인URL)
+                $dl_url   = make_recording_url($row);
                 $mime     = guess_audio_mime($row['s3_key'], $row['content_type']);
                 ?>
                 <tr>
@@ -479,7 +557,6 @@ $base = './call_recordings.php?'.http_build_query($qstr);
 function pad2(n){ return (n<10?'0':'')+n; }
 function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
 
-// 어제/오늘 버튼 및 자동검색 + 그룹/담당자 변경 자동검색 (통계와 동일)
 (function(){
     var $start = document.getElementById('start');
     var $end   = document.getElementById('end');
@@ -510,6 +587,18 @@ function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getD
         btnYesterday.classList.add('active');
     } else if (start === today && end === today) {
         btnToday.classList.add('active');
+    }
+
+    // ★ 회사 변경 시 그룹/담당자 초기화 후 자동검색
+    var companySel = document.getElementById('company_id');
+    if (companySel) {
+        companySel.addEventListener('change', function(){
+            var g = document.getElementById('mb_group');
+            if (g) g.selectedIndex = 0;
+            var a = document.getElementById('agent');
+            if (a) a.selectedIndex = 0;
+            $form.submit();
+        });
     }
 
     // 그룹 변경 시 담당자 초기화 후 자동검색

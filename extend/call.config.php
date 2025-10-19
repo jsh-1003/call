@@ -16,9 +16,9 @@ define('S3_BUCKET',  'call-save');
 
 if($is_admin != 'super') {
     unset($auth);
-    if($member['mb_level'] >= 8) {
+    if($member['mb_level'] >= 9) {
         $is_admin = 'super';
-    } else if($member['mb_level'] == 7) {
+    } else if($member['mb_level'] >= 7) {
         $is_admin = 'group';
         $auth = array(
             '700000' => 'rw',
@@ -29,6 +29,7 @@ if($is_admin != 'super') {
             '700400' => 'rw',
             '700700' => 'rw',
             '700750' => 'rw',
+            '700770' => 'rw',
         );
     } else if($member['mb_level'] >= 3) {
         $is_admin = 'group';

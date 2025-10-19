@@ -8,10 +8,7 @@ if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
     alert('접근 권한이 없습니다.');
 }
 
-/**
- * 일정 표시 포맷터 (목록용)
- *  - scheduled_at과 schedule_note를 받아 "mdhi / 메모" 형태로 반환
- */
+/** 일정 표시 포맷터 */
 function format_schedule_display($scheduled_at, $schedule_note) {
     $when = $scheduled_at ? fmt_datetime(get_text($scheduled_at), 'mdhi') : '';
     $note = $schedule_note ? get_text($schedule_note) : '';
@@ -22,37 +19,46 @@ function format_schedule_display($scheduled_at, $schedule_note) {
 
 /** 정렬 th 링크 유틸 */
 function sort_th($key, $label){
-    // 전역 파라미터 사용
     global $cur_sort, $cur_dir, $qparams_for_sort;
     $nextDir = ($cur_sort === $key && $cur_dir === 'desc') ? 'asc' : 'desc';
-
-    $params = $qparams_for_sort; // 기존 검색쿼리 유지
+    $params = $qparams_for_sort;
     $params['sort'] = $key;
     $params['dir']  = $nextDir;
-    $params['page'] = 1; // 정렬 바꾸면 1페이지로
-
+    $params['page'] = 1;
     $url = './call_after_list.php?'.http_build_query($params);
     $arrow = '';
     if ($cur_sort === $key) $arrow = ($cur_dir === 'asc') ? ' ▲' : ' ▼';
-
     return '<a href="'.htmlspecialchars($url, ENT_QUOTES|ENT_SUBSTITUTE, 'UTF-8').'" class="th-sort">'.get_text($label).$arrow.'</a>';
 }
 
-$mb_no      = (int)($member['mb_no'] ?? 0);
-$mb_level   = (int)($member['mb_level'] ?? 0);
-$my_group   = isset($member['mb_group']) ? (int)$member['mb_group'] : 0;
-$member_table = $g5['member_table'];
+$mb_no          = (int)($member['mb_no'] ?? 0);
+$mb_level       = (int)($member['mb_level'] ?? 0);
+$my_group       = isset($member['mb_group']) ? (int)$member['mb_group'] : 0;
+$my_company_id  = isset($member['company_id']) ? (int)$member['company_id'] : 0;
+$member_table   = $g5['member_table'];
 
 $today      = date('Y-m-d');
 $seven_ago  = date('Y-m-d', strtotime('-7 days'));
 $start_date = _g('start', $seven_ago);
 $end_date   = _g('end',   $today);
 
-// 권한/선택 (통계와 동일)
-$sel_mb_group = ($mb_level >= 8) ? (int)($_GET['mb_group'] ?? 0) : $my_group;
+// ===== 조직 선택 파라미터 (회사/그룹/상담원) =====
+// - 9+: 회사/그룹 자유 선택 (회사 0=전체, 그룹 0=전체)
+// - 8 : 회사 고정(본인 회사), 그룹 선택 가능(0=회사 내 전체)
+// - 7 : 그룹 고정(본인 그룹)
+if ($mb_level >= 9) {
+    $sel_company_id = (int)(_g('company_id', 0));
+    $sel_mb_group   = (int)(_g('mb_group', 0));
+} elseif ($mb_level >= 8) {
+    $sel_company_id = $my_company_id;
+    $sel_mb_group   = (int)(_g('mb_group', 0));
+} else {
+    $sel_company_id = $my_company_id;
+    $sel_mb_group   = $my_group;
+}
 $sel_agent_no = (int)($_GET['agent'] ?? 0);
 
-// 검색/필터
+// ===== 검색/필터 =====
 $q         = _g('q', '');
 $q_type    = _g('q_type', '');              // name | last4 | full | all
 $f_status  = isset($_GET['status']) ? (int)$_GET['status'] : 0;    // 원콜 상태
@@ -61,81 +67,51 @@ $page      = max(1, (int)(_g('page', '1')));
 $page_rows = 30;
 $offset    = ($page - 1) * $page_rows;
 
-/* ===== 정렬 파라미터 파싱 (기본: 통화시작 DESC) ===== */
+/* ===== 정렬 파라미터 ===== */
 $cur_sort = _g('sort', 'scheduled_at');
 $cur_dir  = strtolower((string)_g('dir', 'desc'));
 $cur_dir  = in_array($cur_dir, ['asc','desc'], true) ? $cur_dir : 'desc';
-
-/**
- * 정렬 화이트리스트 매핑
- * - 키는 URL 파라미터 값
- * - 값은 실제 ORDER BY에 들어갈 컬럼/표현식(콤마로 여러개 가능)
- *   ※ 여기 적은 것만 ORDER BY에 사용됨(보안)
- */
 $SORT_MAP = [
-    'agent_name'   => 'agent_sort',               // 상담원명 (mb_name 없으면 mb_id)
+    'agent_name'   => 'agent_sort',
     'call_start'   => 'b.call_start',
     'call_end'     => 'b.call_end',
     'target_name'  => 't.name',
     'man_age'      => 'man_age',
     'call_hp'      => 'b.call_hp',
-    'ac_state'     => 's.sort_order, s.state_id', // 처리상태: 코드 정렬순서 우선
+    'ac_state'     => 's.sort_order, s.state_id',
     'scheduled_at' => 'tk.scheduled_at',
     'ac_updated_at'=> 'tk.updated_at',
 ];
 if (!isset($SORT_MAP[$cur_sort])) $cur_sort = 'scheduled_at';
 $DIR_SQL = strtoupper($cur_dir);
-
-// ORDER BY 문자열 구성
 $__parts = array_map('trim', explode(',', $SORT_MAP[$cur_sort]));
 $__orders = [];
 foreach ($__parts as $__p) { if ($__p !== '') $__orders[] = $__p.' '.$DIR_SQL; }
-// 보조 정렬(안정화)
 $__orders[] = 'b.call_start DESC';
 $__orders[] = 'b.call_id DESC';
 $order_sql = implode(', ', $__orders);
 
 /* ==========================
-   AJAX: 단건 조회
+   AJAX: 단건 조회/저장 (기존 그대로)
    ========================== */
 if (isset($_GET['ajax']) && $_GET['ajax']==='get') {
     $target_id   = (int)($_GET['target_id'] ?? 0);
     $campaign_id = (int)($_GET['campaign_id'] ?? 0);
     $mb_group    = (int)($_GET['mb_group'] ?? 0);
-
     header('Content-Type: application/json; charset=utf-8');
+    if ($target_id<=0 || $campaign_id<=0 || $mb_group<=0) { echo json_encode(['success'=>false,'message'=>'invalid'], JSON_UNESCAPED_UNICODE); exit; }
+    if ($mb_level == 7 && $mb_group !== $my_group) { echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit; }
+    if ($mb_level == 8) {
+        $own_grp = sql_fetch("SELECT 1 FROM {$member_table} WHERE mb_no={$mb_group} AND mb_level=7 AND company_id='{$my_company_id}' LIMIT 1");
+        if (!$own_grp) { echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit; }
+    }
 
-    if ($target_id<=0 || $campaign_id<=0 || $mb_group<=0) {
-        echo json_encode(['success'=>false,'message'=>'invalid'], JSON_UNESCAPED_UNICODE); exit;
-    }
-    // 권한 체크
-    if ($mb_level == 7 && $mb_group !== $my_group) {
-        echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit;
-    }
     if ($mb_level < 7) {
-        $own = sql_fetch("
-            SELECT 1 FROM call_log
-             WHERE mb_group={$mb_group} AND campaign_id={$campaign_id}
-               AND target_id={$target_id} AND mb_no={$mb_no}
-             LIMIT 1
-        ");
+        $own = sql_fetch("SELECT 1 FROM call_log WHERE mb_group={$mb_group} AND campaign_id={$campaign_id} AND target_id={$target_id} AND mb_no={$mb_no} LIMIT 1");
         if (!$own) { echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit; }
     }
-
-    // 티켓 로딩 (상태/일정/수정정보)
-    $ticket = sql_fetch("
-        SELECT t.ticket_id, t.state_id, t.scheduled_at, t.schedule_note,
-               t.updated_by, t.updated_at
-          FROM call_aftercall_ticket t
-         WHERE t.mb_group={$mb_group} AND t.campaign_id={$campaign_id} AND t.target_id={$target_id}
-         LIMIT 1
-    ");
-    if (!$ticket) $ticket = [
-        'ticket_id'=>null,'state_id'=>0,'scheduled_at'=>null,'schedule_note'=>null,
-        'updated_by'=>null,'updated_at'=>null
-    ];
-
-    // 상태 이력 (이름 라벨 포함)
+    $ticket = sql_fetch("SELECT t.ticket_id, t.state_id, t.scheduled_at, t.schedule_note, t.updated_by, t.updated_at FROM call_aftercall_ticket t WHERE t.mb_group={$mb_group} AND t.campaign_id={$campaign_id} AND t.target_id={$target_id} LIMIT 1");
+    if (!$ticket) $ticket = ['ticket_id'=>null,'state_id'=>0,'scheduled_at'=>null,'schedule_note'=>null,'updated_by'=>null,'updated_at'=>null];
     $hist = [];
     if (!empty($ticket['ticket_id'])) {
         $rh = sql_query("
@@ -150,18 +126,12 @@ if (isset($_GET['ajax']) && $_GET['ajax']==='get') {
           ORDER BY h.changed_at DESC, h.hist_id DESC
              LIMIT 200
         ");
-        while ($r = sql_fetch_array($rh)) {
-            $r['kind'] = 'state';
-            $hist[] = $r;
-        }
+        while ($r = sql_fetch_array($rh)) { $r['kind']='state'; $hist[]=$r; }
     }
-
-    // 메모/일정 코멘트
     $notes = [];
     if (!empty($ticket['ticket_id'])) {
         $rn = sql_query("
-            SELECT n.note_id, n.note_type, n.note_text, n.scheduled_at,
-                   n.created_by, n.created_at,
+            SELECT n.note_id, n.note_type, n.note_text, n.scheduled_at, n.created_by, n.created_at,
                    m.mb_name AS who_name, m.mb_id AS who_id
               FROM call_aftercall_note n
          LEFT JOIN {$member_table} m ON m.mb_no = n.created_by
@@ -171,89 +141,57 @@ if (isset($_GET['ajax']) && $_GET['ajax']==='get') {
         ");
         while ($r = sql_fetch_array($rn)) $notes[] = $r;
     }
-
     echo json_encode(['success'=>true,'ticket'=>$ticket,'history'=>$hist,'notes'=>$notes], JSON_UNESCAPED_UNICODE); exit;
 }
 
-/* ==========================
-   AJAX: 저장
-   ========================== */
 if (isset($_POST['ajax']) && $_POST['ajax']==='save') {
     check_admin_token();
-
     $campaign_id   = (int)($_POST['campaign_id'] ?? 0);
     $mb_group      = (int)($_POST['mb_group'] ?? 0);
     $target_id     = (int)($_POST['target_id'] ?? 0);
-
     $new_state_id  = (int)($_POST['state_id'] ?? 0);
     $memo_input    = trim((string)($_POST['memo'] ?? ''));
-
-    $schedule_date = trim((string)($_POST['schedule_date'] ?? '')); // YYYY-MM-DD
-    $schedule_time = trim((string)($_POST['schedule_time'] ?? '')); // HH:MM
+    $schedule_date = trim((string)($_POST['schedule_date'] ?? ''));
+    $schedule_time = trim((string)($_POST['schedule_time'] ?? ''));
     $schedule_note = trim((string)($_POST['schedule_note'] ?? ''));
     $schedule_clear= (int)($_POST['schedule_clear'] ?? 0);
-
     header('Content-Type: application/json; charset=utf-8');
 
-    if ($campaign_id<=0 || $mb_group<=0 || $target_id<=0) {
-        echo json_encode(['success'=>false,'message'=>'invalid'], JSON_UNESCAPED_UNICODE); exit;
-    }
-    if ($mb_level == 7 && $mb_group !== $my_group) {
-        echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit;
+    if ($campaign_id<=0 || $mb_group<=0 || $target_id<=0) { echo json_encode(['success'=>false,'message'=>'invalid']); exit; }
+    if ($mb_level == 7 && $mb_group !== $my_group) { echo json_encode(['success'=>false,'message'=>'denied']); exit; }
+    if ($mb_level == 8) {
+        $own_grp = sql_fetch("SELECT 1 FROM {$member_table} WHERE mb_no={$mb_group} AND mb_level=7 AND company_id='{$my_company_id}' LIMIT 1");
+        if (!$own_grp) {
+            echo json_encode(['success'=>false,'message'=>'denied']); exit;
+        }
     }
     if ($mb_level < 7) {
-        $own = sql_fetch("
-            SELECT 1 FROM call_log
-             WHERE mb_group={$mb_group} AND campaign_id={$campaign_id}
-               AND target_id={$target_id} AND mb_no={$mb_no}
-             LIMIT 1
-        ");
-        if (!$own) { echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit; }
+        $own = sql_fetch("SELECT 1 FROM call_log WHERE mb_group={$mb_group} AND campaign_id={$campaign_id} AND target_id={$target_id} AND mb_no={$mb_no} LIMIT 1");
+        if (!$own) { echo json_encode(['success'=>false,'message'=>'denied']); exit; }
     }
-
-    // 최근 콜ID(선택)
-    $last = sql_fetch("
-        SELECT call_id
-          FROM call_log
-         WHERE mb_group={$mb_group} AND campaign_id={$campaign_id} AND target_id={$target_id}
-         ORDER BY call_start DESC, call_id DESC
-         LIMIT 1
-    ");
+    $last = sql_fetch("SELECT call_id FROM call_log WHERE mb_group={$mb_group} AND campaign_id={$campaign_id} AND target_id={$target_id} ORDER BY call_start DESC, call_id DESC LIMIT 1");
     $last_call_id = (int)($last['call_id'] ?? 0);
-
-    // 기존 티켓
-    $rowPrev = sql_fetch("
-        SELECT ticket_id, state_id, scheduled_at, schedule_note
-          FROM call_aftercall_ticket
-         WHERE mb_group={$mb_group} AND campaign_id={$campaign_id} AND target_id={$target_id}
-         LIMIT 1
-    ");
+    $rowPrev = sql_fetch("SELECT ticket_id, state_id, scheduled_at, schedule_note FROM call_aftercall_ticket WHERE mb_group={$mb_group} AND campaign_id={$campaign_id} AND target_id={$target_id} LIMIT 1");
     $prev_state_id = $rowPrev ? (int)$rowPrev['state_id'] : null;
     $prev_sched_at = $rowPrev ? ($rowPrev['scheduled_at'] ?? null) : null;
     $prev_sched_nt = $rowPrev ? ($rowPrev['schedule_note'] ?? null) : null;
 
-    // 입력 일정 병합
     $scheduled_at = null;
-    if ($schedule_clear) {
-        $scheduled_at = null;
-        $schedule_note = '';
-    } else {
+    if ($schedule_clear) { $scheduled_at = null; $schedule_note = ''; }
+    else {
         if ($schedule_date !== '') {
             if ($schedule_time === '') $schedule_time = '09:00';
             $scheduled_at = $schedule_date.' '.$schedule_time.':00';
         } else {
-            // 날짜 미지정이면 시간만으로는 설정하지 않음 (필요시 정책 변경)
             $scheduled_at = $prev_sched_at;
             if ($schedule_note === '' && $prev_sched_nt !== null) $schedule_note = $prev_sched_nt;
         }
     }
 
-    // 변경 여부 판단
     $state_changed    = ($prev_state_id === null || $prev_state_id !== $new_state_id);
     $schedule_changed = ($scheduled_at !== $prev_sched_at) || ($schedule_note !== (string)$prev_sched_nt);
 
     sql_query("START TRANSACTION");
-
     if ($rowPrev) {
         $ticket_id = (int)$rowPrev['ticket_id'];
         $ok = sql_query("
@@ -268,15 +206,9 @@ if (isset($_POST['ajax']) && $_POST['ajax']==='save') {
              LIMIT 1
         ", true);
         if (!$ok) { sql_query("ROLLBACK"); echo json_encode(['success'=>false,'message'=>'update failed']); exit; }
-
         if ($state_changed) {
-            sql_query("
-                INSERT INTO call_aftercall_history
-                    (ticket_id, prev_state, new_state, memo, scheduled_at, changed_by, changed_at)
-                VALUES
-                    ({$ticket_id},".($prev_state_id===null?'NULL':$prev_state_id).",{$new_state_id},
-                     NULL, NULL, {$mb_no}, NOW())
-            ");
+            sql_query("INSERT INTO call_aftercall_history (ticket_id, prev_state, new_state, memo, scheduled_at, changed_by, changed_at)
+                       VALUES ({$ticket_id},".($prev_state_id===null?'NULL':$prev_state_id).",{$new_state_id},NULL,NULL,{$mb_no},NOW())");
         }
     } else {
         $ok = sql_query("
@@ -291,44 +223,22 @@ if (isset($_POST['ajax']) && $_POST['ajax']==='save') {
         ", true);
         if (!$ok) { sql_query("ROLLBACK"); echo json_encode(['success'=>false,'message'=>'insert failed']); exit; }
         $ticket_id = (int)sql_insert_id();
-
-        // 최초 생성도 상태 이력 남김
-        sql_query("
-            INSERT INTO call_aftercall_history
-                (ticket_id, prev_state, new_state, memo, scheduled_at, changed_by, changed_at)
-            VALUES
-                ({$ticket_id}, NULL, {$new_state_id}, NULL, NULL, {$mb_no}, NOW())
-        ");
+        sql_query("INSERT INTO call_aftercall_history (ticket_id, prev_state, new_state, memo, scheduled_at, changed_by, changed_at)
+                   VALUES ({$ticket_id}, NULL, {$new_state_id}, NULL, NULL, {$mb_no}, NOW())");
     }
-
-    // 일정 변경이 있으면 일정 타입 노트 추가
     if ($schedule_changed) {
-        sql_query("
-            INSERT INTO call_aftercall_note
-                (ticket_id, note_type, note_text, scheduled_at, created_by, created_at)
-            VALUES
-                ({$ticket_id}, 'schedule',
-                 ".($schedule_note!=='' ? "'".sql_escape_string($schedule_note)."'" : "NULL").",
-                 ".($scheduled_at ? "'".sql_escape_string($scheduled_at)."'" : "NULL").",
-                 {$mb_no}, NOW())
-        ");
+        sql_query("INSERT INTO call_aftercall_note (ticket_id, note_type, note_text, scheduled_at, created_by, created_at)
+                   VALUES ({$ticket_id}, 'schedule', ".($schedule_note!=='' ? "'".sql_escape_string($schedule_note)."'" : "NULL").",
+                           ".($scheduled_at ? "'".sql_escape_string($scheduled_at)."'" : "NULL").",
+                           {$mb_no}, NOW())");
     }
-
-    // 일반 메모
     if ($memo_input !== '') {
-        sql_query("
-            INSERT INTO call_aftercall_note
-                (ticket_id, note_type, note_text, scheduled_at, created_by, created_at)
-            VALUES
-                ({$ticket_id}, 'note', '".sql_escape_string($memo_input)."', NULL, {$mb_no}, NOW())
-        ");
+        sql_query("INSERT INTO call_aftercall_note (ticket_id, note_type, note_text, scheduled_at, created_by, created_at)
+                   VALUES ({$ticket_id}, 'note', '".sql_escape_string($memo_input)."', NULL, {$mb_no}, NOW())");
     }
-
     sql_query("COMMIT");
 
-    // 저장 후 최신 데이터 재조회 (팝업 갱신)
     $ticket = sql_fetch("SELECT ticket_id, state_id, scheduled_at, schedule_note, updated_by, updated_at FROM call_aftercall_ticket WHERE ticket_id={$ticket_id} LIMIT 1");
-
     $hist = [];
     $rh = sql_query("
         SELECT h.prev_state, h.new_state, h.memo, h.changed_by, h.changed_at,
@@ -343,11 +253,9 @@ if (isset($_POST['ajax']) && $_POST['ajax']==='save') {
          LIMIT 200
     ");
     while ($r = sql_fetch_array($rh)) { $r['kind']='state'; $hist[]=$r; }
-
     $notes = [];
     $rn = sql_query("
-        SELECT n.note_id, n.note_type, n.note_text, n.scheduled_at,
-               n.created_by, n.created_at,
+        SELECT n.note_id, n.note_type, n.note_text, n.scheduled_at, n.created_by, n.created_at,
                m.mb_name AS who_name, m.mb_id AS who_id
           FROM call_aftercall_note n
      LEFT JOIN {$member_table} m ON m.mb_no = n.created_by
@@ -356,12 +264,11 @@ if (isset($_POST['ajax']) && $_POST['ajax']==='save') {
          LIMIT 200
     ");
     while ($r = sql_fetch_array($rn)) $notes[] = $r;
-
     echo json_encode(['success'=>true,'message'=>'saved','ticket'=>$ticket,'history'=>$hist,'notes'=>$notes], JSON_UNESCAPED_UNICODE); exit;
 }
 
 /* ==========================
-   WHERE (리스트)
+   WHERE (리스트) + 회사/그룹/상담원 필터
    ========================== */
 $where = [];
 $start_esc = sql_escape_string($start_date.' 00:00:00');
@@ -391,15 +298,37 @@ if ($q !== '' && $q_type !== '') {
     }
 }
 
-if ($mb_level == 7)       $where[] = "l.mb_group = {$my_group}";
-elseif ($mb_level < 7)    $where[] = "l.mb_no = {$mb_no}";
-elseif ($sel_mb_group>0)  $where[] = "l.mb_group = {$sel_mb_group}";
-
+// 권한 기반 / 조직 기반 범위
+if ($mb_level == 7) {
+    $where[] = "l.mb_group = {$my_group}";
+} elseif ($mb_level < 7) {
+    $where[] = "l.mb_no = {$mb_no}";
+} else {
+    // 8+
+    if ($sel_mb_group > 0) {
+        $where[] = "l.mb_group = {$sel_mb_group}";
+    } else {
+        if ($mb_level >= 9 && $sel_company_id > 0) {
+            $grp_ids = [];
+            $gr = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$sel_company_id."'");
+            while ($rr = sql_fetch_array($gr)) $grp_ids[] = (int)$rr['mb_no'];
+            $where[] = $grp_ids ? ("l.mb_group IN (".implode(',', $grp_ids).")") : "1=0";
+        }
+        // ★ 추가: 레벨 8은 자기 회사 전체 그룹만
+        elseif ($mb_level == 8) {
+            $grp_ids = [];
+            $gr = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$my_company_id."'");
+            while ($rr = sql_fetch_array($gr)) $grp_ids[] = (int)$rr['mb_no'];
+            $where[] = $grp_ids ? ("l.mb_group IN (".implode(',', $grp_ids).")") : "1=0";
+        }
+    }
+}
 if ($sel_agent_no > 0) $where[] = "l.mb_no = {$sel_agent_no}";
+
 $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
 
 /* ==========================
-   드롭다운/라벨
+   드롭다운/라벨 (상태/2차콜)
    ========================== */
 $codes = [];
 $rc = sql_query("SELECT call_status, name_ko, status, ui_type FROM call_status_code WHERE mb_group=0 ORDER BY sort_order ASC, call_status ASC");
@@ -414,13 +343,31 @@ $rui = sql_query("SELECT call_status, ui_type FROM call_status_code WHERE mb_gro
 while ($v = sql_fetch_array($rui)) $status_ui[(int)$v['call_status']] = ($v['ui_type'] ?: 'secondary');
 
 /* ==========================
-   에이전트/그룹 드롭다운
+   에이전트/그룹 드롭다운 (레벨별)
    ========================== */
+// 상담원 목록은 기존 로직 유지(단, 회사 필터가 있으면 해당 회사 그룹만 포함)
 $agent_options = [];
 $agent_where = [];
 $agent_order = " ORDER BY mb_group ASC, mb_name ASC, mb_no ASC ";
-if ($mb_level >= 8) $agent_where[] = $sel_mb_group>0 ? "mb_group = {$sel_mb_group}" : "mb_group > 0";
-else $agent_where[] = "mb_group = {$my_group}";
+
+if ($mb_level >= 8) {
+    if ($sel_mb_group > 0) {
+        $agent_where[] = "mb_group = {$sel_mb_group}";
+    } else {
+        if ($mb_level >= 9 && $sel_company_id > 0) {
+            $agent_where[] = "mb_group IN (SELECT mb_no FROM {$member_table} WHERE mb_level=7 AND company_id='{$sel_company_id}')";
+        }
+        // ★ 추가: 레벨 8은 자기 회사 전체
+        elseif ($mb_level == 8) {
+            $agent_where[] = "mb_group IN (SELECT mb_no FROM {$member_table} WHERE mb_level=7 AND company_id='{$my_company_id}')";
+        } else {
+            $agent_where[] = "mb_group > 0"; // (실제로 도달 X)
+        }
+    }
+} else {
+    $agent_where[] = "mb_group = {$my_group}";
+}
+
 $agent_where_sql = $agent_where ? ('WHERE '.implode(' AND ', $agent_where)) : '';
 $qr = sql_query("
     SELECT mb_no, mb_name, mb_group,
@@ -431,24 +378,62 @@ $qr = sql_query("
 ");
 while ($r = sql_fetch_array($qr)) {
     $agent_options[] = [
-        'mb_no'=>(int)$r['mb_no'],
-        'mb_name'=>get_text($r['mb_name']),
-        'mb_group'=>(int)$r['mb_group'],
-        'mb_group_name'=>get_text($r['mb_group_name']),
+        'mb_no'         => (int)$r['mb_no'],
+        'mb_name'       => get_text($r['mb_name']),
+        'mb_group'      => (int)$r['mb_group'],
+        'mb_group_name' => get_text($r['mb_group_name']),
     ];
 }
+
+// 그룹 옵션(상단 셀렉트 초기 렌더용)
 $group_options = [];
 if ($mb_level >= 8) {
+    $where_g = " WHERE m.mb_level = 7 ";
+    if ($mb_level >= 9) {
+        if ($sel_company_id > 0) $where_g .= " AND m.company_id = '{$sel_company_id}' ";
+    } else {
+        $where_g .= " AND m.company_id = '{$my_company_id}' ";
+    }
     $res = sql_query("
-        SELECT DISTINCT mb_group,
-               COALESCE(mb_group_name, CONCAT('그룹 ', mb_group)) AS mb_group_name
-          FROM {$member_table}
-         WHERE mb_group > 0
-           AND mb_group_name IS NOT NULL AND mb_group_name <> ''
-         ORDER BY mb_group_name ASC
+        SELECT m.mb_no AS mb_group, m.company_id
+        FROM {$member_table} m
+        {$where_g}
+        ORDER BY m.company_id ASC, COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹-', m.mb_no)) ASC, m.mb_no ASC
     ");
-    while ($row = sql_fetch_array($res)) {
-        $group_options[] = ['mb_group'=>(int)$row['mb_group'],'mb_group_name'=>$row['mb_group_name']];
+    while ($r = sql_fetch_array($res)) {
+        $gid   = (int)$r['mb_group'];
+        $cid   = (int)$r['company_id'];
+        $gname = get_group_name_cached($gid);
+        $cname = get_company_name_cached($cid);
+        $mcnt  = count_members_by_group_cached($gid);
+        $group_options[] = [
+            'mb_group'      => $gid,
+            'company_id'    => $cid,
+            'company_name'  => $cname,
+            'mb_group_name' => $gname,
+            'member_count'  => $mcnt,
+        ];
+    }
+}
+
+// 회사 옵션(9+만)
+$company_options = [];
+if ($mb_level >= 9) {
+    $res = sql_query("
+        SELECT m.mb_no AS company_id
+          FROM {$member_table} m
+         WHERE m.mb_level = 8
+         ORDER BY COALESCE(NULLIF(m.company_name,''), CONCAT('회사-', m.mb_no)) ASC, m.mb_no ASC
+    ");
+    while ($r = sql_fetch_array($res)) {
+        $cid   = (int)$r['company_id'];
+        $cname = get_company_name_cached($cid);
+        $gcnt  = count_groups_by_company_cached($cid);
+        $company_options[] = [
+            'company_id'   => $cid,
+            'company_name' => $cname,
+            'group_count'  => $gcnt,
+        ];
     }
 }
 
@@ -481,7 +466,7 @@ $sql_list = "
 
     COALESCE(g.mv_group_name, CONCAT('그룹 ', b.mb_group))     AS group_name,
     m.mb_name AS agent_name, m.mb_id AS agent_mb_id,
-    COALESCE(NULLIF(m.mb_name,''), m.mb_id) AS agent_sort,    -- 정렬용
+    COALESCE(NULLIF(m.mb_name,''), m.mb_id) AS agent_sort,
     sc.name_ko AS status_label,
 
     t.name AS target_name, t.birth_date, t.meta_json,
@@ -496,7 +481,7 @@ $sql_list = "
     COALESCE(tk.state_id,0) AS ac_state_id,
     s.name_ko               AS ac_state_label,
     s.ui_type               AS ac_state_ui,
-    s.sort_order            AS ac_state_sort,                 -- 정렬 보조
+    s.sort_order            AS ac_state_sort,
     tk.scheduled_at         AS ac_scheduled_at,
     tk.schedule_note        AS ac_schedule_note,
     tk.updated_at           AS ac_updated_at
@@ -535,7 +520,7 @@ $token = get_token();
 $g5['title'] = '접수관리';
 include_once(G5_ADMIN_PATH.'/admin.head.php');
 
-// 정렬 링크 생성용: 기존 쿼리에서 sort/dir/page 제거
+// 정렬 링크 생성용
 $qparams_for_sort = $_GET;
 unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['page']);
 ?>
@@ -546,7 +531,7 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
 </style>
 
 <div class="local_sch01 local_sch">
-    <form method="get" action="./call_after_list.php" class="form-row" id="searchForm">
+    <form method="get" action="./call_after_list.php" class="form-row" id="searchForm" autocomplete="off">
         <label for="start">기간</label>
         <input type="date" id="start" name="start" value="<?php echo get_text($start_date);?>" class="frm_input">
         <span class="tilde">~</span>
@@ -597,18 +582,45 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
 
         <span class="row-split"></span>
 
-        <?php if ($mb_level >= 8) { ?>
-            <label for="mb_group">그룹선택</label>
-            <select name="mb_group" id="mb_group">
-                <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
-                <?php foreach ($group_options as $g) { ?>
-                    <option value="<?php echo (int)$g['mb_group'];?>" <?php echo ($sel_mb_group===(int)$g['mb_group']?' selected':'');?>>
-                        <?php echo get_text($g['mb_group_name']);?>
+        <?php if ($mb_level >= 9) { ?>
+            <label for="company_id">회사</label>
+            <select name="company_id" id="company_id">
+                <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
+                <?php foreach ($company_options as $c) { ?>
+                    <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
+                        <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
                     </option>
                 <?php } ?>
             </select>
         <?php } else { ?>
-            <input type="hidden" name="mb_group" value="<?php echo $sel_mb_group; ?>">
+            <input type="hidden" name="company_id" id="company_id" value="<?php echo (int)$sel_company_id; ?>">
+        <?php } ?>
+
+        <?php if ($mb_level >= 8) { ?>
+            <label for="mb_group">그룹선택</label>
+            <select name="mb_group" id="mb_group">
+                <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
+                <?php
+                if ($group_options) {
+                    if ($mb_level >= 9 && $sel_company_id == 0) {
+                        $last_cid = null;
+                        foreach ($group_options as $g) {
+                            if ($last_cid !== (int)$g['company_id']) {
+                                echo '<option value="" disabled>── '.get_text($g['company_name']).' ──</option>';
+                                $last_cid = (int)$g['company_id'];
+                            }
+                            echo '<option value="'.(int)$g['mb_group'].'" '.get_selected($sel_mb_group,(int)$g['mb_group']).'>'.get_text($g['mb_group_name']).' (상담원 '.(int)$g['member_count'].')</option>';
+                        }
+                    } else {
+                        foreach ($group_options as $g) {
+                            echo '<option value="'.(int)$g['mb_group'].'" '.get_selected($sel_mb_group,(int)$g['mb_group']).'>'.get_text($g['mb_group_name']).' (상담원 '.(int)$g['member_count'].')</option>';
+                        }
+                    }
+                }
+                ?>
+            </select>
+        <?php } else { ?>
+            <input type="hidden" name="mb_group" id="mb_group" value="<?php echo (int)$sel_mb_group; ?>">
         <?php } ?>
 
         <?php if ($sel_mb_group > 0 || $mb_level >= 7) { ?>
@@ -647,9 +659,10 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
         <tbody>
         <?php
         if ($total_count === 0) {
-            echo '<tr><td colspan="17" class="empty_table">데이터가 없습니다.</td></tr>';
+            echo '<tr><td colspan="17" class="empty_table">데이터가 없습니다。</td></tr>';
         } else {
             while ($row = sql_fetch_array($res_list)) {
+                // ★ 접수관리: is_open_number와 무관 — 항상 번호 노출
                 $hp_fmt   = format_korean_phone($row['call_hp']);
                 $call_sec = is_null($row['call_time']) ? '-' : fmt_hms((int)$row['call_time']);
                 $agent    = $row['agent_name'] ? get_text($row['agent_name']) : (string)$row['agent_mb_id'];
@@ -658,9 +671,9 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
                 $ui_call = !empty($status_ui[$row['call_status']]) ? $status_ui[$row['call_status']] : 'secondary';
 
                 $ac_label = $row['ac_state_label'] ?: '대기';
-                $ac_ui = $row['ac_state_ui'] ?: 'secondary';
+                $ac_ui    = $row['ac_state_ui'] ?: 'secondary';
 
-                $bday = empty($row['birth_date']) ? '-' : get_text($row['birth_date']);
+                $bday = empty($row['birth_date']) ? '-' : substr(get_text($row['birth_date']), 2, 8);
                 $man_age = is_null($row['man_age']) ? '-' : ((int)$row['man_age']).'세';
 
                 $meta = '-';
@@ -737,16 +750,14 @@ $base = './call_after_list.php?'.http_build_query($qstr);
     </span>
 </div>
 
-<!-- 오버레이 & 중앙 모달 -->
+<!-- 오버레이 & 중앙 모달 (기존) -->
 <div id="acOverlay" class="ac-overlay" hidden></div>
-
 <div class="ac-panel" id="acPanel" aria-hidden="true" hidden>
   <div class="ac-panel__head">
     <strong>2차콜 처리</strong>
     <button type="button" class="ac-panel__close" id="acClose" aria-label="닫기">×</button>
   </div>
   <div class="ac-panel__body">
-    <!-- 고객 요약 -->
     <div class="ac-summary">
       <div><b id="s_target_name">-</b> / <span id="s_hp"></span> / 생년월일: <span id="s_birth">-</span> / 만나이: <span id="s_age">-</span></div>
       <div>추가정보: <span id="s_meta">-</span></div>
@@ -754,7 +765,7 @@ $base = './call_after_list.php?'.http_build_query($qstr);
 
     <form id="acForm" method="post" action="./call_after_list.php" autocomplete="off">
       <input type="hidden" name="ajax" value="save">
-      <input type="hidden" name="token" value="<?php echo $token;?>">
+      <input type="hidden" name="token" value="<?php echo get_token();?>">
       <input type="hidden" name="campaign_id" id="f_campaign_id" value="">
       <input type="hidden" name="mb_group" id="f_mb_group" value="">
       <input type="hidden" name="target_id" id="f_target_id" value="">
@@ -800,7 +811,7 @@ $base = './call_after_list.php?'.http_build_query($qstr);
 </div>
 
 <script>
-// 날짜 버튼 + active 처리
+// 날짜 버튼
 function pad2(n){ return (n<10?'0':'')+n; }
 function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
 (function(){
@@ -819,17 +830,16 @@ function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getD
     btnToday.classList.toggle('active', start===today && end===today);
   }
   setActive();
-
   btnYesterday.addEventListener('click', function(){
     var now = new Date(); now.setDate(now.getDate()-1);
-    var y = fmt(now);
-    $start.value = y; $end.value = y; setActive(); $form.submit();
+    var y = fmt(now); $start.value = y; $end.value = y; setActive(); $form.submit();
   });
   btnToday.addEventListener('click', function(){
     var now = new Date(); var t = fmt(now);
     $start.value = t; $end.value = t; setActive(); $form.submit();
   });
 
+  // 그룹/상담원 자동 제출
   var mbGroup = document.getElementById('mb_group');
   if (mbGroup) mbGroup.addEventListener('change', function(){
     var agent = document.getElementById('agent'); if (agent) agent.selectedIndex = 0;
@@ -837,181 +847,51 @@ function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getD
   });
   var agentSel = document.getElementById('agent');
   if (agentSel) agentSel.addEventListener('change', function(){ $form.submit(); });
-  var acSel = document.getElementById('acstate');
-  if (acSel) acSel.addEventListener('change', function(){ $form.submit(); });
-})();
 
-// 모달/단건 조회/저장/타임라인 렌더
-(function(){
-  var panel   = document.getElementById('acPanel');
-  var overlay = document.getElementById('acOverlay');
-  var btnClose= document.getElementById('acClose');
-  var btnCancel=document.getElementById('acCancel');
+  // 회사→그룹 비동기(9+만)
+  var companySel = document.getElementById('company_id');
+  if (companySel) {
+    companySel.addEventListener('change', function(){
+      var groupSel = document.getElementById('mb_group');
+      if (!groupSel) return;
+      groupSel.innerHTML = '<option value="">로딩 중...</option>';
+      // 상담원 초기화
+      var agent = document.getElementById('agent'); if (agent) agent.selectedIndex = 0;
 
-  function openPanel(){ panel.hidden=false; overlay.hidden=false; panel.setAttribute('aria-hidden','false'); document.body.classList.add('ac-open'); }
-  function closePanel(){ panel.hidden=true; overlay.hidden=true; panel.setAttribute('aria-hidden','true'); document.body.classList.remove('ac-open'); }
-  if (btnClose)  btnClose.addEventListener('click', closePanel);
-  if (btnCancel) btnCancel.addEventListener('click', closePanel);
-  if (overlay)   overlay.addEventListener('click', closePanel);
-  document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePanel(); });
-
-  // 타임라인 렌더
-  function renderTimeline(history, notes){
-    var el = document.getElementById('f_timeline');
-    el.innerHTML = '';
-
-    // 합치고 정렬
-    var items = [];
-    (history||[]).forEach(function(h){
-      items.push({
-        t: new Date(h.changed_at.replace(' ','T')),
-        time: h.changed_at,
-        who: h.who_name || h.who_id || h.changed_by,
-        kind: 'state',
-        text: (h.prev_label || (h.prev_state==null?'-':h.prev_state))+' → '+(h.new_label || h.new_state)
-      });
-    });
-    (notes||[]).forEach(function(n){
-      items.push({
-        t: new Date(n.created_at.replace(' ','T')),
-        time: n.created_at,
-        who: n.who_name || n.who_id || n.created_by,
-        kind: n.note_type,
-        text: n.note_type==='schedule'
-              ? ((n.scheduled_at? (n.scheduled_at.substring(5,16)+' / ') : '') + (n.note_text||''))
-              : (n.note_text||'')
-      });
-    });
-    items.sort(function(a,b){ return b.t - a.t; });
-
-    if (!items.length) {
-      var none = document.createElement('div');
-      none.className='ac-timeline__item';
-      none.innerHTML = '<div class="ac-timeline__time">-</div><div class="ac-timeline__body small-muted">로그가 없습니다.</div>';
-      el.appendChild(none);
-      return;
-    }
-
-    items.forEach(function(it){
-      var row = document.createElement('div'); row.className='ac-timeline__item';
-      var badgeClass = it.kind==='state' ? 'ac-badge ac-badge--state' : (it.kind==='schedule'?'ac-badge ac-badge--sched':'ac-badge ac-badge--note');
-      var typeLabel  = it.kind==='state' ? '상태' : (it.kind==='schedule'?'일정':'메모');
-
-      var time = document.createElement('div'); time.className='ac-timeline__time'; time.textContent = it.time;
-      var body = document.createElement('div'); body.className='ac-timeline__body';
-      body.innerHTML = '<span class="'+badgeClass+'">'+typeLabel+'</span>'
-                     + '<b>'+ (it.who||'') +'</b> · '
-                     + (it.text ? (it.text+'') : '');
-      row.appendChild(time); row.appendChild(body);
-      el.appendChild(row);
-    });
-  }
-
-  // 팝업 열기
-  document.querySelectorAll('.ac-edit-btn').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      var campaign_id = this.getAttribute('data-campaign-id');
-      var mb_group    = this.getAttribute('data-mb-group');
-      var target_id   = this.getAttribute('data-target-id');
-      var targetName  = this.getAttribute('data-target-name') || '';
-      var hp          = this.getAttribute('data-call-hp') || '';
-      var state_id    = this.getAttribute('data-state-id') || 0;
-
-      // 고객 요약
-      document.getElementById('s_target_name').textContent = targetName || '-';
-      document.getElementById('s_hp').textContent = hp || '';
-      document.getElementById('s_birth').textContent = this.getAttribute('data-birth') || '-';
-      var age = this.getAttribute('data-age') || '';
-      document.getElementById('s_age').textContent = (age!==''? (age+'세') : '-');
-      document.getElementById('s_meta').textContent = this.getAttribute('data-meta') || '-';
-
-      // 폼 기본값
-      document.getElementById('f_campaign_id').value = campaign_id;
-      document.getElementById('f_mb_group').value    = mb_group;
-      document.getElementById('f_target_id').value   = target_id;
-      document.getElementById('f_state_id').value    = state_id;
-      document.getElementById('f_memo').value        = '';
-      document.getElementById('f_schedule_date').value = '';
-      document.getElementById('f_schedule_time').value = '';
-      document.getElementById('f_schedule_note').value = '';
-      document.getElementById('f_schedule_clear').value = '0';
-      renderTimeline([],[]);
-
-      // 티켓/이력/노트 로드
-      var url = new URL('./call_after_list.php', location.href);
-      url.searchParams.set('ajax','get');
-      url.searchParams.set('campaign_id', campaign_id);
-      url.searchParams.set('mb_group', mb_group);
-      url.searchParams.set('target_id', target_id);
-      fetch(url.toString(), {credentials:'same-origin'})
-        .then(r=>r.json())
-        .then(j=>{
-          if (j && j.success) {
-            var t = j.ticket || {};
-            if (typeof t.state_id !== 'undefined' && t.state_id !== null)
-              document.getElementById('f_state_id').value = t.state_id;
-
-            // 일정 값 프리필
-            if (t.scheduled_at) {
-              // YYYY-MM-DD HH:MM:SS
-              var d = t.scheduled_at.split(' ');
-              if (d[0]) document.getElementById('f_schedule_date').value = d[0];
-              if (d[1]) document.getElementById('f_schedule_time').value = d[1].slice(0,5);
-            }
-            if (t.schedule_note) document.getElementById('f_schedule_note').value = t.schedule_note;
-
-            renderTimeline(j.history || [], j.notes || []);
-          }
-        })
-        .catch(console.error);
-
-      openPanel();
-    });
-  });
-
-  // 일정 퀵버튼
-  function setDateInput(offsetDays){
-    var iDate = document.getElementById('f_schedule_date');
-    var d = new Date();
-    d.setDate(d.getDate() + offsetDays);
-    var y = d.getFullYear(), m = (d.getMonth()+1+'').padStart(2,'0'), day = (d.getDate()+'').padStart(2,'0');
-    iDate.value = y+'-'+m+'-'+day;
-  }
-  var btnToday = document.getElementById('btnSchedToday');
-  var btnTomorrow = document.getElementById('btnSchedTomorrow');
-  var btnClear = document.getElementById('btnSchedClear');
-  if (btnToday) btnToday.addEventListener('click', function(){ setDateInput(0); if(!document.getElementById('f_schedule_time').value) document.getElementById('f_schedule_time').value='14:00'; });
-  if (btnTomorrow) btnTomorrow.addEventListener('click', function(){ setDateInput(1); if(!document.getElementById('f_schedule_time').value) document.getElementById('f_schedule_time').value='10:00'; });
-  if (btnClear) btnClear.addEventListener('click', function(){
-      document.getElementById('f_schedule_date').value='';
-      document.getElementById('f_schedule_time').value='';
-      document.getElementById('f_schedule_note').value='';
-      document.getElementById('f_schedule_clear').value='1';
-  });
-
-  // 저장
-  var form = document.getElementById('acForm');
-  form.addEventListener('submit', function(e){
-    e.preventDefault();
-    var fd = new FormData(form);
-    fetch('./call_after_list.php', {method:'POST', body:fd, credentials:'same-origin'})
-      .then(r=>r.json())
-      .then(j=>{
-        if (j && j.success) {
-          // 타임라인 갱신
-          renderTimeline(j.history || [], j.notes || []);
-          // 리스트 최신 반영 위해 새로고침
-          location.reload();
-        } else {
-          alert('저장 실패: '+(j && j.message ? j.message : ''));
-        }
+      fetch('./call/ajax_group_options.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+          // 'X-CSRF-TOKEN': '<?php echo $_SESSION['call_upload_token'] ?? ''; ?>'
+        },
+        body: JSON.stringify({ company_id: parseInt(this.value||'0',10)||0 }),
+        credentials: 'same-origin'
       })
-      .catch(err=>{ console.error(err); alert('저장 중 오류'); });
-  });
-
-  // 닫기
-  var btnCancel = document.getElementById('acCancel');
-  if (btnCancel) btnCancel.addEventListener('click', function(){ closePanel(); });
+      .then(function(res){ if(!res.ok) throw new Error('네트워크 오류'); return res.json(); })
+      .then(function(json){
+        if (!json.success) throw new Error(json.message || '가져오기 실패');
+        var opts = [];
+        opts.push(new Option('전체 그룹', 0));
+        json.items.forEach(function(item){
+          if (item.separator) {
+            var sep = document.createElement('option');
+            sep.textContent = '── ' + item.separator + ' ──';
+            sep.disabled = true;
+            opts.push(sep);
+          } else {
+            opts.push(new Option(item.label, item.value));
+          }
+        });
+        groupSel.innerHTML = '';
+        opts.forEach(function(o){ groupSel.appendChild(o); });
+        groupSel.value = '0'; // 회사 변경 시 전체 그룹 유지
+      })
+      .catch(function(err){
+        alert('그룹 목록을 불러오지 못했습니다: ' + err.message);
+        groupSel.innerHTML = '<option value="0">전체 그룹</option>';
+      });
+    });
+  }
 })();
 </script>
 

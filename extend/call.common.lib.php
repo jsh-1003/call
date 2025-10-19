@@ -17,6 +17,24 @@ function render_agent_options($agent_options, $sel_agent_no){
     return $html;
 }
 
+// 회사명 캐시 조회
+function get_company_name_cached($company_id){
+    static $cache = [];
+    $cid = (int)$company_id;
+    if ($cid <= 0) return '회사 미지정';
+    if (isset($cache[$cid])) return $cache[$cid];
+
+    global $g5;
+    $row = sql_fetch("
+        SELECT COALESCE(NULLIF(company_name,''), CONCAT('회사-', mb_no)) AS company_name
+        FROM {$g5['member_table']}
+        WHERE mb_no = '{$cid}' AND mb_level = 8
+        LIMIT 1
+    ");
+    $cache[$cid] = ($row && $row['company_name']) ? $row['company_name'] : '회사-'.$cid;
+    return $cache[$cid];
+}
+
 function get_call_config(int $mb_no) {
     static $cache = [];
     if(!empty($cache[$mb_no])) 
@@ -55,7 +73,76 @@ function get_group_name(int $mb_no): ?string {
     $cache[$mb_no] = $name; // string|null 캐싱
     return $name;
 }
+function get_group_name_cached($group_id) {
+    static $cache = [];
+    $gid = (int)$group_id;
+    if ($gid <= 0) return '-';
+    if (isset($cache[$gid])) return $cache[$gid];
 
+    global $g5;
+    $row = sql_fetch("
+        SELECT COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹-', mb_no)) AS nm
+        FROM {$g5['member_table']}
+        WHERE mb_no = '{$gid}' AND mb_level = 7
+        LIMIT 1
+    ");
+    $cache[$gid] = $row && $row['nm'] ? $row['nm'] : '그룹-'.$gid;
+    return $cache[$gid];
+}
+// 회사명 캐시 조회
+function get_agent_name_cached($mb_no){
+    static $cache = [];
+    $cid = (int)$mb_no;
+    if ($cid <= 0) return '회사 미지정';
+    if (isset($cache[$cid])) return $cache[$cid];
+
+    global $g5;
+    $row = sql_fetch("
+        SELECT mb_name
+        FROM {$g5['member_table']}
+        WHERE mb_no = '{$cid}'
+        LIMIT 1
+    ");
+    $cache[$cid] = ($row && $row['mb_name']) ? $row['mb_name'] : '상담원-'.$cid;
+    return $cache[$cid];
+}
+
+// 회사별 그룹 수(레벨7 수)
+function count_groups_by_company_cached($company_id) {
+    static $cache = [];
+    $cid = (int)$company_id;
+    if ($cid <= 0) return 0;
+    if (isset($cache[$cid])) return $cache[$cid];
+
+    global $g5;
+    $row = sql_fetch("
+        SELECT COUNT(*) AS c
+        FROM {$g5['member_table']}
+        WHERE mb_level = 7 AND company_id = '{$cid}'
+    ");
+    $cache[$cid] = (int)($row['c'] ?? 0);
+    return $cache[$cid];
+}
+
+// 그룹별 상담원 수(레벨3, 차단/탈퇴 제외)
+function count_members_by_group_cached($group_id) {
+    static $cache = [];
+    $gid = (int)$group_id;
+    if ($gid <= 0) return 0;
+    if (isset($cache[$gid])) return $cache[$gid];
+
+    global $g5;
+    $row = sql_fetch("
+        SELECT COUNT(*) AS c
+        FROM {$g5['member_table']}
+        WHERE mb_level = 3
+          AND mb_group = '{$gid}'
+          AND IFNULL(mb_leave_date,'') = ''
+          AND IFNULL(mb_intercept_date,'') = ''
+    ");
+    $cache[$gid] = (int)($row['c'] ?? 0);
+    return $cache[$gid];
+}
 
 // --------------------------------------------------------
 // 상태코드 헤더 구성

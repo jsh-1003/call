@@ -10,7 +10,8 @@ $menu["menu700"] = array(
 if($member['mb_level'] >= 7) {
     $menu["menu700"][] = array('700700', 'DB파일', '' . G5_ADMIN_URL.'/call/call_campaign_list.php', 'campaign_list');
     $menu["menu700"][] = array('700750', '회원관리', '' . G5_ADMIN_URL.'/call/call_member_list.php', 'member_list');
+    $menu["menu700"][] = array('700770', '환경설정', '' . G5_ADMIN_URL.'/call/call_config.php', 'call_config');
 }
-if($member['mb_level'] >= 8) {
+if($member['mb_level'] >= 9) {
     $menu["menu700"][] = array('700900', '코드관리', '' . G5_ADMIN_URL.'/call/status_code_list.php', 'call_status');
 }

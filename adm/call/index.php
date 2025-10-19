@@ -4,31 +4,20 @@ $sub_menu = '700100';
 require_once './_common.php';
 
 // 접근 권한
-if ($is_admin !== 'super' && (int)$member['mb_level'] < 3) {
+if ((int)$member['mb_level'] < 3) {
     alert('접근 권한이 없습니다.');
-}
-
-/** JSON 미리보기(1줄 요약 + 펼치기 토글) */
-function pretty_json_preview($json_str){
-    if ($json_str === null || $json_str === '') return '';
-    $data = json_decode($json_str, true);
-    if ($data === null) return '<span class="small-muted">'. _h($json_str) .'</span>';
-    $pretty = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-    $firstKeys = array_slice(array_keys($data), 0, 3);
-    $summary = implode(', ', $firstKeys);
-    return '<details><summary>'. _h($summary ?: 'json') .'</summary><pre class="json">'. _h($pretty) .'</pre></details>';
 }
 
 // ----------------------------------------------------------------------------------
 // 멤버/권한
 // ----------------------------------------------------------------------------------
-global $g5;
-$mb_no    = (int)($member['mb_no'] ?? 0);
-$mb_level = (int)($member['mb_level'] ?? 0);
-$my_group = isset($member['mb_group']) ? (int)$member['mb_group'] : 0;
+$mb_no        = (int)($member['mb_no'] ?? 0);
+$mb_level     = (int)($member['mb_level'] ?? 0);
+$my_group     = isset($member['mb_group']) ? (int)$member['mb_group'] : 0;
+$my_company_id= isset($member['company_id']) ? (int)$member['company_id'] : 0;
 
 // ----------------------------------------------------------------------------------
-// 검색/필터 파라미터
+// 검색/필터 파라미터 (+ 조직 필터 추가)
 // ----------------------------------------------------------------------------------
 $q       = _g('q', '');
 $q_type  = _g('q_type', ''); // name | last4 | full
@@ -38,22 +27,53 @@ $page    = max(1, (int)_g('page','1'));
 $rows    = max(10, min(200, (int)_g('rows','50')));
 $offset  = ($page-1) * $rows;
 
+// 조직 필터 (회사/그룹)
+if ($mb_level >= 9) {
+    $sel_company_id = (int)_g('company_id', 0); // 0=전체
+    $sel_mb_group   = (int)_g('mb_group', 0);   // 0=전체
+} elseif ($mb_level >= 8) {
+    $sel_company_id = $my_company_id;           // 고정
+    $sel_mb_group   = (int)_g('mb_group', 0);   // 0=회사 내 전체
+} else {
+    $sel_company_id = $my_company_id;
+    $sel_mb_group   = $my_group;
+}
+
 // 배정상태 라벨
-$ASSIGN_LABEL = [
-    0=>'미배정', 1=>'배정', 2=>'진행중', 3=>'완료'
-];
+$ASSIGN_LABEL = [ 0=>'미배정', 1=>'배정', 3=>'완료' ]; // 2=>'진행중', 
 
 // ----------------------------------------------------------------------------------
 // WHERE 구성 (+ 삭제 캠페인 제외 조건)
 // ----------------------------------------------------------------------------------
 $where = [];
-// 권한별 범위
+// 권한별 기본 범위
 if ($mb_level >= 8) {
-    // no where
+    // 상단 조직 필터에서 제한
 } elseif ($mb_level == 7) {
     $where[] = "t.mb_group = {$my_group}";
 } else {
     $where[] = "t.assigned_mb_no = {$mb_no}";
+}
+
+// 조직 필터 적용
+if ($mb_level >= 8) {
+    if ($sel_mb_group > 0) {
+        $where[] = "t.mb_group = {$sel_mb_group}";
+    } else {
+        if ($mb_level >= 9 && $sel_company_id > 0) {
+            $grp_ids = [];
+            $gr = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$sel_company_id."'");
+            while ($rr = sql_fetch_array($gr)) $grp_ids[] = (int)$rr['mb_no'];
+            $where[] = $grp_ids ? "t.mb_group IN (".implode(',', $grp_ids).")" : "1=0";
+        }
+        // ★ 여기 추가: 레벨 8이 전체 그룹일 때 자기 회사 범위 강제
+        elseif ($mb_level == 8) {
+            $grp_ids = [];
+            $gr = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$my_company_id."'");
+            while ($rr = sql_fetch_array($gr)) $grp_ids[] = (int)$rr['mb_no'];
+            $where[] = $grp_ids ? "t.mb_group IN (".implode(',', $grp_ids).")" : "1=0";
+        }
+    }
 }
 
 // 검색
@@ -90,7 +110,7 @@ $where[] = "c.status <> 9";
 $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
 
 // ----------------------------------------------------------------------------------
-// count (캠페인 조인 포함)
+// 회사/그룹명 매핑에 필요한 group_ids 수집을 위해 먼저 count 후 목록 조회
 // ----------------------------------------------------------------------------------
 $sql_cnt = "
     SELECT COUNT(*) AS cnt
@@ -102,17 +122,18 @@ $row_cnt = sql_fetch($sql_cnt);
 $total_count = (int)($row_cnt['cnt'] ?? 0);
 
 // ----------------------------------------------------------------------------------
-// 목록 (캠페인 조인 + 상태/이름 가져오기)
+// 목록 (캠페인 조인 + is_open_number 포함)
 // ----------------------------------------------------------------------------------
 $sql_list = "
     SELECT
         t.target_id, t.campaign_id, t.mb_group, t.call_hp, t.hp_last4,
-        t.name, t.birth_date, t.meta_json,
+        t.name, t.birth_date, t.meta_json, t.sex,
         t.assigned_status, t.assigned_mb_no, t.assigned_at, t.assign_lease_until, t.assign_batch_id,
         t.do_not_call, t.last_call_at, t.last_result, t.attempt_count, t.next_try_at,
         t.created_at, t.updated_at,
         c.status AS campaign_status,
-        c.name AS campaign_name
+        c.name AS campaign_name,
+        c.is_open_number
     FROM call_target t
     JOIN call_campaign c ON c.campaign_id = t.campaign_id
     {$where_sql}
@@ -134,10 +155,59 @@ function status_label($code){
     return $status_cache[$code];
 }
 
+// 회사/그룹 이름 매핑 준비 (현재 페이지 rows만)
+$group_ids = [];
+sql_data_seek($res, 0);
+while ($tmp = sql_fetch_array($res)) { $group_ids[] = (int)$tmp['mb_group']; }
+$group_ids = array_values(array_unique($group_ids));
+
+$group_map = []; // gid => ['group_name'=>..., 'company_id'=>...]
+if ($group_ids) {
+    $gid_csv = implode(',', array_map('intval',$group_ids));
+    $gr = sql_query("SELECT m.mb_no AS gid, m.mb_group_name, m.company_id FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.mb_no IN ({$gid_csv})");
+    while ($rr = sql_fetch_array($gr)) {
+        $gid = (int)$rr['gid'];
+        $group_map[$gid] = [
+            'group_name' => get_group_name_cached($gid) ?: k_nfc((string)$rr['mb_group_name']),
+            'company_id' => (int)$rr['company_id']
+        ];
+    }
+}
+$company_name_cache = [];
+function _company_name($cid){
+    global $company_name_cache;
+    if (!isset($company_name_cache[$cid])) {
+        $company_name_cache[$cid] = get_company_name_cached($cid);
+    }
+    return $company_name_cache[$cid];
+}
+
 // ----------------------------------------------------------------------------------
 // 화면
 // ----------------------------------------------------------------------------------
+$g5['title'] = 'DB리스트';
 include_once(G5_ADMIN_PATH.'/admin.head.php');
+$listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체목록</a>';
+// 회사 옵션(9+만)
+$company_options = [];
+if ($mb_level >= 9) {
+    $rco = sql_query("
+        SELECT m.mb_no AS company_id
+        FROM {$g5['member_table']} m
+        WHERE m.mb_level = 8
+        ORDER BY COALESCE(NULLIF(m.company_name,''), CONCAT('회사-', m.mb_no)) ASC, m.mb_no ASC
+    ");
+    while ($r = sql_fetch_array($rco)) {
+        $cid   = (int)$r['company_id'];
+        $cname = get_company_name_cached($cid);
+        $gcnt  = count_groups_by_company_cached($cid);
+        $company_options[] = [
+            'company_id'   => $cid,
+            'company_name' => $cname,
+            'group_count'  => $gcnt,
+        ];
+    }
+}
 ?>
 <style>
 .form-row { margin:10px 0; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -150,17 +220,76 @@ include_once(G5_ADMIN_PATH.'/admin.head.php');
 .small-muted { color:#888; font-size:12px; }
 pre.json { text-align:left; white-space:pre-wrap; background:#f8f9fa; padding:8px; border:1px solid #eee; border-radius:4px; }
 td.meta { text-align:left !important; }
-td.camp-cell { text-align:left !important; }
+td.camp-cell, td.org-cell { text-align:left !important; }
 tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.025), rgba(0,0,0,0.025)); }
+.meta-sex { font-weight:bold; margin-right:8px; }
 </style>
 
 <div class="local_ov01 local_ov">
-    <h2>통화 대상 목록</h2>
+    <?php echo $listall ?>
+    <span class="btn_ov01">
+        <span class="ov_txt">전체 </span>
+        <span class="ov_num"> <?php echo number_format($total_count) ?> 개</span>
+    </span>
 </div>
 
 <div class="local_sch01 local_sch">
-    <form method="get" action="./index.php" class="form-row">
-        <label for="q_type">검색구분</label>
+    <form method="get" action="./index.php" class="form-row" autocomplete="off">
+        <?php if ($mb_level >= 9) { ?>
+            <select name="company_id" id="company_id" title="회사선택">
+                <option value="0"<?php echo get_selected($sel_company_id, 0); ?>>-- 전체 회사 --</option>
+                <?php foreach ($company_options as $c) { ?>
+                    <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
+                        <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
+                    </option>
+                <?php } ?>
+            </select>
+        <?php } else { ?>
+            <input type="hidden" name="company_id" id="company_id" value="<?php echo (int)$sel_company_id; ?>">
+        <?php } ?>
+
+        <?php if ($mb_level >= 8) { ?>
+            <select name="mb_group" id="mb_group" title="그룹선택">
+                <option value="0"<?php echo get_selected($sel_mb_group, 0); ?>>-- 전체 그룹 --</option>
+                <?php
+                // 초기 렌더(첫 진입/새로고침)용
+                $where_g = " WHERE m.mb_level=7 ";
+                if ($mb_level >= 9) {
+                    if ($sel_company_id > 0) $where_g .= " AND m.company_id='{$sel_company_id}' ";
+                } else {
+                    $where_g .= " AND m.company_id='{$sel_company_id}' ";
+                }
+                $gr = sql_query("
+                    SELECT m.mb_no AS mb_group, m.company_id
+                    FROM {$g5['member_table']} m
+                    {$where_g}
+                    ORDER BY m.company_id ASC,
+                             COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹-', m.mb_no)) ASC,
+                             m.mb_no ASC
+                ");
+                $last_c = null;
+                if ($mb_level >= 9 && $sel_company_id == 0) {
+                    while ($g = sql_fetch_array($gr)) {
+                        $gid = (int)$g['mb_group'];
+                        $cid = (int)$g['company_id'];
+                        if ($last_c !== $cid) {
+                            echo '<option value="" disabled>── '.get_text(_company_name($cid)).' ──</option>';
+                            $last_c = $cid;
+                        }
+                        echo '<option value="'.$gid.'" '.get_selected($sel_mb_group, $gid).'>'.get_text(get_group_name_cached($gid)).'</option>';
+                    }
+                } else {
+                    while ($g = sql_fetch_array($gr)) {
+                        $gid = (int)$g['mb_group'];
+                        echo '<option value="'.$gid.'" '.get_selected($sel_mb_group, $gid).'>'.get_text(get_group_name_cached($gid)).'</option>';
+                    }
+                }
+                ?>
+            </select>
+        <?php } else { ?>
+            <input type="hidden" name="mb_group" id="mb_group" value="<?php echo (int)$sel_mb_group; ?>">
+        <?php } ?>
+
         <select name="q_type" id="q_type">
             <option value="name"  <?php echo $q_type==='name'?'selected':'';?>>이름</option>
             <option value="last4" <?php echo $q_type==='last4'?'selected':'';?>>전화번호(끝4자리)</option>
@@ -196,9 +325,10 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
         <span class="small-muted" style="margin-left:auto">
         권한:
         <?php
-            if ($mb_level >= 8) echo '전사 조회';
-            elseif ($mb_level == 7) echo '그룹 제한 (mb_group='.$my_group.')';
-            else echo '개인 제한 (assigned_mb_no='.$mb_no.')';
+            if ($mb_level >= 9) echo '전사 조회(최고관리자)';
+            elseif ($mb_level >= 8) echo '회사 조회';
+            elseif ($mb_level == 7) echo '그룹 제한';
+            else echo '개인 제한';
         ?>
         </span>
     </form>
@@ -208,66 +338,86 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
     <table class="table-fixed">
         <thead>
             <tr>
-                <!-- <th style="width:70px">ID</th> -->
+                <th style="width:90px">회사</th>     <!-- 추가 -->
                 <th style="width:90px">그룹</th>
-                <th style="width:220px">캠페인</th> <!-- 추가 -->
+                <th style="width:220px">캠페인</th>
                 <th style="width:140px">전화번호</th>
                 <th style="width:140px">이름/나이</th>
+                <th>추가정보</th>
                 <th style="width:110px">배정상태</th>
                 <th style="width:120px">담당자</th>
                 <th style="width:80px">DNC</th>
                 <th style="width:130px">통화결과</th>
-                <!-- <th style="width:80px">시도수</th>
-                <th style="width:160px">다음시도</th> -->
-                <th>추가정보</th>
                 <th style="width:150px">업데이트</th>
             </tr>
         </thead>
         <tbody>
         <?php
         if ($total_count === 0){
-            echo '<tr><td colspan="10" class="empty_table">데이터가 없습니다.</td></tr>';
+            echo '<tr><td colspan="11" class="empty_table">데이터가 없습니다.</td></tr>';
         } else {
-            $cached_group_name = [];
+            // 결과셋을 다시 처음부터 읽기
+            sql_data_seek($res, 0);
             while ($row = sql_fetch_array($res)) {
-                $hp_fmt = format_korean_phone($row['call_hp']);
-                $age = calc_age_years($row['birth_date']);
+                $gid      = (int)$row['mb_group'];
+                $ginfo    = $group_map[$gid] ?? ['group_name'=>'-', 'company_id'=>0];
+                $cname    = ($ginfo['company_id']>0) ? _company_name((int)$ginfo['company_id']) : '-';
+                $gname    = $ginfo['group_name'] ?: '-';
+
+                // 전화번호: is_open_number=0이면 숨김
+                $hp_fmt = ((int)$row['is_open_number'] === 0) ? '(숨김처리)' : _h(format_korean_phone($row['call_hp']));
+
+                $age     = calc_age_years($row['birth_date']);
                 $age_txt = is_null($age) ? '-' : ($age.'세(만)');
-                $as = (int)$row['assigned_status'];
-                $as_label = isset($ASSIGN_LABEL[$as]) ? $ASSIGN_LABEL[$as] : (string)$as;
-                $dnc = (int)$row['do_not_call']===1;
+                $as      = (int)$row['assigned_status'];
+                $as_label= isset($ASSIGN_LABEL[$as]) ? $ASSIGN_LABEL[$as] : (string)$as;
+                $dnc     = (int)$row['do_not_call']===1;
                 $last_result = (int)$row['last_result'];
                 $last_label  = $last_result ? status_label($last_result) : '';
-                $group_name = get_group_name($row['mb_group']);
-                // meta (짧게)
-                // $meta_arr = json_decode($row['meta_json'], true);
-                // $meta_html = '';
-                // if (is_array($meta_arr) && $meta_arr) {
-                //     $pairs = [];
-                //     $i=0;
-                //     foreach ($meta_arr as $k=>$v) { $pairs[] = _h($k).': '._h($v); if (++$i>=5) break; }
-                //     $meta_html = implode(', ', $pairs);
-                // }
-                // $meta_html   = implode(', ', json_decode($row['meta_json'], true));
-                $meta_html   = implode(', ', json_decode($row['meta_json'], true));
-                $agent_txt   = $row['assigned_mb_no'] ? (int)$row['assigned_mb_no'] : '-';
 
+                // meta 표시: 성별을 맨 앞에 추가(남성/여성만), 뒤에 meta_json 일부 요약
+                $meta_arr = json_decode($row['meta_json'], true);
+                $parts = [];
+
+                // 성별 표시
+                $sex_txt = '';
+                if ((int)$row['sex'] === 1) $sex_txt = '남성';
+                elseif ((int)$row['sex'] === 2) $sex_txt = '여성';
+                if ($sex_txt !== '') $parts[] = '<span class="meta-sex">'.$sex_txt.'</span>';
+
+                if (is_array($meta_arr) && $meta_arr) {
+                    $pairs = [];
+                    $i=0;
+                    foreach ($meta_arr as $k=>$v) {
+                        if ($v === '' || $v === null) continue;
+                        $pairs[] = _h(is_scalar($v)?$v:json_encode($v, JSON_UNESCAPED_UNICODE));
+                        if (++$i>=5) break; // 최대 5개만 요약
+                    }
+                    if ($pairs) $parts[] = implode(', ', $pairs);
+                }
+
+                $meta_html = $parts ? implode(' ', $parts) : '';
+
+                $agent_txt   = $row['assigned_mb_no'] ? get_agent_name_cached((int)$row['assigned_mb_no']) : '-';
                 $camp_inactive = ((int)$row['campaign_status'] === 0);
                 $tr_class = $camp_inactive ? 'camp-inactive' : '';
                 ?>
                 <tr class="<?php echo $tr_class; ?>">
-                    <!-- <td><?php // echo (int)$row['target_id'];?></td> -->
-                    <td><?php echo $group_name; ?></td>
-                    <!-- 캠페인 표시(denorm 우선, 없으면 c.name) + 비활성 배지 -->
+                    <td class="org-cell"><?php echo _h($cname); ?></td>
+                    <td><?php echo _h($gname); ?></td>
+
                     <td class="camp-cell">
                         <?php echo _h($row['campaign_name']); ?>
                         <?php if ($camp_inactive) { ?>
                             <span class="badge badge-camp-inactive">비활성 캠페인</span>
                         <?php } ?>
                     </td>
-                    <td><?php echo _h($hp_fmt);?></td>
+
+                    <td><?php echo $hp_fmt; ?></td>
 
                     <td><?php echo _h($row['name']);?> / <?php echo _h($age_txt);?></td>
+                    <td class="meta"><?php echo $meta_html; ?></td>
+                    
                     <td><?php echo _h($as_label);?></td>
                     <td><?php echo _h($agent_txt);?></td>
                     <td>
@@ -281,9 +431,6 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
                         <?php if ($last_result){ echo (int)$last_result.' - '._h($last_label); } ?>
                         <?php if ($row['last_call_at']){ echo '<div class="small-muted">'._h($row['last_call_at']).'</div>'; } ?>
                     </td>
-                    <!-- <td><?php echo (int)$row['attempt_count'];?></td>
-                    <td><?php echo _h($row['next_try_at'] ?: ''); ?></td> -->
-                    <td class="meta"><?php echo $meta_html; ?></td>
                     <td><?php echo substr(_h($row['updated_at']), 2, 17);?></td>
                 </tr>
                 <?php
@@ -314,6 +461,65 @@ echo get_paging(
 echo '</div>';
 ?>
 
+<script>
+// ===============================
+// 비동기 조직(회사→그룹) 셀렉트
+// ===============================
+(function(){
+    var companySel = document.getElementById('company_id');
+    var groupSel   = document.getElementById('mb_group');
+    if (!groupSel) return;
+
+    // 9+에서만 회사 변경 이벤트 연결
+    <?php if ($mb_level >= 9) { ?>
+    companySel.addEventListener('change', function(){
+        var cid = parseInt(this.value || '0', 10) || 0;
+        groupSel.innerHTML = '<option value="">로딩 중...</option>';
+
+        fetch('./call/ajax_group_options.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                <?php if (isset($_SESSION['call_upload_token'])) { ?>
+                'X-CSRF-TOKEN': '<?php echo $_SESSION['call_upload_token']; ?>',
+                <?php } ?>
+            },
+            body: JSON.stringify({ company_id: cid }),
+            credentials: 'same-origin'
+        })
+        .then(function(res){
+            if(!res.ok) throw new Error('네트워크 오류');
+            return res.json();
+        })
+        .then(function(json){
+            if (!json.success) throw new Error(json.message || '가져오기 실패');
+
+            var opts = [];
+            opts.push(new Option('-- 전체 그룹 --', 0));
+
+            json.items.forEach(function(item){
+                if (item.separator) {
+                    var sep = document.createElement('option');
+                    sep.textContent = '── ' + item.separator + ' ──';
+                    sep.disabled = true;
+                    opts.push(sep);
+                } else {
+                    opts.push(new Option(item.label, item.value));
+                }
+            });
+
+            groupSel.innerHTML = '';
+            opts.forEach(function(o){ groupSel.appendChild(o); });
+            groupSel.value = '0'; // 회사 변경 시 기본 전체그룹 선택
+        })
+        .catch(function(err){
+            alert('그룹 목록을 불러오지 못했습니다: ' + err.message);
+            groupSel.innerHTML = '<option value="0">-- 전체 그룹 --</option>';
+        });
+    });
+    <?php } ?>
+})();
+</script>
 
 <?php
 include_once(G5_ADMIN_PATH.'/admin.tail.php');

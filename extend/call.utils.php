@@ -5,6 +5,16 @@ function _g($key, $def='') { return isset($_GET[$key]) ? trim((string)$_GET[$key
 function _p($key, $def='') { return isset($_POST[$key]) ? trim((string)$_POST[$key]) : $def; }
 function _h($s){ return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 
+/** JSON 미리보기(1줄 요약 + 펼치기 토글) */
+function pretty_json_preview($json_str){
+    if ($json_str === null || $json_str === '') return '';
+    $data = json_decode($json_str, true);
+    if ($data === null) return '<span class="small-muted">'. _h($json_str) .'</span>';
+    $pretty = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    $firstKeys = array_slice(array_keys($data), 0, 3);
+    $summary = implode(', ', $firstKeys);
+    return '<details><summary>'. _h($summary ?: 'json') .'</summary><pre class="json">'. _h($pretty) .'</pre></details>';
+}
 
 // MIME 보정: DB content_type이 비거나 audio/*이면 확장자로 추론
 function guess_audio_mime($s3_key, $db_mime=''){

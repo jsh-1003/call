@@ -4,6 +4,7 @@ $sub_menu = '700750';
 include_once('./_common.php');
 
 auth_check_menu($auth, $sub_menu, 'r');
+
 // -------------------------------------------
 // 접근 권한: 레벨 7 미만 차단
 // -------------------------------------------
@@ -14,60 +15,125 @@ if ((int)$member['mb_level'] < 7) {
 $g5['title'] = '회원관리';
 
 // -------------------------------------------
-// 파라미터
+// 파라미터 / 내 정보
 // -------------------------------------------
-$sfl = isset($_GET['sfl']) ? preg_replace('/[^a-z0-9_]/i','', $_GET['sfl']) : 'mb_name';
-$stx = isset($_GET['stx']) ? trim($_GET['stx']) : '';
+$sfl  = isset($_GET['sfl']) ? preg_replace('/[^a-z0-9_]/i','', $_GET['sfl']) : 'mb_name';
+$stx  = isset($_GET['stx']) ? trim($_GET['stx']) : '';
 $page = (int)($_GET['page'] ?? 1);
 if ($page < 1) $page = 1;
 
 $include_blocked = (isset($_GET['include_blocked']) && $_GET['include_blocked'] == '1') ? 1 : 0;
 
-// 레벨8+: 전체 그룹 관리 / 레벨7: 자기 그룹만
-$my_level = (int)$member['mb_level'];
-$my_mb_no = (int)$member['mb_no'];
-$sel_mb_group = 0;
+$my_level        = (int)$member['mb_level'];
+$my_mb_no        = (int)$member['mb_no'];
+$my_company_id   = (int)($member['company_id'] ?? 0);
+$my_company_name = (string)($member['company_name'] ?? '');
+
+// -------------------------------------------
+// 셀렉션 스코프
+// -------------------------------------------
+$sel_company_id = 0;
+if ($my_level >= 9) {
+    $sel_company_id = (int)($_GET['company_id'] ?? 0); // 0=전체 회사
+} else {
+    $sel_company_id = $my_company_id; // 8/7은 자기 회사 고정
+}
+
 if ($my_level >= 8) {
-    $sel_mb_group = (int)($_GET['mb_group'] ?? 0); // 0=전체
-} else { // 레벨7은 본인 그룹만(=본인 mb_no가 그룹ID)
-    $sel_mb_group = $my_mb_no;
+    $sel_mb_group = (int)($_GET['mb_group'] ?? 0); // 0=전체 그룹
+} else {
+    $sel_mb_group = $my_mb_no; // 7은 자기 그룹(본인 mb_no)
 }
 
 // -------------------------------------------
-// 그룹 선택 옵션(레벨8+만)
+// 유틸: 역할명/배지
+// -------------------------------------------
+function role_label_and_class($lv){
+    if ($lv >= 10) return ['플랫폼관리자','badge-admin'];
+    if ($lv >= 8)  return ['회사관리자','badge-company'];
+    if ($lv == 7)  return ['그룹리더','badge-leader'];
+    return ['상담원','badge-member'];
+}
+
+// -------------------------------------------
+// 회사 옵션(레벨9+만): 회사명 (그룹 N)
+// -------------------------------------------
+$company_options = [];
+if ($my_level >= 9) {
+    $res = sql_query("
+        SELECT m.mb_no AS company_id
+        FROM {$g5['member_table']} m
+        WHERE m.mb_level = 8
+        ORDER BY COALESCE(NULLIF(m.company_name,''), CONCAT('회사-', m.mb_no)) ASC, m.mb_no ASC
+    ");
+    while ($r = sql_fetch_array($res)) {
+        $cid   = (int)$r['company_id'];
+        $cname = get_company_name_cached($cid);
+        $gcnt  = count_groups_by_company_cached($cid);
+        $company_options[] = [
+            'company_id'   => $cid,
+            'company_name' => $cname,
+            'group_count'  => $gcnt,
+        ];
+    }
+}
+
+// -------------------------------------------
+// 그룹 옵션(레벨8+): 그룹명 (상담원 N)
+// - 9+: 회사 미선택(0) 시 전체, 선택 시 해당 회사만
+// - 8 : 자기 회사만
 // -------------------------------------------
 $group_options = [];
 if ($my_level >= 8) {
-    // 그룹장(레벨7)의 리스트를 기준으로 그룹 목록 구성
-    $sql = "
-      SELECT m.mb_no AS mb_group, 
-             COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹-', m.mb_no)) AS mb_group_name
-      FROM {$g5['member_table']} m
-      WHERE m.mb_level = 7
-      ORDER BY mb_group_name ASC, m.mb_no ASC
+    $where = " WHERE m.mb_level = 7 ";
+    if ($my_level >= 9) {
+        if ($sel_company_id > 0) {
+            $where .= " AND m.company_id = '{$sel_company_id}' ";
+        } // 0이면 전체
+    } else {
+        $where .= " AND m.company_id = '{$my_company_id}' ";
+    }
+
+    $sql_groups = "
+        SELECT m.mb_no AS mb_group, m.company_id
+        FROM {$g5['member_table']} m
+        {$where}
+        ORDER BY m.company_id ASC, COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹-', m.mb_no)) ASC, m.mb_no ASC
     ";
-    $res = sql_query($sql);
-    while ($row = sql_fetch_array($res)) $group_options[] = $row;
+    $res = sql_query($sql_groups);
+    while ($r = sql_fetch_array($res)) {
+        $gid   = (int)$r['mb_group'];
+        $cid   = (int)$r['company_id'];
+        $gname = get_group_name_cached($gid);
+        $cname = get_company_name_cached($cid);
+        $mcnt  = count_members_by_group_cached($gid);
+        $group_options[] = [
+            'mb_group'      => $gid,
+            'company_id'    => $cid,
+            'company_name'  => $cname,
+            'mb_group_name' => $gname,
+            'member_count'  => $mcnt,
+        ];
+    }
 }
 
 // -------------------------------------------
 // 검색 조건
-// - 레벨7: 자신의 그룹만 (mb_group = 내 mb_no) + 본인도 포함
-// - 레벨8: mb_group 선택 시 해당 그룹, 미선택이면 전체
-// - 기본은 차단/탈퇴 숨김, include_blocked=1 일 때 모두 표시
 // -------------------------------------------
 $sql_common = " FROM {$g5['member_table']} m ";
-
 $where = [];
 $where[] = "1";
+$where[] = "(m.mb_level < 10)"; // 플랫폼관리자 제외
 
-if ($my_level >= 8) {
-    if ($sel_mb_group > 0) {
-        $where[] = "m.mb_group = '{$sel_mb_group}'";
-    }
-} else {
-    // 내 그룹만: 내 mb_no가 그룹ID
+if ($my_level == 7) {
     $where[] = "(m.mb_group = '{$sel_mb_group}' OR m.mb_no = '{$my_mb_no}')";
+    $where[] = "m.company_id = '{$my_company_id}'";
+} else if ($my_level == 8) {
+    $where[] = "m.company_id = '{$my_company_id}'";
+    if ($sel_mb_group > 0) $where[] = "m.mb_group = '{$sel_mb_group}'";
+} else { // 9+
+    if ($sel_company_id > 0) $where[] = "m.company_id = '{$sel_company_id}'";
+    if ($sel_mb_group > 0)   $where[] = "m.mb_group = '{$sel_mb_group}'";
 }
 
 if (!$include_blocked) {
@@ -81,6 +147,7 @@ if ($stx !== '') {
         case 'mb_id':
         case 'mb_name':
         case 'mb_group_name':
+        case 'company_name':
             $where[] = "m.{$sfl} LIKE '%{$safe}%'";
             break;
         default:
@@ -88,8 +155,6 @@ if ($stx !== '') {
             break;
     }
 }
-$where[] = "(m.mb_level < 10)";
-
 $sql_search = ' WHERE '.implode(' AND ', $where);
 
 // -------------------------------------------
@@ -97,7 +162,7 @@ $sql_search = ' WHERE '.implode(' AND ', $where);
 // -------------------------------------------
 $sst = $_GET['sst'] ?? 'm.mb_datetime';
 $sod = strtolower($_GET['sod'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
-$allowed_sort = ['m.mb_datetime','m.mb_today_login','m.mb_name','m.mb_id','m.mb_group_name'];
+$allowed_sort = ['m.mb_datetime','m.mb_today_login','m.mb_name','m.mb_id','m.mb_group_name','m.company_name'];
 if (!in_array($sst, $allowed_sort, true)) $sst = 'm.mb_datetime';
 $sql_order = " ORDER BY {$sst} {$sod} ";
 
@@ -109,12 +174,13 @@ $total_page  = $rows ? (int)ceil($total_count / $rows) : 1;
 $from_record = ($page - 1) * $rows;
 
 // -------------------------------------------
-// 목록 조회
+// 목록 조회(회사/그룹 “표시용 이름”은 캐시 함수로 변환)
 // -------------------------------------------
 $sql = "
   SELECT 
     m.mb_no, m.mb_id, m.mb_name, m.mb_level,
-    m.mb_group, COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹-', m.mb_group)) AS org_name,
+    m.company_id, m.company_name,
+    m.mb_group,  m.mb_group_name,
     m.mb_datetime, m.mb_today_login,
     m.mb_leave_date, m.mb_intercept_date
   {$sql_common}
@@ -128,7 +194,9 @@ $result = sql_query($sql);
 include_once (G5_ADMIN_PATH.'/admin.head.php');
 
 $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목록</a>';
-$colspan = 8; // 조직명 / 이름 / 아이디 / 상태 / 등록일 / 최종접속일 / 수정 / 차단
+
+// 컬럼수: 권한(8+만 보임) + 회사 + 조직명 + 이름 + 아이디 + 상태 + 등록일 + 최종접속일 + 수정 + 차단
+$colspan = ($member['mb_level'] >= 8) ? 10 : 9;
 ?>
 
 <div class="local_ov">
@@ -140,14 +208,44 @@ $colspan = 8; // 조직명 / 이름 / 아이디 / 상태 / 등록일 / 최종접
 </div>
 
 <form id="fsearch" name="fsearch" class="local_sch01 local_sch" method="get">
-    <?php if ($my_level >= 8) { ?>
-        <select name="mb_group" title="그룹선택">
-            <option value="0"<?php echo get_selected($sel_mb_group, 0); ?>>-- 전체 그룹 --</option>
-            <?php foreach ($group_options as $g) { ?>
-                <option value="<?php echo (int)$g['mb_group']; ?>" <?php echo get_selected($sel_mb_group, (int)$g['mb_group']); ?>>
-                    <?php echo get_text($g['mb_group_name']); ?> (<?php echo (int)$g['mb_group']; ?>)
+    <?php if ($my_level >= 9) { ?>
+        <!-- 회사 선택(레벨9+): 회사명 (그룹 N) -->
+        <select name="company_id" title="회사선택">
+            <option value="0"<?php echo get_selected($sel_company_id, 0); ?>>-- 전체 회사 --</option>
+            <?php foreach ($company_options as $c) { ?>
+                <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
+                    <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
                 </option>
             <?php } ?>
+        </select>
+    <?php } else { ?>
+        <input type="hidden" name="company_id" value="<?php echo (int)$sel_company_id; ?>">
+    <?php } ?>
+
+    <?php if ($my_level >= 8) { ?>
+        <!-- 그룹 선택: 그룹명 (상담원 N) -->
+        <select name="mb_group" title="그룹선택">
+            <option value="0"<?php echo get_selected($sel_mb_group, 0); ?>>-- 전체 그룹 --</option>
+            <?php
+            if ($my_level >= 9) {
+                // 회사별 섹션 구분선(회사 미선택이면 전체 회사 구분)
+                $last_cid = null;
+                foreach ($group_options as $g) {
+                    if ($last_cid !== (int)$g['company_id']) {
+                        echo '<option value="" disabled class="opt-sep">── '.get_text($g['company_name']).' ──</option>';
+                        $last_cid = (int)$g['company_id'];
+                    }
+                    echo '<option value="'.(int)$g['mb_group'].'" '.get_selected($sel_mb_group, (int)$g['mb_group']).'>'
+                       . get_text($g['mb_group_name']).' (상담원 '.(int)$g['member_count'].')</option>';
+                }
+            } else {
+                // 레벨8: 자기 회사 그룹만
+                foreach ($group_options as $g) {
+                    echo '<option value="'.(int)$g['mb_group'].'" '.get_selected($sel_mb_group, (int)$g['mb_group']).'>'
+                       . get_text($g['mb_group_name']).' (상담원 '.(int)$g['member_count'].')</option>';
+                }
+            }
+            ?>
         </select>
     <?php } else { ?>
         <input type="hidden" name="mb_group" value="<?php echo (int)$sel_mb_group; ?>">
@@ -162,6 +260,7 @@ $colspan = 8; // 조직명 / 이름 / 아이디 / 상태 / 등록일 / 최종접
         <option value="mb_name"<?php echo get_selected($sfl, 'mb_name'); ?>>이름</option>
         <option value="mb_id"<?php echo get_selected($sfl, 'mb_id'); ?>>아이디</option>
         <option value="mb_group_name"<?php echo get_selected($sfl, 'mb_group_name'); ?>>조직명</option>
+        <option value="company_name"<?php echo get_selected($sfl, 'company_name'); ?>>회사명</option>
     </select>
     <label for="stx" class="sound_only">검색어</label>
     <input type="text" name="stx" id="stx" value="<?php echo get_text($stx); ?>" class="frm_input">
@@ -176,12 +275,13 @@ $colspan = 8; // 조직명 / 이름 / 아이디 / 상태 / 등록일 / 최종접
                 <?php if($member['mb_level'] >= 8) { ?>
                 <th scope="col">권한</th>
                 <?php } ?>
+                <th scope="col"><?php echo subject_sort_link('m.company_name', "company_id={$sel_company_id}&mb_group={$sel_mb_group}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}"); ?>회사</a></th>
                 <th scope="col">조직명</th>
-                <th scope="col"><?php echo subject_sort_link('m.mb_name', "mb_group={$sel_mb_group}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}"); ?>이름</a></th>
-                <th scope="col"><?php echo subject_sort_link('m.mb_id', "mb_group={$sel_mb_group}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}"); ?>아이디</a></th>
+                <th scope="col"><?php echo subject_sort_link('m.mb_name', "company_id={$sel_company_id}&mb_group={$sel_mb_group}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}"); ?>이름</a></th>
+                <th scope="col"><?php echo subject_sort_link('m.mb_id', "company_id={$sel_company_id}&mb_group={$sel_mb_group}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}"); ?>아이디</a></th>
                 <th scope="col">상태</th>
-                <th scope="col"><?php echo subject_sort_link('m.mb_datetime', "mb_group={$sel_mb_group}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}"); ?>등록일</a></th>
-                <th scope="col"><?php echo subject_sort_link('m.mb_today_login', "mb_group={$sel_mb_group}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}"); ?>최종접속일</a></th>
+                <th scope="col"><?php echo subject_sort_link('m.mb_datetime', "company_id={$sel_company_id}&mb_group={$sel_mb_group}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}"); ?>등록일</a></th>
+                <th scope="col"><?php echo subject_sort_link('m.mb_today_login', "company_id={$sel_company_id}&mb_group={$sel_mb_group}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}"); ?>최종접속일</a></th>
                 <th scope="col">수정</th>
                 <th scope="col">차단</th>
             </tr>
@@ -190,26 +290,33 @@ $colspan = 8; // 조직명 / 이름 / 아이디 / 상태 / 등록일 / 최종접
             <?php
             for ($i=0; $row = sql_fetch_array($result); $i++) {
                 $bg = 'bg'.($i%2);
-                // 상태 표시
+
+                // 상태
                 $status_label = '정상';
                 if (!empty($row['mb_leave_date'])) {
                     $status_label = '<span class="mb_leave_msg">탈퇴</span>';
                 } elseif (!empty($row['mb_intercept_date'])) {
                     $status_label = '<span class="mb_intercept_msg">차단</span>';
                 }
-                $level_name = '회원';
-                if($row['mb_level'] == 7) $level_name = '조직장';
-                else if($row['mb_level'] == 8) $level_name = '관리자';
-                // 날짜 포맷
-                $reg_date = $row['mb_datetime'] ? substr($row['mb_datetime'], 0, 10) : '';
-                $last_login = $row['mb_today_login'] ? substr($row['mb_today_login'], 0, 10) : '';
+
+                // 권한 배지
+                list($role_name, $role_class) = role_label_and_class((int)$row['mb_level']);
+
+                // 표시용 회사/그룹 이름(정식 소유자 레코드 기준)
+                $disp_company = get_company_name_cached((int)$row['company_id']);
+                $disp_group   = get_group_name_cached((int)$row['mb_group']);
+
+                // 날짜
+                $reg_date   = $row['mb_datetime']     ? substr($row['mb_datetime'], 0, 10) : '';
+                $last_login = $row['mb_today_login']  ? substr($row['mb_today_login'], 0, 10) : '';
                 ?>
                 <tr class="<?php echo $bg; ?>">
-                    <?php if($member['mb_level'] >= 8) { ?>                
-                    <td class="td_left"><?php echo $level_name; ?></td>
+                    <?php if($member['mb_level'] >= 8) { ?>
+                    <td class=""><span class="badge <?php echo $role_class; ?>"><?php echo $role_name; ?></span></td>
                     <?php } ?>
-                    <td class="td_left"><?php echo get_text($row['org_name']); ?></td>
-                    <td class="td_mbname"><?php echo get_text($row['mb_name']); ?><?php echo ($row['mb_level']==7?' <span class="sound_only"></span>':'' ); ?></td>
+                    <td class="td_left"><?php echo get_text($disp_company); ?></td>
+                    <td class="td_left"><?php echo get_text($disp_group); ?></td>
+                    <td class="td_mbname"><?php echo get_text($row['mb_name']); ?></td>
                     <td class="td_left"><?php echo get_text($row['mb_id']); ?></td>
                     <td class="td_mbstat"><?php echo $status_label; ?></td>
                     <td class="td_datetime"><?php echo $reg_date; ?></td>
@@ -244,6 +351,7 @@ $colspan = 8; // 조직명 / 이름 / 아이디 / 상태 / 등록일 / 최종접
 <?php
 // 페이징
 $qstr = http_build_query([
+    'company_id'=>$sel_company_id,
     'mb_group'=>$sel_mb_group,
     'include_blocked'=>$include_blocked,
     'sfl'=>$sfl,
@@ -253,5 +361,21 @@ $qstr = http_build_query([
 ]);
 echo get_paging(G5_IS_MOBILE ? $config['cf_mobile_pages'] : $config['cf_write_pages'], $page, $total_page, "{$_SERVER['SCRIPT_NAME']}?{$qstr}&amp;page=");
 ?>
+
+<style>
+/* 회사별 구분선 option */
+.opt-sep { color:#888; font-style:italic; }
+
+/* 권한 배지 */
+.badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; line-height:1.6; color:#fff; }
+.badge-company { background:#2563eb; } /* 파랑: 회사관리자 */
+.badge-leader  { background:#059669; } /* 초록: 그룹리더 */
+.badge-member  { background:#6b7280; } /* 회색: 상담원 */
+.badge-admin   { background:#7c3aed; } /* 보라: 플랫폼관리자(참고) */
+
+/* 상태 라벨 */
+.mb_leave_msg { color:#d14343; font-weight:600; }
+.mb_intercept_msg { color:#b45309; font-weight:600; }
+</style>
 
 <?php include_once (G5_ADMIN_PATH.'/admin.tail.php'); ?>

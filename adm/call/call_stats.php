@@ -3,7 +3,9 @@
 $sub_menu = '700200';
 require_once './_common.php';
 
-// 접근 권한: 관리자 레벨 7 이상만
+// -----------------------------
+// 접근 권한: 레벨 7 미만 금지
+// -----------------------------
 if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
     alert('접근 권한이 없습니다.');
 }
@@ -30,6 +32,7 @@ function stats_cache_key($suffix='') {
         'q'=>$_GET['q']??'',
         'q_type'=>$_GET['q_type']??'',
         'status'=>$_GET['status']??'',
+        'company_id'=>$_GET['company_id']??'',
         'mb_group'=>$_GET['mb_group']??'',
         'agent'=>$_GET['agent']??'',
         'role'=>$GLOBALS['member']['mb_level']??0,
@@ -41,43 +44,47 @@ function stats_cache_key($suffix='') {
 // --------------------------------------------------
 // 기본/입력 파라미터
 // --------------------------------------------------
-$mb_no      = (int)($member['mb_no'] ?? 0);
-$mb_level   = (int)($member['mb_level'] ?? 0);
-$my_group   = isset($member['mb_group']) ? (int)$member['mb_group'] : 0;
+$mb_no         = (int)($member['mb_no'] ?? 0);
+$mb_level      = (int)($member['mb_level'] ?? 0);
+$my_group      = (int)($member['mb_group'] ?? 0);
+$my_company_id = (int)($member['company_id'] ?? 0);
+$member_table  = $g5['member_table']; // g5_member
 
 $today      = date('Y-m-d');
-$yesterday  = date('Y-m-d', strtotime('-1 day'));
-
-// 기본기간: 오늘 하루
 $default_start = $today;
 $default_end   = $today;
 
 $start_date = _g('start', $default_start);
 $end_date   = _g('end',   $default_end);
 
-// 그룹/담당자 선택(레벨별)
-$sel_mb_group = ($mb_level >= 8) ? (int)($_GET['mb_group'] ?? 0) : $my_group; // 레벨8+: 전체/특정그룹 선택 가능, 레벨7: 본인그룹 고정
-$sel_agent_no = (int)($_GET['agent'] ?? 0); // 담당자 선택(선택사항)
+// ★ 권한 스코프에 따른 회사/그룹/담당자 선택값
+if ($mb_level >= 9) {
+    $sel_company_id = (int)($_GET['company_id'] ?? 0); // 0=전체 회사
+} else {
+    $sel_company_id = $my_company_id; // 8/7 고정
+}
+$sel_mb_group = ($mb_level >= 8) ? (int)($_GET['mb_group'] ?? 0) : $my_group; // 8+=선택, 7=고정
+$sel_agent_no = (int)($_GET['agent'] ?? 0);
 
 // 검색/필터
 $q         = _g('q', '');
-$q_type    = _g('q_type', '');           // name | last4 | full
+$q_type    = _g('q_type', '');           // name | last4 | full | all
 $f_status  = isset($_GET['status']) ? (int)$_GET['status'] : 0;  // 0=전체
 $page      = max(1, (int)(_g('page', '1')));
-$page_rows = 15; // ✅ 상세 리스트는 언제나 15건 고정
+$page_rows = 15; // 상세 리스트 15건 고정
 $offset    = ($page - 1) * $page_rows;
 
 // --------------------------------------------------
-// WHERE 구성
+// WHERE 구성 (company/group/agent/기간/검색)
 // --------------------------------------------------
 $where = [];
 
-// 기간 조건 (종료일 23:59:59 포함)
+// 기간 (통계는 call_start 기준)
 $start_esc = sql_escape_string($start_date.' 00:00:00');
 $end_esc   = sql_escape_string($end_date.' 23:59:59');
 $where[]   = "l.call_start BETWEEN '{$start_esc}' AND '{$end_esc}'";
 
-// 상태 코드 필터
+// 상태
 if ($f_status > 0) {
     $where[] = "l.call_status = {$f_status}";
 }
@@ -102,40 +109,33 @@ if ($q !== '' && $q_type !== '') {
         }
     } elseif ($q_type === 'all') {
         $q_esc = sql_escape_string($q);
-        $q4 = preg_replace('/\D+/', '', $q);
-        $q4 = substr($q4, -4);
-        $hp = preg_replace('/\D+/', '', $q);
+        $q4    = substr(preg_replace('/\D+/', '', $q), -4);
+        $hp    = preg_replace('/\D+/', '', $q);
 
-        $conds = [];
-        $conds[] = "t.name LIKE '%{$q_esc}%'";
-        if ($q4 !== '') {
-            $q4_esc = sql_escape_string($q4);
-            $conds[] = "t.hp_last4 = '{$q4_esc}'";
-        }
-        if ($hp !== '') {
-            $hp_esc = sql_escape_string($hp);
-            $conds[] = "l.call_hp = '{$hp_esc}'";
-        }
-
-        // 조건을 OR로 묶기
-        if (!empty($conds)) {
-            $where[] = '(' . implode(' OR ', $conds) . ')';
-        }
+        $conds = ["t.name LIKE '%{$q_esc}%'"];
+        if ($q4 !== '') $conds[] = "t.hp_last4 = '".sql_escape_string($q4)."'";
+        if ($hp !== '') $conds[] = "l.call_hp = '".sql_escape_string($hp)."'";
+        if ($conds) $where[] = '(' . implode(' OR ', $conds) . ')';
     }
 }
 
-// 권한/선택 필터
+// 권한/선택 스코프
 if ($mb_level == 7) {
     $where[] = "l.mb_group = {$my_group}";
 } elseif ($mb_level < 7) {
     $where[] = "l.mb_no = {$mb_no}";
-} else { // 레벨 8+
-    if ($sel_mb_group > 0) {
-        $where[] = "l.mb_group = {$sel_mb_group}";
+} else {
+    // 회사 스코프는 에이전트의 company_id 기준
+    if ($mb_level == 8) {
+        $where[] = "m.company_id = {$my_company_id}";
+    } elseif ($mb_level >= 9 && $sel_company_id > 0) {
+        $where[] = "m.company_id = {$sel_company_id}";
     }
+    // 그룹 선택
+    if ($sel_mb_group > 0) $where[] = "l.mb_group = {$sel_mb_group}";
 }
 
-// 담당자 선택(가능한 경우)
+// 담당자 선택
 if ($sel_agent_no > 0) {
     $where[] = "l.mb_no = {$sel_agent_no}";
 }
@@ -146,19 +146,18 @@ $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
 // 전역: 상태코드 목록 (셀렉트 박스용)
 // --------------------------------------------------
 $codes = [];
-$qc = "
+$rc = sql_query("
     SELECT call_status, name_ko, status
       FROM call_status_code
      WHERE mb_group=0
      ORDER BY sort_order ASC, call_status ASC
-";
-$rc = sql_query($qc);
+");
 while ($r = sql_fetch_array($rc)) $codes[] = $r;
 
 // --------------------------------------------------
 // 코드 리스트(요약 헤더용)
 // --------------------------------------------------
-$code_list = get_code_list($sel_mb_group); // 그룹별 코드셋 고려
+$code_list = get_code_list($sel_mb_group);
 $code_list_status = [];
 $status_ui = [];
 foreach($code_list as $v) {
@@ -166,14 +165,10 @@ foreach($code_list as $v) {
     $status_ui[(int)$v['call_status']] = $v['ui_type'] ?? 'secondary';
 }
 
-// 공통 테이블명
-$member_table = $g5['member_table']; // g5_member
-
 // --------------------------------------------------
 // (공통) 통계 계산 함수
-//   - 상단 총합(상태코드별)
-//   - 피벗 (선택에 따라 그룹별 또는 담당자별)
-//   - 그룹 미선택 시: 그룹별 담당자 통계
+//  ※ 회사 스코프 조건이 where_sql에 포함되므로
+//    반드시 g5_member m 조인이 필요
 // --------------------------------------------------
 function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $sel_mb_group) {
     $result = [
@@ -185,7 +180,6 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         'matrix' => [],
         'dim_totals' => [],
         'dim_labels' => [],
-        // 그룹별 담당자
         'group_agent_matrix' => [],
         'group_agent_totals' => [],
         'group_totals' => [],
@@ -193,11 +187,12 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         'agent_labels' => [],
     ];
 
-    // 상단 총합(상태코드별)
+    // 상단 총합
     $sql_top_sum = "
         SELECT l.call_status, COUNT(*) AS cnt
           FROM call_log l
           JOIN call_target t ON t.target_id = l.target_id
+     LEFT JOIN {$member_table} m ON m.mb_no = l.mb_no
         {$where_sql}
          GROUP BY l.call_status
     ";
@@ -208,7 +203,6 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         $result['top_sum_by_status'][$st] = $c;
         $result['grand_total'] += $c;
 
-        // 성공/실패 그룹 집계
         $row = sql_fetch("
             SELECT COALESCE(result_group, CASE WHEN {$st} BETWEEN 200 AND 299 THEN 1 ELSE 0 END) AS rg
               FROM call_status_code
@@ -219,10 +213,9 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         if ($rg === 1) $result['success_total'] += $c; else $result['fail_total'] += $c;
     }
 
-    // 피벗: 행 차원 결정
+    // 피벗
     $dim_mode = ($mb_level >= 8 && $sel_mb_group === 0) ? 'group'
-              : (($mb_level == 7 && $sel_mb_group > 0) ? 'agent'
-              : (($sel_mb_group > 0) ? 'agent' : 'group'));
+              : (($sel_mb_group > 0) ? 'agent' : 'group');
     $result['dim_mode'] = $dim_mode;
 
     $dim_select = ($dim_mode === 'group') ? 'l.mb_group' : 'l.mb_no';
@@ -230,6 +223,7 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         SELECT {$dim_select} AS dim_id, l.call_status, COUNT(*) AS cnt
           FROM call_log l
           JOIN call_target t ON t.target_id = l.target_id
+     LEFT JOIN {$member_table} m ON m.mb_no = l.mb_no
         {$where_sql}
          GROUP BY dim_id, l.call_status
          ORDER BY dim_id ASC
@@ -245,7 +239,7 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         $result['dim_totals'][$did] += $cnt;
     }
 
-    // 라벨 매핑
+    // 라벨
     if ($dim_mode === 'agent') {
         $ids = array_keys($result['matrix']);
         if ($ids) {
@@ -255,34 +249,30 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
                 $result['dim_labels'][(int)$row['mb_no']] = get_text($row['mb_name']);
             }
         }
-    } else { // group
+    } else {
         $ids = array_keys($result['matrix']);
         if ($ids) {
             $id_list = implode(',', array_map('intval', $ids));
-            $qry = "
+            $rs = sql_query("
                 SELECT DISTINCT mb_group,
                        COALESCE(mb_group_name, CONCAT('그룹 ', mb_group)) AS nm
                   FROM {$member_table}
                  WHERE mb_group IN ({$id_list})
-            ";
-            $rs = sql_query($qry);
+            ");
             while ($r = sql_fetch_array($rs)) {
                 $result['dim_labels'][(int)$r['mb_group']] = get_text($r['nm']);
             }
-            foreach ($ids as $gid) {
-                if (!isset($result['dim_labels'][(int)$gid])) {
-                    $result['dim_labels'][(int)$gid] = '그룹 '.(int)$gid;
-                }
-            }
+            foreach ($ids as $gid) if (!isset($result['dim_labels'][$gid])) $result['dim_labels'][$gid] = '그룹 '.$gid;
         }
     }
 
-    // 그룹 미선택 시: 그룹별 담당자 통계
+    // 그룹 미선택 시: 그룹별 담당자
     if ($sel_mb_group === 0) {
         $sql_ga = "
             SELECT l.mb_group AS gid, l.mb_no AS agent_id, l.call_status, COUNT(*) AS cnt
               FROM call_log l
               JOIN call_target t ON t.target_id = l.target_id
+         LEFT JOIN {$member_table} m ON m.mb_no = l.mb_no
             {$where_sql}
              GROUP BY gid, agent_id, l.call_status
              ORDER BY gid ASC, agent_id ASC
@@ -305,7 +295,7 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
             $result['group_totals'][$gid] += $cnt;
         }
 
-        // 라벨 벌크 로딩
+        // 라벨 벌크
         if ($result['group_agent_matrix']) {
             $gids = array_map('intval', array_keys($result['group_agent_matrix']));
             $glist = implode(',', $gids);
@@ -339,85 +329,40 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
 }
 
 // --------------------------------------------------
-// AJAX: 통계만 JSON 반환 (?ajax=stats)
-//   - APCu로 30초 캐시
-// --------------------------------------------------
-if (isset($_GET['ajax']) && $_GET['ajax']==='stats') {
-    $cacheKey = stats_cache_key('stats');
-    $cached = microcache_get($cacheKey);
-    if ($cached !== null) {
-        header('Content-Type: application/json; charset=utf-8');
-        echo $cached;
-        exit;
-    }
-    $stats = build_stats($where_sql, $member_table, $code_list_status, $mb_level, $sel_mb_group);
-
-    $payload = [
-        'grand_total'   => (int)$stats['grand_total'],
-        'success_total' => (int)$stats['success_total'],
-        'fail_total'    => (int)$stats['fail_total'],
-        'status_total'  => $stats['top_sum_by_status'],
-        'pivot' => [
-            'mode'   => $stats['dim_mode'], // group | agent
-            'labels' => $stats['dim_labels'],
-            'rows'   => $stats['matrix'],
-            'totals' => $stats['dim_totals'],
-        ],
-    ];
-    if ($sel_mb_group === 0) {
-        $payload['group_agent'] = [
-            'matrix'        => $stats['group_agent_matrix'],
-            'agent_totals'  => $stats['group_agent_totals'],
-            'group_totals'  => $stats['group_totals'],
-            'group_labels'  => $stats['group_labels'],
-            'agent_labels'  => $stats['agent_labels'],
-        ];
-    }
-
-    $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
-    microcache_set($cacheKey, $json, 30);
-    header('Content-Type: application/json; charset=utf-8');
-    echo $json;
-    exit;
-}
-
-// --------------------------------------------------
-// 총 건수 (상세 리스트 페이징용)
+// 총 건수 (상세 리스트 페이징용) — 회사 스코프 반영을 위해 m 조인
 // --------------------------------------------------
 $sql_cnt = "
     SELECT COUNT(*) AS cnt
       FROM call_log l
       JOIN call_target t ON t.target_id = l.target_id
+ LEFT JOIN {$member_table} m ON m.mb_no = l.mb_no
     {$where_sql}
 ";
 $row_cnt = sql_fetch($sql_cnt);
 $total_count = (int)($row_cnt['cnt'] ?? 0);
 
 // --------------------------------------------------
-// 상세 목록 쿼리 (항상 노출, 15건 고정)
+// 상세 목록 쿼리 (15건 고정)
+//  + 전화번호 숨김 규칙 적용을 위해 cc.is_open_number, sc.is_after_call 선택
 // --------------------------------------------------
-// 상세 목록 쿼리 (항상 노출, 15건 고정)
-// - 그룹명: g5_member 전체에서 그룹별 대표명(파생 테이블) join
-// - 통화결과 라벨: call_status_code (mb_group=0 공통셋)
-// - 상담시간: call_recording.duration_sec
-// - 캠페인명: call_campaign.name (status=1 only)
 $sql_list = "
     SELECT
         l.call_id, 
         l.mb_group,
-        COALESCE(g.mv_group_name, CONCAT('그룹 ', l.mb_group))          AS group_name,   -- 그룹명
-        l.mb_no                                                        AS agent_id,     -- 아이디(상담원 ID)
-        m.mb_name                                                      AS agent_name,   -- 상담원명
-        m.mb_id                                                        AS agent_mb_id,   -- 상담원아이디
+        COALESCE(g.mv_group_name, CONCAT('그룹 ', l.mb_group))          AS group_name,
+        l.mb_no                                                        AS agent_id,
+        m.mb_name                                                      AS agent_name,
+        m.mb_id                                                        AS agent_mb_id,
+        m.company_id                                                   AS agent_company_id,
         l.call_status,
-        sc.name_ko                                                     AS status_label, -- 통화결과
+        sc.name_ko                                                     AS status_label,
+        sc.is_after_call                                               AS sc_is_after_call,   -- ★ 추가
         l.call_start, 
         l.call_end,
         l.call_time,                                                   -- 통화시간(초)
-        rec.duration_sec                                               AS talk_time,    -- 상담시간(녹취 길이 기준, 없으면 NULL)
-        t.name                                                         AS target_name,  -- 고객명
+        rec.duration_sec                                               AS talk_time,          -- 상담시간
+        t.name                                                         AS target_name,
         t.birth_date,
-        -- 만나이 계산
         CASE
           WHEN t.birth_date IS NULL THEN NULL
           ELSE TIMESTAMPDIFF(YEAR, t.birth_date, CURDATE())
@@ -425,32 +370,32 @@ $sql_list = "
         END AS man_age,
         l.call_hp,
         t.meta_json,
-        cc.name                                                        AS campaign_name -- 캠페인명
+        cc.name                                                        AS campaign_name,
+        cc.is_open_number                                              AS cc_is_open_number   -- ★ 추가
     FROM call_log l
     JOIN call_target t 
       ON t.target_id = l.target_id
-    LEFT JOIN {$member_table} m 
+ LEFT JOIN {$member_table} m 
       ON m.mb_no = l.mb_no
-    /* 그룹명: 그룹별 대표명 뽑는 파생 테이블 */
-    LEFT JOIN (
+    /* 그룹명: 그룹별 대표명 파생 */
+ LEFT JOIN (
         SELECT mb_group, MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_group))) AS mv_group_name
           FROM {$member_table}
          WHERE mb_group > 0
          GROUP BY mb_group
-    ) AS g ON g.mb_group = l.mb_group
+ ) AS g ON g.mb_group = l.mb_group
     /* 통화결과 라벨(공통셋) */
-    LEFT JOIN call_status_code sc
+ LEFT JOIN call_status_code sc
       ON sc.call_status = l.call_status AND sc.mb_group = 0
     /* 상담시간(녹취 길이) */
-    LEFT JOIN call_recording rec
+ LEFT JOIN call_recording rec
       ON rec.call_id = l.call_id 
      AND rec.mb_group = l.mb_group
      AND rec.campaign_id = l.campaign_id
-    /* 캠페인명 */
-    JOIN call_campaign cc
+    /* 캠페인명/옵션 */
+  JOIN call_campaign cc
       ON cc.campaign_id = l.campaign_id
      AND cc.mb_group = l.mb_group
-    /* AND cc.status = 1 */
     {$where_sql}
     ORDER BY l.call_start DESC, l.call_id DESC
     LIMIT {$offset}, {$page_rows}
@@ -478,28 +423,70 @@ $group_labels        = $stats['group_labels'];
 $agent_labels        = $stats['agent_labels'];
 
 // --------------------------------------------------
-// 화면 출력 준비
+// 회사/그룹/담당자 드롭다운 옵션
 // --------------------------------------------------
-$token = get_token();
-$g5['title'] = '통계확인';
-include_once(G5_ADMIN_PATH.'/admin.head.php');
-$listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목록</a>';
 
-// 에이전트 드롭다운용 (권한 범위 내 기본 전체 노출)
+// (1) 회사 옵션 (레벨 9+)
+$company_options = [];
+if ($mb_level >= 9) {
+    $res = sql_query("
+        SELECT m.company_id
+          FROM {$member_table} m
+         WHERE m.mb_level = 8
+         GROUP BY m.company_id
+         ORDER BY COALESCE(NULLIF(m.company_name,''), CONCAT('회사-', m.company_id)) ASC, m.company_id ASC
+    ");
+    while ($r = sql_fetch_array($res)) {
+        $cid   = (int)$r['company_id'];
+        $cname = get_company_name_cached($cid);
+        $company_options[] = [
+            'company_id'   => $cid,
+            'company_name' => $cname,
+        ];
+    }
+}
+
+// (2) 그룹 옵션 (레벨 8+)
+$group_options = [];
+if ($mb_level >= 8) {
+    $where_g = " WHERE m.mb_level = 7 ";
+    if ($mb_level >= 9) {
+        if ($sel_company_id > 0) $where_g .= " AND m.company_id = '{$sel_company_id}' ";
+    } else {
+        $where_g .= " AND m.company_id = '{$my_company_id}' ";
+    }
+    $rs = sql_query("
+        SELECT m.mb_group,
+               COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹 ', m.mb_group)) AS mb_group_name
+          FROM {$member_table} m
+          {$where_g}
+         GROUP BY m.mb_group, mb_group_name
+         ORDER BY mb_group_name ASC, m.mb_group ASC
+    ");
+    while ($row = sql_fetch_array($rs)) {
+        $group_options[] = [
+            'mb_group'      => (int)$row['mb_group'],
+            'mb_group_name' => get_text($row['mb_group_name']),
+        ];
+    }
+}
+
+// (3) 담당자 옵션 (회사/그룹 스코프 반영)
 $agent_options = [];
 $agent_where = [];
 $agent_order = " ORDER BY mb_group ASC, mb_name ASC, mb_no ASC ";
 
 if ($mb_level >= 8) {
-    if ($sel_mb_group > 0) {
-        $agent_where[] = "mb_group = {$sel_mb_group}";
-    } else {
-        $agent_where[] = "mb_group > 0";
+    if ($mb_level == 8) {
+        $agent_where[] = "company_id = {$my_company_id}";
+    } elseif ($mb_level >= 9 && $sel_company_id > 0) {
+        $agent_where[] = "company_id = {$sel_company_id}";
     }
-} else { // 레벨7 이하는 본인 그룹만
+    if ($sel_mb_group > 0) $agent_where[] = "mb_group = {$sel_mb_group}";
+    else $agent_where[] = "mb_group > 0";
+} else {
     $agent_where[] = "mb_group = {$my_group}";
 }
-
 $agent_where_sql = $agent_where ? ('WHERE '.implode(' AND ', $agent_where)) : '';
 
 $qr = sql_query("
@@ -521,29 +508,17 @@ while ($r = sql_fetch_array($qr)) {
     ];
 }
 
-
-// 그룹 드롭다운용 (레벨 8+ 전용, 그룹명 사용)
-$group_options = [];
-if ($mb_level >= 8) {
-    $sql = "
-        SELECT DISTINCT mb_group,
-               COALESCE(mb_group_name, CONCAT('그룹 ', mb_group)) AS mb_group_name
-          FROM {$member_table}
-         WHERE mb_group > 0
-           AND mb_group_name IS NOT NULL AND mb_group_name <> ''
-         ORDER BY mb_group_name ASC
-    ";
-    $res = sql_query($sql);
-    while ($row = sql_fetch_array($res)) {
-        $group_options[] = [
-            'mb_group'      => (int)$row['mb_group'],
-            'mb_group_name' => $row['mb_group_name'],
-        ];
-    }
-}
+// --------------------------------------------------
+// 화면 출력
+// --------------------------------------------------
+$token = get_token();
+$g5['title'] = '통계확인';
+include_once(G5_ADMIN_PATH.'/admin.head.php');
+$listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목록</a>';
 ?>
 <style>
-
+/* 그룹 구분선 option */
+.opt-sep { color:#888; font-style:italic; }
 </style>
 
 <!-- 검색/필터 -->
@@ -583,15 +558,6 @@ if ($mb_level >= 8) {
             <?php } ?>
         </select>
 
-        <!-- ✅ 표시건수: 15건 고정 정책 → UI 비활성화/숨김 -->
-        <!--
-        <span>&nbsp;|&nbsp;</span>
-        <label for="rows">표시건수</label>
-        <select name="rows" id="rows" disabled>
-            <option value="15" selected>15</option>
-        </select>
-        -->
-
         <button type="submit" class="btn btn_01">검색</button>
         <?php if ($where_sql) { ?>
         <a href="./call_stats.php" class="btn btn_02">초기화</a>
@@ -606,7 +572,22 @@ if ($mb_level >= 8) {
 
         <span class="row-split"></span>
 
-        <!-- 2줄차: 레벨별 그룹/담당자 셀렉트 -->
+        <!-- 2줄차: 회사/그룹/담당자 -->
+        <?php if ($mb_level >= 9) { ?>
+            <label for="company_id">회사</label>
+            <select name="company_id" id="company_id" style="width:200px">
+                <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
+                <?php foreach ($company_options as $c) { ?>
+                    <option value="<?php echo (int)$c['company_id'];?>" <?php echo ($sel_company_id===(int)$c['company_id']?' selected':'');?>>
+                        <?php echo get_text($c['company_name']);?>
+                    </option>
+                <?php } ?>
+            </select>
+        <?php } else { ?>
+            <input type="hidden" name="company_id" value="<?php echo (int)$sel_company_id; ?>">
+            <span class="small-muted">회사: <?php echo get_text(get_company_name_cached($sel_company_id));?></span>
+        <?php } ?>
+
         <?php if ($mb_level >= 8) { ?>
             <label for="mb_group">그룹선택</label>
             <select name="mb_group" id="mb_group" style="width:200px">
@@ -621,7 +602,6 @@ if ($mb_level >= 8) {
         <?php } else { ?>
             <input type="hidden" name="mb_group" value="<?php echo $sel_mb_group; ?>">
             <?php
-            // 레벨7에서 옆에 노출할 그룹명 (선택된 그룹 이름)
             $sel_group_name = '';
             if ($sel_mb_group > 0) {
                 $row = sql_fetch("
@@ -640,22 +620,7 @@ if ($mb_level >= 8) {
         <label for="agent">담당자</label>
         <select name="agent" id="agent" style="width:220px">
             <option value="0">전체 담당자</option>
-            <?php
-            if (empty($agent_options)) {
-                echo '<option value="" disabled>담당자가 없습니다</option>';
-            } else {
-                $last_gid = null;
-                foreach ($agent_options as $a) {
-                    if ($last_gid !== $a['mb_group']) {
-                        // 그룹 구분용(선택 불가)
-                        echo '<option value="" disabled class="opt-sep">── '.get_text($a['mb_group_name']).' ──</option>';
-                        $last_gid = $a['mb_group'];
-                    }
-                    $sel = ($sel_agent_no === (int)$a['mb_no']) ? ' selected' : '';
-                    echo '<option value="'.$a['mb_no'].'"'.$sel.'>'.get_text($a['mb_name']).'</option>';
-                }
-            }
-            ?>
+            <?php echo render_agent_options($agent_options, $sel_agent_no); ?>
         </select>
         <?php } ?>
     </form>
@@ -682,7 +647,6 @@ if ($mb_level >= 8) {
         </tr>
         </thead>
         <tbody>
-        <!-- 최상단 합계 행 -->
         <tr style="background:#fafafa;font-weight:bold;">
             <td>합계</td>
             <td><?php echo number_format($grand_total); ?></td>
@@ -719,7 +683,7 @@ if ($mb_level >= 8) {
     </table>
 </div>
 
-<!-- ✅ (신규) 그룹 미선택 시: 그룹별 담당자 통계 -->
+<!-- 그룹 미선택 시: 그룹별 담당자 통계 -->
 <?php if ($sel_mb_group === 0) { ?>
     <h3 style="margin-top:18px;">그룹별 담당자 통계</h3>
 
@@ -743,7 +707,6 @@ if ($mb_level >= 8) {
                     </tr>
                 </thead>
                 <tbody>
-                    <!-- 그룹 소계 행 -->
                     <tr style="background:#fafafa;font-weight:bold;">
                         <td><?php echo get_text($group_labels[$gid] ?? ('그룹 '.$gid)); ?> 합계</td>
                         <td><?php echo number_format((int)($group_totals[$gid] ?? 0)); ?></td>
@@ -782,11 +745,11 @@ if ($mb_level >= 8) {
                 </tbody>
             </table>
         </div>
-        <?php } // foreach 그룹 ?>
-    <?php } // else 데이터 존재 ?>
-<?php } // 그룹 미선택 end ?>
+        <?php } ?>
+    <?php } ?>
+<?php } ?>
 
-<!-- ✅ 상세 목록 : 항상 노출 (15건 고정) -->
+<!-- 상세 목록 : 15건 고정 -->
 <div class="tbl_head01 tbl_wrap" style="margin-top:14px;">
     <table class="table-fixed">
         <thead>
@@ -818,22 +781,31 @@ if ($mb_level >= 8) {
                 $talk_sec = is_null($row['talk_time']) ? '-' : fmt_hms((int)$row['talk_time']);
                 $call_sec = is_null($row['call_time']) ? '-' : fmt_hms((int)$row['call_time']);
                 $bday     = empty($row['birth_date']) ? '-' : get_text($row['birth_date']);
-                $man_age   = is_null($row['man_age'])   ? '-' : ((int)$row['man_age']).'세';
+                $man_age  = is_null($row['man_age'])   ? '-' : ((int)$row['man_age']).'세';
                 $agent    = $row['agent_name'] ? get_text($row['agent_name']) : (string)$row['agent_mb_id'];
                 $status   = $row['status_label'] ?: ('코드 '.$row['call_status']);
                 $gname    = $row['group_name'] ?: ('그룹 '.(int)$row['mb_group']);
                 $meta     = '-';
                 if (!is_null($row['meta_json']) && $row['meta_json'] !== '') {
-                    // 메타는 너무 길 경우 앞부분만
-                    // $meta_str = $row['meta_json'];
-                    // if (mb_strlen($meta_str, 'UTF-8') > 60) {
-                    //     $meta_str = mb_substr($meta_str, 0, 60, 'UTF-8').'…';
-                    // }
-                    // $meta = get_text($meta_str);
-                    $meta = implode(', ', json_decode($row['meta_json'], true));
+                    $decoded = json_decode($row['meta_json'], true);
+                    if (is_array($decoded)) {
+                        $kv = [];
+                        foreach ($decoded as $k=>$v) $kv[] = $k.': '.$v;
+                        $meta = implode(', ', $kv);
+                    } else {
+                        $meta = get_text($row['meta_json']);
+                    }
                 }
                 $ui = !empty($status_ui[$row['call_status']]) ? $status_ui[$row['call_status']] : 'secondary';
                 $class = 'status-col status-'.get_text($ui);
+
+                // ★ 전화번호 숨김 규칙:
+                //   - 캠페인 cc.is_open_number == 0 이고
+                //   - 상태코드 sc.is_after_call != 1 이면, 번호는 "(숨김처리)"
+                $hp_display = $hp_fmt;
+                if ((int)$row['cc_is_open_number'] === 0 && (int)$row['sc_is_after_call'] !== 1) {
+                    $hp_display = '(숨김처리)';
+                }
                 ?>
                 <tr>
                     <td><?php echo get_text($gname); ?></td>
@@ -847,7 +819,7 @@ if ($mb_level >= 8) {
                     <td><?php echo get_text($row['target_name'] ?: '-'); ?></td>
                     <td><?php echo $bday; ?></td>
                     <td><?php echo $man_age; ?></td>
-                    <td><?php echo get_text($hp_fmt); ?></td>
+                    <td><?php echo get_text($hp_display); ?></td>
                     <td><?php echo $meta; ?></td>
                     <td><?php echo get_text($row['campaign_name'] ?: '-'); ?></td>
                 </tr>
@@ -888,7 +860,7 @@ $base = './call_stats.php?'.http_build_query($qstr);
 function pad2(n){ return (n<10?'0':'')+n; }
 function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
 
-// 어제/오늘 버튼 및 자동검색
+// 어제/오늘 버튼 및 자동검색 + 회사/그룹/담당자 연동
 (function(){
     var $start = document.getElementById('start');
     var $end   = document.getElementById('end');
@@ -909,17 +881,26 @@ function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getD
         $end.value   = t;
         $form.submit();
     });
-    const start = $start.value;
-    const end = $end.value;
 
     const today = fmt(new Date());
-    const yestDate = new Date();
-    yestDate.setDate(yestDate.getDate() - 1);
+    const yestDate = new Date(); yestDate.setDate(yestDate.getDate() - 1);
     const yesterday = fmt(yestDate);
-    if (start === yesterday && end === yesterday) {
+    if ($start.value === yesterday && $end.value === yesterday) {
         btnYesterday.classList.add('active');
-    } else if (start === today && end === today) {
+    } else if ($start.value === today && $end.value === today) {
         btnToday.classList.add('active');
+    }
+
+    // ★ 회사 변경 시 그룹/담당자 초기화 후 자동검색
+    var companySel = document.getElementById('company_id');
+    if (companySel) {
+        companySel.addEventListener('change', function(){
+            var g = document.getElementById('mb_group');
+            if (g) g.selectedIndex = 0;
+            var a = document.getElementById('agent');
+            if (a) a.selectedIndex = 0;
+            $form.submit();
+        });
     }
 
     // 그룹 변경 시 담당자 초기화 후 자동검색
@@ -941,7 +922,7 @@ function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getD
     }
 })();
 
-// ✅ 페이지 진입 시 상단 통계는 Ajax(+APCu 캐시)로 갱신 가능
+// 상단 통계 Ajax(+APCu 캐시)
 (function(){
   function refreshStats(){
     var url = new URL(location.href);
@@ -956,8 +937,6 @@ function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getD
         if (elTotal) elTotal.textContent = nf.format(data.grand_total||0);
         if (elSucc)  elSucc.textContent  = nf.format(data.success_total||0);
         if (elFail)  elFail.textContent  = nf.format(data.fail_total||0);
-
-        // ※ 필요하면 여기서 피벗/그룹별담당자 표도 data.pivot / data.group_agent로 재그리기
       })
       .catch(console.error);
   }
