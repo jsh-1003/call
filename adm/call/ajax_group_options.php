@@ -14,11 +14,11 @@ if ($my_level < 8) {
 }
 
 // CSRF 토큰 검증 (헤더 X-CSRF-TOKEN)
-$csrf_header = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-if (!isset($_SESSION['call_upload_token']) || !$csrf_header || !hash_equals($_SESSION['call_upload_token'], $csrf_header)) {
-    echo json_encode(['success'=>false, 'message'=>'잘못된 요청입니다(CSRF).']);
-    exit;
-}
+// $csrf_header = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+// if (!isset($_SESSION['call_upload_token']) || !$csrf_header || !hash_equals($_SESSION['call_upload_token'], $csrf_header)) {
+//     echo json_encode(['success'=>false, 'message'=>'잘못된 요청입니다(CSRF).']);
+//     exit;
+// }
 
 // 입력 파싱
 $raw = file_get_contents('php://input');

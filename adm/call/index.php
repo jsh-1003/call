@@ -8,6 +8,11 @@ if ((int)$member['mb_level'] < 3) {
     alert('접근 권한이 없습니다.');
 }
 
+if (!isset($_SESSION['chk_token'])) {
+    $_SESSION['chk_token'] = bin2hex(random_bytes(16));
+}
+$csrf_token = $_SESSION['chk_token'];
+
 // ----------------------------------------------------------------------------------
 // 멤버/권한
 // ----------------------------------------------------------------------------------
@@ -365,7 +370,7 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
                 $gname    = $ginfo['group_name'] ?: '-';
 
                 // 전화번호: is_open_number=0이면 숨김
-                $hp_fmt = ((int)$row['is_open_number'] === 0) ? '(숨김처리)' : _h(format_korean_phone($row['call_hp']));
+                $hp_fmt = ((int)$row['is_open_number'] === 0 && $mb_level < 9) ? '(숨김처리)' : _h(format_korean_phone($row['call_hp']));
 
                 $age     = calc_age_years($row['birth_date']);
                 $age_txt = is_null($age) ? '-' : ($age.'세(만)');
@@ -480,9 +485,7 @@ echo '</div>';
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                <?php if (isset($_SESSION['call_upload_token'])) { ?>
-                'X-CSRF-TOKEN': '<?php echo $_SESSION['call_upload_token']; ?>',
-                <?php } ?>
+                // 'X-CSRF-TOKEN': '<?php echo $_SESSION['call_upload_token']; ?>',
             },
             body: JSON.stringify({ company_id: cid }),
             credentials: 'same-origin'

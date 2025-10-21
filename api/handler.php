@@ -253,6 +253,7 @@ function handle_call_upload(): void {
         } else {
             // 실패 + 재시도 대상 → 지수 백오프 (최대 60분), 상태=대기(1)
             $next_min = min(60, max(1, pow(2, max(0, $attempt_count))));
+            $set[] = "assigned_status = 4";
             $set[] = "attempt_count = attempt_count + 1";
             $set[] = "next_try_at = DATE_ADD(NOW(), INTERVAL {$next_min} MINUTE)";
             $set[] = "assigned_status = 1";
@@ -349,20 +350,48 @@ function handle_call_upload(): void {
 /** =========================
  *  작업할 정보 리스트 반환 (기존 흐름 + meta_json decode)
  *  ========================= */
-function handle_get_user_info_list($token=null): void {
+function handle_get_user_info_list($token = null): void {
+    global $g5;
+
+    // 0) 토큰 확인 및 세션→조직/회원 식별
     $token = $token ?: get_bearer_token_from_headers();
-    $info = get_group_info($token);
-    $mb_group       = $info['mb_group'];
-    $mb_no          = $info['mb_no'];
-    $call_api_count = max(1, $info['call_api_count']);
-    $call_lease_min = $info['call_lease_min'];
-    $campaign_id    = $info['campaign_id']; // = 0
+    $info  = get_group_info($token); // 토큰 → ['mb_no','mb_group','call_api_count','call_lease_min','campaign_id', ...]
+    if (!$info || empty($info['mb_no']) || empty($info['mb_group'])) {
+        send_json(['success' => false, 'message' => 'Invalid or expired token', 'data' => []], 401);
+    }
+
+    $mb_no          = (int)$info['mb_no'];
+    $mb_group       = (int)$info['mb_group'];
+    $call_api_count = max(1, (int)$info['call_api_count']);
+    $call_lease_min = (int)$info['call_lease_min'];
+    $campaign_id    = (int)($info['campaign_id'] ?? 0); // 기본 0
+
+    // 0-1) 토큰 소유자 유효성(차단/탈퇴) 재검증
+    $mb = sql_fetch("SELECT mb_no, mb_id, mb_intercept_date, mb_leave_date
+                       FROM {$g5['member_table']}
+                      WHERE mb_no = {$mb_no}
+                      LIMIT 1");
+    if (!$mb || (int)($mb['mb_no'] ?? 0) !== $mb_no) {
+        send_json(['success' => false, 'message' => 'Account not found', 'data' => []], 401);
+    }
+    $todayYmd = date("Ymd", G5_SERVER_TIME);
+    // 차단
+    if (!empty($mb['mb_intercept_date']) && $mb['mb_intercept_date'] <= $todayYmd) {
+        // 필요 시 revoke_session_token($token); // (선택) 세션 만료 처리
+        send_json(['success' => false, 'message' => 'Access blocked account', 'data' => []], 403);
+    }
+    // 탈퇴
+    if (!empty($mb['mb_leave_date']) && $mb['mb_leave_date'] <= $todayYmd) {
+        // 필요 시 revoke_session_token($token);
+        send_json(['success' => false, 'message' => 'Leaved account', 'data' => []], 403);
+    }
 
     // 1) 만료 회수
     call_assign_release_expired($mb_group, $campaign_id);
 
     // 2) 현재 보유 개수(통화전=1, 리스 유효)
     $k = call_assign_count_my_queue($mb_group, $mb_no, $campaign_id, '1', true);
+
     // 3) 모자라면 배정
     $need = max(0, $call_api_count - $k);
     if ($need > 0) {
@@ -382,7 +411,7 @@ function handle_get_user_info_list($token=null): void {
             ],
             $campaign_id
         );
-        if (!$result['ok'] && $need == $call_api_count) {
+        if (!$result['ok'] && $need === $call_api_count) {
             send_json([
                 'success' => false,
                 'message' => '배정실패',
@@ -395,11 +424,22 @@ function handle_get_user_info_list($token=null): void {
     $rows = call_assign_list_my_queue($mb_group, $mb_no, $call_api_count, $campaign_id, '1', true);
     $list = [];
     foreach ($rows as $row) {
-        if($row['target_id'] == 14) $row['assign_lease_until'] = '2025-10-13 13:20:45';
+        $sex_txt = '';
+        if ((int)$row['sex'] === 1) $sex_txt = '남성';
+        elseif ((int)$row['sex'] === 2) $sex_txt = '여성';
+
+        $meta_json = safe_json_decode_or_null($row['meta_json']);
+        $meta_txt  = '';
+        if ($sex_txt !== '') $meta_txt .= $sex_txt;
+        if (is_array($meta_json) && !empty($meta_json)) {
+            if ($meta_txt !== '') $meta_txt .= ', ';
+            $meta_txt .= implode(', ', $meta_json);
+        }
+
         $list[] = [
             'phoneNumber' => $row['call_hp'],
             'name'        => $row['name'],
-            'info'        => implode(', ', safe_json_decode_or_null($row['meta_json'])),
+            'info'        => $meta_txt,
             'targetId'    => (int)$row['target_id'],
             'leaseUntil'  => $row['assign_lease_until'],
         ];

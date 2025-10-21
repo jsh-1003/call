@@ -61,7 +61,7 @@ $sel_agent_no = (int)($_GET['agent'] ?? 0);
 // ===== 검색/필터 =====
 $q         = _g('q', '');
 $q_type    = _g('q_type', '');              // name | last4 | full | all
-$f_status  = isset($_GET['status']) ? (int)$_GET['status'] : 0;    // 원콜 상태
+// $f_status  = isset($_GET['status']) ? (int)$_GET['status'] : 0;    // 원콜 상태
 $f_acstate = isset($_GET['acstate']) ? (int)$_GET['acstate'] : -1; // 2차콜 상태
 $page      = max(1, (int)(_g('page', '1')));
 $page_rows = 30;
@@ -276,7 +276,7 @@ $end_esc   = sql_escape_string($end_date.' 23:59:59');
 $where[]   = "l.call_start BETWEEN '{$start_esc}' AND '{$end_esc}'";
 $where[]   = "sc.is_after_call = 1";
 
-if ($f_status > 0) $where[] = "l.call_status = {$f_status}";
+// if ($f_status > 0) $where[] = "l.call_status = {$f_status}";
 
 if ($q !== '' && $q_type !== '') {
     if ($q_type === 'name') {
@@ -323,6 +323,18 @@ if ($mb_level == 7) {
         }
     }
 }
+
+// ▼▼▼ 2차콜 상태 필터 추가 ▼▼▼
+if ($f_acstate >= 0) {
+    if ($f_acstate === 0) {
+        // '대기' : 티켓이 없거나(state_id NULL) 0인 경우 포함
+        $where[] = "(tk.state_id IS NULL OR tk.state_id = 0)";
+    } else {
+        $where[] = "tk.state_id = {$f_acstate}";
+    }
+}
+// ▲▲▲ 2차콜 상태 필터 추가 끝 ▲▲▲
+
 if ($sel_agent_no > 0) $where[] = "l.mb_no = {$sel_agent_no}";
 
 $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
@@ -469,7 +481,7 @@ $sql_list = "
     COALESCE(NULLIF(m.mb_name,''), m.mb_id) AS agent_sort,
     sc.name_ko AS status_label,
 
-    t.name AS target_name, t.birth_date, t.meta_json,
+    t.name AS target_name, t.birth_date, t.meta_json, t.sex, 
     CASE
       WHEN t.birth_date IS NULL THEN NULL
       ELSE TIMESTAMPDIFF(YEAR, t.birth_date, CURDATE())
@@ -519,7 +531,7 @@ $res_list = sql_query($sql_list);
 $token = get_token();
 $g5['title'] = '접수관리';
 include_once(G5_ADMIN_PATH.'/admin.head.php');
-
+$listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체목록</a>';
 // 정렬 링크 생성용
 $qparams_for_sort = $_GET;
 unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['page']);
@@ -529,6 +541,14 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
 .th-sort { text-decoration:none; color:inherit; }
 .th-sort:hover { text-decoration:underline; }
 </style>
+
+<div class="local_ov01 local_ov">
+    <?php echo $listall ?>
+    <span class="btn_ov01">
+        <span class="ov_txt">전체 </span>
+        <span class="ov_num"> <?php echo number_format($total_count) ?> 개</span>
+    </span>
+</div>
 
 <div class="local_sch01 local_sch">
     <form method="get" action="./call_after_list.php" class="form-row" id="searchForm" autocomplete="off">
@@ -554,7 +574,7 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
         <input type="text" name="q" value="<?php echo get_text($q);?>" class="frm_input" placeholder="검색어 입력">
 
         <span class="pipe">|</span>
-
+<?php /*
         <label for="status">상태코드</label>
         <select name="status" id="status">
             <option value="0">전체</option>
@@ -564,9 +584,8 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
                 </option>
             <?php } ?>
         </select>
-
         <span class="pipe">|</span>
-
+*/ ?>
         <label for="acstate">2차콜상태</label>
         <select name="acstate" id="acstate">
             <option value="-1" <?php echo $f_acstate<0?'selected':'';?>>전체</option>
@@ -681,6 +700,11 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
                     $arr = json_decode($row['meta_json'], true);
                     if (is_array($arr) && !empty($arr)) $meta = get_text(implode(', ', array_values($arr)));
                 }
+                // 성별 표시
+                $sex_txt = '';
+                if ((int)$row['sex'] === 1) $sex_txt = '남성';
+                elseif ((int)$row['sex'] === 2) $sex_txt = '여성';
+                if ($sex_txt !== '') $meta = '<span class="meta-sex">'.$sex_txt.'</span>, '.$meta;
 
                 $ac_time  = $row['ac_updated_at'] ? fmt_datetime(get_text($row['ac_updated_at']), 'mdhis') : '-';
                 $schedule_disp = format_schedule_display($row['ac_scheduled_at'], $row['ac_schedule_note']);
@@ -862,7 +886,7 @@ function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getD
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
-          // 'X-CSRF-TOKEN': '<?php echo $_SESSION['call_upload_token'] ?? ''; ?>'
+        //   'X-CSRF-TOKEN': '<?php echo $_SESSION['call_upload_token'] ?? ''; ?>
         },
         body: JSON.stringify({ company_id: parseInt(this.value||'0',10)||0 }),
         credentials: 'same-origin'

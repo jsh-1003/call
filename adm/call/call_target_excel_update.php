@@ -42,8 +42,8 @@ function normalize_sex($v) {
     $v = trim(mb_strtolower((string)$v));
     if ($v === '') return 0;
     // 숫자 직접 입력 케이스
-    if ($v === '1' || $v === '남' || $v === '남자' || $v === 'm' || $v === 'male') return 1;
-    if ($v === '2' || $v === '여' || $v === '여자' || $v === 'f' || $v === 'female') return 2;
+    if ($v === '1' || $v === '남' || $v === '남자' || $v === '남성' || $v === 'm' || $v === 'male') return 1;
+    if ($v === '2' || $v === '여' || $v === '여자' || $v === '여성' || $v === 'f' || $v === 'female') return 2;
     return 0;
 }
 

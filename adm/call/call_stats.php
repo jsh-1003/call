@@ -422,91 +422,19 @@ $group_totals        = $stats['group_totals'];
 $group_labels        = $stats['group_labels'];
 $agent_labels        = $stats['agent_labels'];
 
-// --------------------------------------------------
-// 회사/그룹/담당자 드롭다운 옵션
-// --------------------------------------------------
+/**
+ * ========================
+ * 회사/그룹/담당자 드롭다운 옵션
+ * ========================
+ */
+$build_org_select_options = build_org_select_options();
+// 회사 옵션(9+)
+$company_options = $build_org_select_options['company_options'];
+// 그룹 옵션(8+)
+$group_options = $build_org_select_options['group_options'];
+// 상담사 옵션(회사/그룹 필터 반영) — 상담원 레벨(3)만
+$agent_options = $build_org_select_options['agent_options'];
 
-// (1) 회사 옵션 (레벨 9+)
-$company_options = [];
-if ($mb_level >= 9) {
-    $res = sql_query("
-        SELECT m.company_id
-          FROM {$member_table} m
-         WHERE m.mb_level = 8
-         GROUP BY m.company_id
-         ORDER BY COALESCE(NULLIF(m.company_name,''), CONCAT('회사-', m.company_id)) ASC, m.company_id ASC
-    ");
-    while ($r = sql_fetch_array($res)) {
-        $cid   = (int)$r['company_id'];
-        $cname = get_company_name_cached($cid);
-        $company_options[] = [
-            'company_id'   => $cid,
-            'company_name' => $cname,
-        ];
-    }
-}
-
-// (2) 그룹 옵션 (레벨 8+)
-$group_options = [];
-if ($mb_level >= 8) {
-    $where_g = " WHERE m.mb_level = 7 ";
-    if ($mb_level >= 9) {
-        if ($sel_company_id > 0) $where_g .= " AND m.company_id = '{$sel_company_id}' ";
-    } else {
-        $where_g .= " AND m.company_id = '{$my_company_id}' ";
-    }
-    $rs = sql_query("
-        SELECT m.mb_group,
-               COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹 ', m.mb_group)) AS mb_group_name
-          FROM {$member_table} m
-          {$where_g}
-         GROUP BY m.mb_group, mb_group_name
-         ORDER BY mb_group_name ASC, m.mb_group ASC
-    ");
-    while ($row = sql_fetch_array($rs)) {
-        $group_options[] = [
-            'mb_group'      => (int)$row['mb_group'],
-            'mb_group_name' => get_text($row['mb_group_name']),
-        ];
-    }
-}
-
-// (3) 담당자 옵션 (회사/그룹 스코프 반영)
-$agent_options = [];
-$agent_where = [];
-$agent_order = " ORDER BY mb_group ASC, mb_name ASC, mb_no ASC ";
-
-if ($mb_level >= 8) {
-    if ($mb_level == 8) {
-        $agent_where[] = "company_id = {$my_company_id}";
-    } elseif ($mb_level >= 9 && $sel_company_id > 0) {
-        $agent_where[] = "company_id = {$sel_company_id}";
-    }
-    if ($sel_mb_group > 0) $agent_where[] = "mb_group = {$sel_mb_group}";
-    else $agent_where[] = "mb_group > 0";
-} else {
-    $agent_where[] = "mb_group = {$my_group}";
-}
-$agent_where_sql = $agent_where ? ('WHERE '.implode(' AND ', $agent_where)) : '';
-
-$qr = sql_query("
-    SELECT 
-        mb_no, 
-        mb_name,
-        mb_group,
-        COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_group)) AS mb_group_name
-    FROM {$member_table}
-    {$agent_where_sql}
-    {$agent_order}
-");
-while ($r = sql_fetch_array($qr)) {
-    $agent_options[] = [
-        'mb_no'         => (int)$r['mb_no'],
-        'mb_name'       => get_text($r['mb_name']),
-        'mb_group'      => (int)$r['mb_group'],
-        'mb_group_name' => get_text($r['mb_group_name']),
-    ];
-}
 
 // --------------------------------------------------
 // 화면 출력
@@ -574,55 +502,68 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 
         <!-- 2줄차: 회사/그룹/담당자 -->
         <?php if ($mb_level >= 9) { ?>
-            <label for="company_id">회사</label>
-            <select name="company_id" id="company_id" style="width:200px">
+            <select name="company_id" id="company_id" style="width:120px">
                 <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
                 <?php foreach ($company_options as $c) { ?>
-                    <option value="<?php echo (int)$c['company_id'];?>" <?php echo ($sel_company_id===(int)$c['company_id']?' selected':'');?>>
-                        <?php echo get_text($c['company_name']);?>
+                    <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
+                        <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
                     </option>
                 <?php } ?>
             </select>
         <?php } else { ?>
-            <input type="hidden" name="company_id" value="<?php echo (int)$sel_company_id; ?>">
-            <span class="small-muted">회사: <?php echo get_text(get_company_name_cached($sel_company_id));?></span>
+            <input type="hidden" name="company_id" id="company_id" value="<?php echo (int)$sel_company_id; ?>">
         <?php } ?>
 
         <?php if ($mb_level >= 8) { ?>
-            <label for="mb_group">그룹선택</label>
-            <select name="mb_group" id="mb_group" style="width:200px">
+            <select name="mb_group" id="mb_group" style="width:120px">
                 <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
-                <?php foreach ($group_options as $g) { ?>
-                    <option value="<?php echo (int)$g['mb_group'];?>"
-                        <?php echo ($sel_mb_group===(int)$g['mb_group']?' selected':'');?>>
-                        <?php echo get_text($g['mb_group_name']);?>
-                    </option>
-                <?php } ?>
+                <?php
+                if ($group_options) {
+                    if ($mb_level >= 9 && $sel_company_id == 0) {
+                        $last_cid = null;
+                        foreach ($group_options as $g) {
+                            if ($last_cid !== (int)$g['company_id']) {
+                                echo '<option value="" disabled class="opt-sep">── '.get_text($g['company_name']).' ──</option>';
+                                $last_cid = (int)$g['company_id'];
+                            }
+                            echo '<option value="'.(int)$g['mb_group'].'" '.get_selected($sel_mb_group,(int)$g['mb_group']).'>'.get_text($g['mb_group_name']).' (상담원 '.(int)$g['member_count'].')</option>';
+                        }
+                    } else {
+                        foreach ($group_options as $g) {
+                            echo '<option value="'.(int)$g['mb_group'].'" '.get_selected($sel_mb_group,(int)$g['mb_group']).'>'.get_text($g['mb_group_name']).' (상담원 '.(int)$g['member_count'].')</option>';
+                        }
+                    }
+                }
+                ?>
             </select>
         <?php } else { ?>
             <input type="hidden" name="mb_group" value="<?php echo $sel_mb_group; ?>">
-            <?php
-            $sel_group_name = '';
-            if ($sel_mb_group > 0) {
-                $row = sql_fetch("
-                    SELECT COALESCE(mb_group_name, CONCAT('그룹 ', mb_group)) AS nm
-                      FROM {$member_table}
-                     WHERE mb_group = {$sel_mb_group}
-                     LIMIT 1
-                ");
-                $sel_group_name = $row ? $row['nm'] : ('그룹 '.$sel_mb_group);
-            }
-            ?>
-            <span class="small-muted">그룹: <?php echo $sel_mb_group>0 ? get_text($sel_group_name) : '전체';?></span>
+            <span class="small-muted">그룹: <?php echo get_text(get_group_name_cached($sel_mb_group)); ?></span>
         <?php } ?>
 
-        <?php if ($sel_mb_group > 0 || $mb_level >= 7) { ?>
-        <label for="agent">담당자</label>
-        <select name="agent" id="agent" style="width:220px">
-            <option value="0">전체 담당자</option>
-            <?php echo render_agent_options($agent_options, $sel_agent_no); ?>
+        <select name="agent" id="agent" style="width:120px">
+            <option value="0">전체 상담사</option>
+            <?php
+            if (empty($agent_options)) {
+                echo '<option value="" disabled>상담사가 없습니다</option>';
+            } else {
+                $last_gid = null;
+                foreach ($agent_options as $a) {
+                    if ($last_cid !== $a['company_id']) {
+                        echo '<option value="" disabled class="opt-sep">[── '.get_text($a['company_name']).' ──]</option>';
+                        $last_cid = $a['company_id'];
+                    }
+                    if ($last_gid !== $a['mb_group']) {
+                        echo '<option value="" disabled class="opt-sep">── '.get_text($a['mb_group_name']).' ──</option>';
+                        $last_gid = $a['mb_group'];
+                    }
+                    $sel = ($sel_agent_no === (int)$a['mb_no']) ? ' selected' : '';
+                    echo '<option value="'.$a['mb_no'].'"'.$sel.'>'.get_text($a['mb_name']).'</option>';
+                }
+            }
+            ?>
         </select>
-        <?php } ?>
+
     </form>
 </div>
 
@@ -693,7 +634,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
         </div>
     <?php } else { ?>
         <?php
-        ksort($group_agent_matrix, SORT_NUMERIC);
+        // ksort($group_agent_matrix, SORT_NUMERIC);
         foreach ($group_agent_matrix as $gid => $agents) {
         ?>
         <div class="tbl_head01 tbl_wrap" style="margin-top:10px;">

@@ -162,98 +162,19 @@ while ($v = sql_fetch_array($rcl)) {
     $status_ui[(int)$v['call_status']] = $v['ui_type'] ?? 'secondary';
 }
 
-// -----------------------------
-// ★ 드롭다운 옵션
-// - 회사(9+ 전용)
-// - 그룹(8+ 전용, 회사 스코프 반영)
-// - 담당자(선택된 회사/그룹 스코프 반영)
-// -----------------------------
+/**
+ * ========================
+ * 회사/그룹/담당자 드롭다운 옵션
+ * ========================
+ */
+$build_org_select_options = build_org_select_options();
+// 회사 옵션(9+)
+$company_options = $build_org_select_options['company_options'];
+// 그룹 옵션(8+)
+$group_options = $build_org_select_options['group_options'];
+// 상담사 옵션(회사/그룹 필터 반영) — 상담원 레벨(3)만
+$agent_options = $build_org_select_options['agent_options'];
 
-// (1) 회사 옵션 (레벨 9+)
-$company_options = [];
-if ($mb_level >= 9) {
-    $res = sql_query("
-        SELECT m.company_id AS company_id
-          FROM {$member_table} m
-         WHERE m.mb_level = 8
-         GROUP BY m.company_id
-         ORDER BY COALESCE(NULLIF(m.company_name,''), CONCAT('회사-', m.company_id)) ASC, m.company_id ASC
-    ");
-    while ($r = sql_fetch_array($res)) {
-        $cid   = (int)$r['company_id'];
-        $cname = get_company_name_cached($cid);
-        $company_options[] = [
-            'company_id'   => $cid,
-            'company_name' => $cname,
-        ];
-    }
-}
-
-// (2) 그룹 옵션 (레벨 8+)
-$group_options = [];
-if ($mb_level >= 8) {
-    $where_g = " WHERE m.mb_level = 7 ";
-    if ($mb_level >= 9) {
-        if ($sel_company_id > 0) {
-            $where_g .= " AND m.company_id = '{$sel_company_id}' ";
-        } // 0이면 전체 회사
-    } else {
-        $where_g .= " AND m.company_id = '{$my_company_id}' ";
-    }
-
-    $sql_groups = "
-        SELECT m.mb_group,
-               COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹 ', m.mb_group)) AS mb_group_name
-          FROM {$member_table} m
-          {$where_g}
-         GROUP BY m.mb_group, mb_group_name
-         ORDER BY mb_group_name ASC, m.mb_group ASC
-    ";
-    $rs = sql_query($sql_groups);
-    while ($row = sql_fetch_array($rs)) {
-        $group_options[] = [
-            'mb_group'      => (int)$row['mb_group'],
-            'mb_group_name' => get_text($row['mb_group_name']),
-        ];
-    }
-}
-
-// (3) 담당자 옵션 (회사/그룹 스코프 반영)
-$agent_options = [];
-$agent_where = [];
-$agent_order = " ORDER BY mb_group ASC, mb_name ASC, mb_no ASC ";
-
-if ($mb_level >= 8) {
-    if ($mb_level == 8) {
-        $agent_where[] = "company_id = {$my_company_id}";
-    } elseif ($mb_level >= 9 && $sel_company_id > 0) {
-        $agent_where[] = "company_id = {$sel_company_id}";
-    }
-    if ($sel_mb_group > 0) $agent_where[] = "mb_group = {$sel_mb_group}";
-    else $agent_where[] = "mb_group > 0";
-} else { // 7 이하는 본인 그룹만
-    $agent_where[] = "mb_group = {$my_group}";
-}
-$agent_where_sql = $agent_where ? ('WHERE '.implode(' AND ', $agent_where)) : '';
-
-$qr = sql_query("
-    SELECT 
-        mb_no, 
-        mb_name,
-        mb_group,
-        COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_group)) AS mb_group_name
-    FROM {$member_table}
-    {$agent_where_sql}
-    {$agent_order}
-");
-while ($r = sql_fetch_array($qr)) {
-    $agent_options[] = [
-        'mb_no'         => (int)$r['mb_no'],
-        'mb_name'       => get_text($r['mb_name']),
-        'mb_group'      => (int)$r['mb_group'],
-        'mb_group_name' => get_text($r['mb_group_name']),
-    ];
-}
 
 // -----------------------------
 // 총 건수
@@ -297,6 +218,7 @@ $sql_list = "
         l.mb_no             AS agent_id,
         l.call_status,
         sc.name_ko          AS status_label,
+        sc.is_after_call    AS is_after_call,
         l.call_start, 
         l.call_end,
         l.call_time,
@@ -312,7 +234,8 @@ $sql_list = "
         m.company_id        AS agent_company_id,
 
         gg.mv_group_name    AS group_name,
-        cc.name             AS campaign_name
+        cc.name             AS campaign_name,
+        cc.is_open_number   AS is_open_number
     FROM call_recording r
     JOIN call_log l
       ON l.call_id = r.call_id
@@ -347,11 +270,19 @@ $token = get_token();
 $g5['title'] = '녹취확인';
 include_once(G5_ADMIN_PATH.'/admin.head.php');
 $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목록</a>';
-
 // 프록시(사인 URL/스트리밍)
 function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['recording_id']; }
-
 ?>
+<style>
+audio {max-width:260px}
+</style>
+<div class="local_ov01 local_ov">
+    <?php echo $listall ?>
+    <span class="btn_ov01">
+        <span class="ov_txt">전체 </span>
+        <span class="ov_num"> <?php echo number_format($total_count) ?> 개</span>
+    </span>
+</div>
 
 <!-- 검색/필터 -->
 <div class="local_sch01 local_sch">
@@ -406,55 +337,68 @@ function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['reco
 
         <!-- 2줄차: 회사/그룹/담당자 (권한별) -->
         <?php if ($mb_level >= 9) { ?>
-            <label for="company_id">회사</label>
-            <select name="company_id" id="company_id">
+            <select name="company_id" id="company_id" style="width:120px">
                 <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
                 <?php foreach ($company_options as $c) { ?>
-                    <option value="<?php echo (int)$c['company_id'];?>" <?php echo ($sel_company_id===(int)$c['company_id']?' selected':'');?>>
-                        <?php echo get_text($c['company_name']);?>
+                    <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
+                        <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
                     </option>
                 <?php } ?>
             </select>
         <?php } else { ?>
-            <input type="hidden" name="company_id" value="<?php echo (int)$sel_company_id; ?>">
-            <span class="small-muted">회사: <?php echo get_text(get_company_name_cached($sel_company_id));?></span>
+            <input type="hidden" name="company_id" id="company_id" value="<?php echo (int)$sel_company_id; ?>">
         <?php } ?>
 
         <?php if ($mb_level >= 8) { ?>
-            <label for="mb_group">그룹</label>
-            <select name="mb_group" id="mb_group">
+            <select name="mb_group" id="mb_group" style="width:120px">
                 <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
-                <?php foreach ($group_options as $g) { ?>
-                    <option value="<?php echo (int)$g['mb_group'];?>"
-                        <?php echo ($sel_mb_group===(int)$g['mb_group']?' selected':'');?>>
-                        <?php echo get_text($g['mb_group_name']);?>
-                    </option>
-                <?php } ?>
+                <?php
+                if ($group_options) {
+                    if ($mb_level >= 9 && $sel_company_id == 0) {
+                        $last_cid = null;
+                        foreach ($group_options as $g) {
+                            if ($last_cid !== (int)$g['company_id']) {
+                                echo '<option value="" disabled class="opt-sep">── '.get_text($g['company_name']).' ──</option>';
+                                $last_cid = (int)$g['company_id'];
+                            }
+                            echo '<option value="'.(int)$g['mb_group'].'" '.get_selected($sel_mb_group,(int)$g['mb_group']).'>'.get_text($g['mb_group_name']).' (상담원 '.(int)$g['member_count'].')</option>';
+                        }
+                    } else {
+                        foreach ($group_options as $g) {
+                            echo '<option value="'.(int)$g['mb_group'].'" '.get_selected($sel_mb_group,(int)$g['mb_group']).'>'.get_text($g['mb_group_name']).' (상담원 '.(int)$g['member_count'].')</option>';
+                        }
+                    }
+                }
+                ?>
             </select>
         <?php } else { ?>
             <input type="hidden" name="mb_group" value="<?php echo $sel_mb_group; ?>">
-            <?php
-            $sel_group_name = '';
-            if ($sel_mb_group > 0) {
-                $row = sql_fetch("
-                    SELECT COALESCE(mb_group_name, CONCAT('그룹 ', mb_group)) AS nm
-                      FROM {$member_table}
-                     WHERE mb_group = {$sel_mb_group}
-                     LIMIT 1
-                ");
-                $sel_group_name = $row ? $row['nm'] : ('그룹 '.$sel_mb_group);
-            }
-            ?>
-            <span class="small-muted">그룹: <?php echo $sel_mb_group>0 ? get_text($sel_group_name) : '전체';?></span>
+            <span class="small-muted">그룹: <?php echo get_text(get_group_name_cached($sel_mb_group)); ?></span>
         <?php } ?>
 
-        <?php if ($sel_mb_group > 0 || $mb_level >= 7) { ?>
-            <label for="agent">담당자</label>
-            <select name="agent" id="agent">
-                <option value="0">전체 담당자</option>
-                <?php echo render_agent_options($agent_options, $sel_agent_no); ?>
-            </select>
-        <?php } ?>
+        <select name="agent" id="agent" style="width:120px">
+            <option value="0">전체 상담사</option>
+            <?php
+            if (empty($agent_options)) {
+                echo '<option value="" disabled>상담사가 없습니다</option>';
+            } else {
+                $last_gid = null;
+                foreach ($agent_options as $a) {
+                    if ($last_cid !== $a['company_id']) {
+                        echo '<option value="" disabled class="opt-sep">[── '.get_text($a['company_name']).' ──]</option>';
+                        $last_cid = $a['company_id'];
+                    }
+                    if ($last_gid !== $a['mb_group']) {
+                        echo '<option value="" disabled class="opt-sep">── '.get_text($a['mb_group_name']).' ──</option>';
+                        $last_gid = $a['mb_group'];
+                    }
+                    $sel = ($sel_agent_no === (int)$a['mb_no']) ? ' selected' : '';
+                    echo '<option value="'.$a['mb_no'].'"'.$sel.'>'.get_text($a['mb_name']).'</option>';
+                }
+            }
+            ?>
+        </select>
+                
     </form>
 </div>
 
@@ -464,7 +408,7 @@ function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['reco
         <thead>
             <tr>
                 <th>그룹명</th>
-                <th>아이디</th>
+                <!-- <th>아이디</th> -->
                 <th>상담원명</th>
                 <th>통화결과</th>
                 <th>통화시작</th>
@@ -486,7 +430,13 @@ function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['reco
             echo '<tr><td colspan="15" class="empty_table">데이터가 없습니다.</td></tr>';
         } else {
             while ($row = sql_fetch_array($res_list)) {
-                $hp_fmt   = format_korean_phone($row['call_hp']);
+                // ★ 번호 노출 정책: is_open_number=0 이고 is_after_call!=1 이면 숨김
+                $hp_fmt = '';
+                if ((int)$row['is_open_number'] === 0 && (int)$row['is_after_call'] !== 1 && $mb_level < 9) {
+                    $hp_fmt = '(숨김처리)';
+                } else {
+                    $hp_fmt = format_korean_phone($row['call_hp']);
+                }
                 $talk_sec = is_null($row['duration_sec']) ? '-' : fmt_hms((int)$row['duration_sec']);
                 $call_sec = is_null($row['call_time']) ? '-' : fmt_hms((int)$row['call_time']);
                 $agent    = $row['agent_name'] ? get_text($row['agent_name']) : (string)$row['agent_mb_id'];
@@ -500,7 +450,7 @@ function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['reco
                 ?>
                 <tr>
                     <td><?php echo get_text($gname); ?></td>
-                    <td><?php echo get_text($row['agent_mb_id']); ?></td>
+                    <!-- <td><?php echo get_text($row['agent_mb_id']); ?></td> -->
                     <td><?php echo get_text($agent); ?></td>
                     <td class="<?php echo $status_class; ?>"><?php echo get_text($status); ?></td>
                     <td><?php echo fmt_datetime(get_text($row['call_start']), 'mdhi'); ?></td>
@@ -516,9 +466,9 @@ function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['reco
                             브라우저가 audio 태그를 지원하지 않습니다.
                         </audio>
                     </td>
-                    <td><a href="<?php echo $dl_url; ?>" class="btn btn_02">다운로드</a></td>
+                    <td><a href="<?php echo $dl_url; ?>" class="btn btn_02">다운</a></td>
                     <td><?php echo fmt_datetime(get_text($row['rec_created_at']), 'mdhis'); ?></td>
-                    <td><?php echo get_text($row['campaign_name'] ?: '-'); ?></td>
+                    <td style="font-size:11px;letter-spacing:-1px"><?php echo get_text($row['campaign_name'] ?: '-'); ?></td>
                 </tr>
                 <?php
             }

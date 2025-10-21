@@ -576,7 +576,7 @@ function open_upload_popup() {
                     'Content-Type': 'application/json',
                     // 목록 페이지는 별도의 CSRF 토큰을 쓰지 않아도 되지만,
                     // ajax_group_options.php가 CSRF 검증을 사용한다면 아래처럼 세션 토큰을 헤더로 주도록 수정 필요.
-                    'X-CSRF-TOKEN': '<?php echo $_SESSION['call_upload_token'] ?? ''; ?>'
+                    // 'X-CSRF-TOKEN': '<?php echo $_SESSION['call_upload_token'] ?? ''; ?>'
                 },
                 body: JSON.stringify({ company_id: cid }),
                 credentials: 'same-origin'

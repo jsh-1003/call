@@ -1,59 +1,11 @@
 <?php
-// /adm/call/call_monitor.php (개편: 최근 통화 리스트 = 통계 상세 스키마)
+// /adm/call/call_monitor.php
 $sub_menu = '700110';
 require_once './_common.php';
 
 // 접근 권한: 관리자 레벨 7 이상만
 if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
     alert('접근 권한이 없습니다.');
-}
-
-/* ==========================
-   유틸
-   ========================== */
-
-// 활성 캠페인/타깃 기준 그룹(+회사) 필터 (날짜와 무관)
-function build_campaign_group_where($mb_level, $my_group, $sel_mb_group, $sel_company_id) {
-    global $g5;
-    $w = [];
-    if ($mb_level == 7) {
-        $w[] = "cc.mb_group = {$my_group}";
-    } elseif ($mb_level < 7) {
-        $w[] = "cc.mb_group = {$my_group}";
-    } else {
-        if ($sel_mb_group > 0) {
-            $w[] = "cc.mb_group = {$sel_mb_group}";
-        } elseif ($mb_level >= 9 && $sel_company_id > 0) {
-            $grp_ids = [];
-            $res = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$sel_company_id."'");
-            while ($r = sql_fetch_array($res)) $grp_ids[] = (int)$r['mb_no'];
-            $w[] = $grp_ids ? ("cc.mb_group IN (".implode(',', $grp_ids).")") : "1=0";
-        // ★ 추가: 8레벨은 자기 회사로 한정
-        } elseif ($mb_level == 8) {
-            $grp_ids = [];
-            $res = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$GLOBALS['my_company_id']."'");
-            while ($r = sql_fetch_array($res)) $grp_ids[] = (int)$r['mb_no'];
-            $w[] = $grp_ids ? ("cc.mb_group IN (".implode(',', $grp_ids).")") : "1=0";
-        }
-    }
-    return $w ? (' AND '.implode(' AND ', $w)) : '';
-}
-
-// APCu 마이크로 캐시 (옵션)
-function microcache_get($key) { if (function_exists('apcu_fetch')) { $v = apcu_fetch($key, $ok); if ($ok) return $v; } return null; }
-function microcache_set($key, $val, $ttl=10) { if (function_exists('apcu_store')) apcu_store($key, $val, $ttl); }
-function cm_cache_key($suffix='') {
-    $params = [
-        'start'=>$_GET['start']??'',
-        'end'=>$_GET['end']??'',
-        'status'=>$_GET['status']??'0',
-        'company_id'=>$_GET['company_id']??'0',
-        'mb_group'=>$_GET['mb_group']??'0',
-        'agent'=>$_GET['agent']??'0',
-        'role'=>$GLOBALS['member']['mb_level']??0,
-        'myg'=>$GLOBALS['member']['mb_group']??0,
-    ];
-    return 'callmonitor:'.md5(json_encode($params).':'.$suffix);
 }
 
 /* ==========================
@@ -74,9 +26,6 @@ $end   = _g('end',   $default_end);
 $f_status = isset($_GET['status']) ? (int)$_GET['status'] : 0;
 
 // 조직 선택(레벨 규칙)
-// - 9+: 회사/그룹 자유
-// - 8 : 회사 고정(본인 회사), 그룹 선택 자유(회사 소속)
-// - 7 : 그룹 고정(본인 그룹)
 if ($mb_level >= 9) {
     $sel_company_id = (int)(_g('company_id', 0));
     $sel_mb_group   = (int)(_g('mb_group', 0));
@@ -98,321 +47,6 @@ $type = _g('type', '');
 $member_table = $g5['member_table']; // g5_member
 
 /* ==========================
-   WHERE 빌더 (권한/회사/그룹/상담사 통합)
-   ========================== */
-function build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_status, $sel_company_id, $sel_mb_group, $sel_agent_no) {
-    global $g5;
-    $w = [];
-    // datetime-local -> 'Y-m-d H:i:s'
-    $start_sql = sql_escape_string(str_replace('T',' ',$start).':00');
-    $end_sql   = sql_escape_string(str_replace('T',' ',$end).':59');
-    $w[] = "l.call_start BETWEEN '{$start_sql}' AND '{$end_sql}'";
-
-    if ($f_status > 0) $w[] = "l.call_status = {$f_status}";
-
-    // 권한/그룹/회사
-    // build_common_where 내부 권한/그룹/회사 분기 수정
-    if ($mb_level == 7) {
-        $w[] = "l.mb_group = {$my_group}";
-    } elseif ($mb_level < 7) {
-        $w[] = "l.mb_no = {$mb_no}";
-    } else {
-        if ($sel_mb_group > 0) {
-            $w[] = "l.mb_group = {$sel_mb_group}";
-        } else {
-            if ($mb_level >= 9 && $sel_company_id > 0) {
-                $grp_ids = [];
-                $gr = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$sel_company_id."'");
-                while ($rr = sql_fetch_array($gr)) $grp_ids[] = (int)$rr['mb_no'];
-                $w[] = $grp_ids ? ("l.mb_group IN (".implode(',', $grp_ids).")") : "1=0";
-            }
-            // ★ 추가: 8레벨은 자기 회사로 한정
-            elseif ($mb_level == 8) {
-                $grp_ids = [];
-                $gr = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$GLOBALS['my_company_id']."'");
-                while ($rr = sql_fetch_array($gr)) $grp_ids[] = (int)$rr['mb_no'];
-                $w[] = $grp_ids ? ("l.mb_group IN (".implode(',', $grp_ids).")") : "1=0";
-            }
-        }
-    }
-
-    // 상담사 선택
-    if ($sel_agent_no > 0) $w[] = "l.mb_no = {$sel_agent_no}";
-
-    return $w ? ('WHERE '.implode(' AND ', $w)) : '';
-}
-
-/* ==========================
-   Ajax 응답
-   ========================== */
-if ($ajax) {
-    header('Content-Type: application/json; charset=utf-8');
-
-    $where_sql = build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_status, $sel_company_id, $sel_mb_group, $sel_agent_no);
-
-    // 버킷
-    $start_ts = strtotime(str_replace('T',' ',$start).':00');
-    $end_ts   = strtotime(str_replace('T',' ',$end).':59');
-    $start_bucket = floor($start_ts / 1800) * 1800;
-    $end_bucket   = floor($end_ts   / 1800) * 1800;
-
-    $cacheKey = cm_cache_key($type);
-    if (!in_array($type, ['recent_detail'])) {
-        $cached = microcache_get($cacheKey);
-        if ($cached !== null) { echo $cached; exit; }
-    }
-
-    if ($type === 'kpi') {
-        $sql = "
-            SELECT
-              COUNT(*) AS total_cnt,
-              SUM(CASE WHEN COALESCE(sc.result_group, CASE WHEN l.call_status BETWEEN 200 AND 299 THEN 1 ELSE 0 END)=1 THEN 1 ELSE 0 END) AS success_cnt,
-              SUM(CASE WHEN COALESCE(sc.result_group, CASE WHEN l.call_status BETWEEN 200 AND 299 THEN 1 ELSE 0 END)=0 THEN 1 ELSE 0 END) AS fail_cnt,
-              AVG(l.call_time) AS avg_secs,
-              SUM(CASE WHEN COALESCE(sc.is_do_not_call,0)=1 THEN 1 ELSE 0 END) AS dnc_cnt,
-              COUNT(DISTINCT l.mb_no) AS active_agents,
-              COUNT(DISTINCT l.mb_group) AS active_groups
-            FROM call_log l
-            LEFT JOIN call_status_code sc
-              ON sc.call_status = l.call_status AND sc.mb_group = 0
-            {$where_sql}
-        ";
-        $r = sql_fetch($sql);
-        // 잔여DB: 활성 캠페인(status=1) + target.assigned_status=0
-        $pending_where = build_campaign_group_where($mb_level, $my_group, $sel_mb_group, $sel_company_id);
-        $sql_pending = "
-            SELECT COUNT(*) AS remain_cnt
-            FROM call_campaign cc
-            JOIN call_target t ON t.campaign_id = cc.campaign_id
-            WHERE cc.status = 1
-              AND t.assigned_status = 0
-            {$pending_where}
-        ";
-        $r2 = sql_fetch($sql_pending);
-        $remain = (int)($r2['remain_cnt'] ?? 0);
-
-        $total   = (int)($r['total_cnt'] ?? 0);
-        $success = (int)($r['success_cnt'] ?? 0);
-        $fail    = (int)($r['fail_cnt'] ?? 0);
-        $avg     = is_null($r['avg_secs']) ? null : round((float)$r['avg_secs'],1);
-        $rate    = $total > 0 ? round($success*100.0/$total, 1) : 0.0;
-        $dnc     = (int)($r['dnc_cnt'] ?? 0);
-        $agents  = (int)($r['active_agents'] ?? 0);
-        $groups  = (int)($r['active_groups'] ?? 0);
-
-        $json = json_encode([
-            'ok'=>true,
-            'remainDb'=>$remain, 'total'=>$total, 'success'=>$success, 'fail'=>$fail,
-            'successRate'=>$rate, 'avgSecs'=>$avg, 'dnc'=>$dnc, 'agents'=>$agents, 'groups'=>$groups
-        ], JSON_UNESCAPED_UNICODE);
-        microcache_set($cacheKey, $json, 10);
-        echo $json; exit;
-    }
-    elseif ($type === 'timeseries') {
-        $sql = "
-            SELECT
-              FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(l.call_start)/1800)*1800) AS bucket_start,
-              SUM(CASE WHEN COALESCE(sc.result_group, CASE WHEN l.call_status BETWEEN 200 AND 299 THEN 1 ELSE 0 END)=1 THEN 1 ELSE 0 END) AS success_cnt,
-              SUM(CASE WHEN COALESCE(sc.result_group, CASE WHEN l.call_status BETWEEN 200 AND 299 THEN 1 ELSE 0 END)=0 THEN 1 ELSE 0 END) AS fail_cnt,
-              AVG(l.call_time) AS avg_secs
-            FROM call_log l
-            LEFT JOIN call_status_code sc
-              ON sc.call_status = l.call_status AND sc.mb_group = 0
-            {$where_sql}
-            GROUP BY bucket_start
-            ORDER BY bucket_start ASC
-        ";
-        $res = sql_query($sql);
-        $map = [];
-        while ($row = sql_fetch_array($res)) {
-            $k = $row['bucket_start'];
-            $map[$k] = [
-                's'=>(int)$row['success_cnt'],
-                'f'=>(int)$row['fail_cnt'],
-                'a'=>is_null($row['avg_secs'])?null:round((float)$row['avg_secs'],1),
-            ];
-        }
-        $labels=[];$success=[];$fail=[];$avg=[];
-        for ($t=$start_bucket; $t<=$end_bucket; $t+=1800) {
-            $dt = date('Y-m-d H:i:s', $t);
-            $labels[] = date('m/d H:i', $t);
-            if (isset($map[$dt])) { $success[]=$map[$dt]['s']; $fail[]=$map[$dt]['f']; $avg[]=$map[$dt]['a']; }
-            else { $success[]=0; $fail[]=0; $avg[]=null; }
-        }
-        $json = json_encode(['ok'=>true,'labels'=>$labels,'success'=>$success,'fail'=>$fail,'avg'=>$avg], JSON_UNESCAPED_UNICODE);
-        microcache_set($cacheKey, $json, 10);
-        echo $json; exit;
-    }
-    elseif ($type === 'status') {
-        $sql = "
-            SELECT
-              l.call_status,
-              COALESCE(sc.name_ko, CONCAT('코드 ', l.call_status)) AS label,
-              COALESCE(sc.result_group, CASE WHEN l.call_status BETWEEN 200 AND 299 THEN 1 ELSE 0 END) AS result_group,
-              COUNT(*) AS cnt,
-              MAX(COALESCE(sc.is_do_not_call,0)) AS is_dnc
-            FROM call_log l
-            LEFT JOIN call_status_code sc
-              ON sc.call_status = l.call_status AND sc.mb_group = 0
-            {$where_sql}
-            GROUP BY l.call_status, label, result_group
-            ORDER BY cnt DESC
-        ";
-        $res = sql_query($sql);
-        $rows = [];
-        while ($r = sql_fetch_array($res)) $rows[] = [
-            'call_status'=>(int)$r['call_status'],
-            'label'=>get_text($r['label']),
-            'result_group'=>(int)$r['result_group'],
-            'cnt'=>(int)$r['cnt'],
-            'is_dnc'=>(int)$r['is_dnc'],
-        ];
-        $json = json_encode(['ok'=>true,'rows'=>$rows], JSON_UNESCAPED_UNICODE);
-        microcache_set($cacheKey, $json, 10);
-        echo $json; exit;
-    }
-    elseif ($type === 'agents') {
-        $sql = "
-            SELECT
-              l.mb_no,
-              m.mb_name,
-              COUNT(*) AS call_cnt,
-              SUM(CASE WHEN COALESCE(sc.result_group, CASE WHEN l.call_status BETWEEN 200 AND 299 THEN 1 ELSE 0 END)=1 THEN 1 ELSE 0 END) AS success_cnt,
-              AVG(l.call_time) AS avg_secs
-            FROM call_log l
-            LEFT JOIN call_status_code sc
-              ON sc.call_status = l.call_status AND sc.mb_group = 0
-            LEFT JOIN {$member_table} m ON m.mb_no = l.mb_no
-            {$where_sql}
-            GROUP BY l.mb_no, m.mb_name
-            ORDER BY call_cnt DESC
-            LIMIT 10
-        ";
-        $res = sql_query($sql);
-        $rows = [];
-        while ($r = sql_fetch_array($res)) {
-            $call_cnt = (int)$r['call_cnt'];
-            $success  = (int)$r['success_cnt'];
-            $rows[] = [
-                'mb_no'=>(int)$r['mb_no'],
-                'mb_name'=>get_text($r['mb_name']),
-                'call_cnt'=>$call_cnt,
-                'success_cnt'=>$success,
-                'success_rate'=>($call_cnt>0? round($success*100.0/$call_cnt,1):0.0),
-                'avg_secs'=> is_null($r['avg_secs'])?null:round((float)$r['avg_secs'],1),
-            ];
-        }
-        $json = json_encode(['ok'=>true,'rows'=>$rows], JSON_UNESCAPED_UNICODE);
-        microcache_set($cacheKey, $json, 10);
-        echo $json; exit;
-    }
-    elseif ($type === 'recent_detail') {
-        // 통계 스키마로 최근 20건 + 공개정책 적용을 위해 is_after_call, is_open_number 함께 조회
-        $sql = "
-            SELECT
-                l.call_id, 
-                l.mb_group,
-                COALESCE(g.mv_group_name, CONCAT('그룹 ', l.mb_group))         AS group_name,
-                l.mb_no                                                        AS agent_id,
-                m.mb_name                                                      AS agent_name,
-                m.mb_id                                                        AS agent_mb_id,
-                l.call_status,
-                sc.name_ko                                                     AS status_label,
-                COALESCE(sc.is_after_call,0)                                   AS is_after_call,   -- ★
-                l.call_start, 
-                l.call_end,
-                l.call_time,                                                   -- 통화시간(초)
-                rec.duration_sec                                               AS talk_time,       -- 상담시간
-                t.name                                                         AS target_name,
-                t.birth_date,
-                CASE
-                  WHEN t.birth_date IS NULL THEN NULL
-                  ELSE TIMESTAMPDIFF(YEAR, t.birth_date, CURDATE())
-                       - (DATE_FORMAT(CURDATE(),'%m%d') < DATE_FORMAT(t.birth_date,'%m%d'))
-                END AS man_age,
-                l.call_hp,
-                t.meta_json,
-                cc.name                                                        AS campaign_name,
-                COALESCE(cc.is_open_number,1)                                  AS is_open_number   -- ★
-            FROM call_log l
-            JOIN call_target t 
-              ON t.target_id = l.target_id
-            LEFT JOIN {$member_table} m 
-              ON m.mb_no = l.mb_no
-            LEFT JOIN (
-                SELECT mb_group, MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_group))) AS mv_group_name
-                  FROM {$member_table}
-                 WHERE mb_group > 0
-                 GROUP BY mb_group
-            ) AS g ON g.mb_group = l.mb_group
-            LEFT JOIN call_status_code sc
-              ON sc.call_status = l.call_status AND sc.mb_group = 0
-            LEFT JOIN call_recording rec
-              ON rec.call_id = l.call_id 
-             AND rec.mb_group = l.mb_group
-             AND rec.campaign_id = l.campaign_id
-            JOIN call_campaign cc
-              ON cc.campaign_id = l.campaign_id
-             AND cc.mb_group    = l.mb_group
-             AND cc.status      = 1
-            ".build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_status, $sel_company_id, $sel_mb_group, $sel_agent_no)."
-            ORDER BY l.call_start DESC, l.call_id DESC
-            LIMIT 20
-        ";
-        $res = sql_query($sql);
-        $rows = [];
-        while ($r = sql_fetch_array($res)) {
-            // 메타 축약
-            $meta = '-';
-            if (!is_null($r['meta_json']) && $r['meta_json'] !== '') {
-                $metaArr = json_decode($r['meta_json'], true);
-                if (json_last_error() === JSON_ERROR_NONE && is_array($metaArr)) {
-                    $vals = [];
-                    foreach ($metaArr as $k=>$v) {
-                        if (is_scalar($v)) $vals[] = (string)$v;
-                        elseif (is_array($v)) $vals[] = json_encode($v, JSON_UNESCAPED_UNICODE);
-                        else $vals[] = strval($v);
-                    }
-                    $metaStr = implode(', ', $vals);
-                    if (mb_strlen($metaStr,'UTF-8') > 120) $metaStr = mb_substr($metaStr,0,120,'UTF-8').'…';
-                    $meta = get_text($metaStr);
-                }
-            }
-
-            // ★ 번호 노출 정책: is_open_number=0 이고 is_after_call!=1 이면 숨김
-            $hp_display = '';
-            if ((int)$r['is_open_number'] === 0 && (int)$r['is_after_call'] !== 1) {
-                $hp_display = '(숨김처리)';
-            } else {
-                $hp_display = get_text(format_korean_phone($r['call_hp']));
-            }
-
-            $rows[] = [
-                'group_name'   => get_text($r['group_name'] ?: ('그룹 '.(int)$r['mb_group'])),
-                'agent_mb_id'  => get_text($r['agent_mb_id']),
-                'agent_name'   => get_text($r['agent_name'] ?: (string)$r['agent_mb_id']),
-                'status_label' => get_text($r['status_label'] ?: ('코드 '.(int)$r['call_status'])),
-                'call_start'   => fmt_datetime(get_text($r['call_start']), 'mdhi'),
-                'call_end'     => fmt_datetime(get_text($r['call_end']),   'mdhi'),
-                'call_time'    => is_null($r['call_time']) ? '-' : fmt_hms((int)$r['call_time']),
-                'talk_time'    => is_null($r['talk_time']) ? '-' : fmt_hms((int)$r['talk_time']),
-                'target_name'  => get_text($r['target_name'] ?: '-'),
-                'birth_date'   => get_text($r['birth_date'] ?: '-'),
-                'man_age'      => is_null($r['man_age']) ? '-' : ((int)$r['man_age']).'세',
-                'call_hp'      => $hp_display, // ★ 적용
-                'meta'         => $meta,
-                'campaign_name'=> get_text($r['campaign_name'] ?: '-'),
-            ];
-        }
-        echo json_encode(['ok'=>true, 'rows'=>$rows], JSON_UNESCAPED_UNICODE);
-        exit;
-    }
-
-    echo json_encode(['ok'=>false,'msg'=>'unknown type'], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
-/* ==========================
    HTML 렌더링 준비
    ========================== */
 $codes = [];
@@ -423,97 +57,24 @@ while ($r = sql_fetch_array($rc)) $codes[] = $r;
 $g5['title'] = '콜 모니터링';
 include_once(G5_ADMIN_PATH.'/admin.head.php');
 
-/* --------------------------
-   상단 셀렉트 옵션 준비
-   -------------------------- */
+
+/**
+ * ========================
+ * 회사/그룹/담당자 드롭다운 옵션
+ * ========================
+ */
+$build_org_select_options = build_org_select_options();
 // 회사 옵션(9+)
-$company_options = [];
-if ($mb_level >= 9) {
-    $res = sql_query("
-        SELECT m.mb_no AS company_id
-        FROM {$member_table} m
-        WHERE m.mb_level = 8
-        ORDER BY COALESCE(NULLIF(m.company_name,''), CONCAT('회사-', m.mb_no)) ASC, m.mb_no ASC
-    ");
-    while ($r = sql_fetch_array($res)) {
-        $cid   = (int)$r['company_id'];
-        $cname = get_company_name_cached($cid);
-        $gcnt  = count_groups_by_company_cached($cid);
-        $company_options[] = [
-            'company_id'   => $cid,
-            'company_name' => $cname,
-            'group_count'  => $gcnt,
-        ];
-    }
-}
-
+$company_options = $build_org_select_options['company_options'];
 // 그룹 옵션(8+)
-$group_options = [];
-if ($mb_level >= 8) {
-    $where_g = " WHERE m.mb_level = 7 ";
-    if ($mb_level >= 9) {
-        if ($sel_company_id > 0) $where_g .= " AND m.company_id = '{$sel_company_id}' ";
-    } else {
-        $where_g .= " AND m.company_id = '{$my_company_id}' ";
-    }
-    $res = sql_query("
-        SELECT m.mb_no AS mb_group, m.company_id
-        FROM {$member_table} m
-        {$where_g}
-        ORDER BY m.company_id ASC, COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹-', m.mb_no)) ASC, m.mb_no ASC
-    ");
-    while ($r = sql_fetch_array($res)) {
-        $gid   = (int)$r['mb_group'];
-        $cid   = (int)$r['company_id'];
-        $gname = get_group_name_cached($gid);
-        $cname = get_company_name_cached($cid);
-        $mcnt  = count_members_by_group_cached($gid);
-        $group_options[] = [
-            'mb_group'      => $gid,
-            'company_id'    => $cid,
-            'company_name'  => $cname,
-            'mb_group_name' => $gname,
-            'member_count'  => $mcnt,
-        ];
-    }
-}
-
-// 상담사 옵션(회사/그룹 필터 반영)
-$agent_options = [];
-$aw = [];
-if ($mb_level >= 8) {
-    if ($sel_mb_group > 0) {
-        $aw[] = "mb_group = {$sel_mb_group}";
-    } else {
-        if ($mb_level >= 9 && $sel_company_id > 0) {
-            $aw[] = "mb_group IN (SELECT mb_no FROM {$member_table} WHERE mb_level=7 AND company_id='{$sel_company_id}')";
-        }
-        // ★ 추가: 8레벨은 자기 회사로 한정
-        elseif ($mb_level == 8) {
-            $aw[] = "mb_group IN (SELECT mb_no FROM {$member_table} WHERE mb_level=7 AND company_id='{$my_company_id}')";
-        } else {
-            $aw[] = "mb_group > 0"; // (실제 도달 X: 9레벨 무회사선택시만 전체)
-        }
-    }
-} else { // 7
-    $aw[] = "mb_group = {$my_group}";
-}
-$aw_sql = $aw ? 'WHERE '.implode(' AND ',$aw) : '';
-$ar = sql_query("
-    SELECT mb_no, mb_name, mb_group,
-           COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_group)) AS mb_group_name
-      FROM {$member_table}
-     {$aw_sql}
-     ORDER BY mb_group ASC, mb_name ASC, mb_no ASC
-");
-while ($r = sql_fetch_array($ar)) {
-    $agent_options[] = [
-        'mb_no'=>(int)$r['mb_no'],
-        'mb_name'=>get_text($r['mb_name']),
-        'mb_group'=>(int)$r['mb_group'],
-        'mb_group_name'=>get_text($r['mb_group_name']),
-    ];
-}
+$group_options = $build_org_select_options['group_options'];
+// 상담사 옵션(회사/그룹 필터 반영) — 상담원 레벨(3)만
+$agent_options = $build_org_select_options['agent_options'];
+/**
+ * ========================
+ * // 회사/그룹/담당자 드롭다운 옵션
+ * ========================
+ */
 ?>
 <style>
 .form-row { margin:10px 0; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -522,10 +83,6 @@ while ($r = sql_fetch_array($ar)) {
 .kpi .big { font-size:20px; font-weight:bold; }
 canvas { background:#fff; }
 .tbl_head01 th, .tbl_head01 td { text-align:center; }
-.badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; }
-.badge-success { background:#28a745; color:#fff; }
-.badge-fail    { background:#6c757d; color:#fff; }
-.badge-dnc     { background:#dc3545; color:#fff; }
 .small-muted { color:#888; font-size:12px; }
 .table-fixed td { word-break:break-all; }
 .auto-refresh { margin-left:auto; display:flex; align-items:center; gap:6px; }
@@ -533,12 +90,6 @@ canvas { background:#fff; }
 .section { background:#fff; border:1px solid #eee; padding:10px; }
 .sticky-head { position: sticky; top: 0; background:#f8f9fb; z-index:1; }
 .scrolling-body { max-height: 420px; overflow: auto; }
-.status-col { transition: background-color .2s }
-.status-success  { background: #eaf7ee; }
-.status-primary  { background: #eef4ff; }
-.status-secondary{ background: #f6f7f9; }
-.status-warning  { background: #fff8e6; }
-.status-danger   { background: #ffefef; }
 </style>
 
 <div class="local_ov01 local_ov">
@@ -561,7 +112,7 @@ canvas { background:#fff; }
             <?php } ?>
         </select>
 
-        <!-- 2단: 회사 → 그룹 → 상담사 (위치 유지) -->
+        <!-- 2단: 회사 → 그룹 → 상담사 -->
         <?php if ($mb_level >= 9) { ?>
             <label for="company_id">회사</label>
             <select name="company_id" id="company_id" style="width:120px">
@@ -623,6 +174,8 @@ canvas { background:#fff; }
         </select>
 
         <button type="submit" class="btn btn_01">적용</button>
+
+        <a href="./call_monitor.php" class="btn btn_02">초기화</a>
 
         <div class="auto-refresh">
             <label><input type="checkbox" id="autoRefresh" checked> 자동 새로고침</label>
@@ -785,7 +338,7 @@ canvas { background:#fff; }
     }
     async function fetchJson(type){
         const p = buildParams(); p.set('type', type);
-        const res = await fetch('./call_monitor.php?'+p.toString(), {cache:'no-store'});
+        const res = await fetch('./ajax_call_monitor.php?'+p.toString(), {cache:'no-store'});
         return res.json();
     }
 
@@ -917,7 +470,7 @@ canvas { background:#fff; }
                 td(row.target_name) +
                 td(row.birth_date) +
                 td(row.man_age) +
-                td(row.call_hp) +           // ★ 숨김 정책 반영된 값
+                td(row.call_hp) +
                 td(row.meta) +
                 td(row.campaign_name);
             tb.appendChild(tr);
@@ -963,10 +516,9 @@ canvas { background:#fff; }
             const groupSel = document.getElementById('mb_group');
             if (!groupSel) return;
             groupSel.innerHTML = '<option value="">로딩 중...</option>';
-            // 상담사 초기화
             const agent = document.getElementById('agent'); if (agent) agent.selectedIndex = 0;
 
-            fetch('./call/ajax_group_options.php', {
+            fetch('./ajax_group_options.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ company_id: parseInt(this.value||'0',10)||0 }),
@@ -990,7 +542,7 @@ canvas { background:#fff; }
                 });
                 groupSel.innerHTML = '';
                 opts.forEach(o => groupSel.appendChild(o));
-                groupSel.value = '0'; // 회사 변경 시 전체 그룹 유지
+                groupSel.value = '0';
             })
             .catch(err=>{
                 alert('그룹 목록을 불러오지 못했습니다: ' + err.message);

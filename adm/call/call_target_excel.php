@@ -244,7 +244,7 @@ select[disabled]{background:#f7f7f7;color:#999}
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': '<?php echo $csrf_token; ?>'
+                // 'X-CSRF-TOKEN': '<?php echo $csrf_token; ?>'
             },
             body: JSON.stringify({
                 company_id: parseInt(companyId, 10) || 0

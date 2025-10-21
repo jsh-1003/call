@@ -29,6 +29,13 @@ $my_mb_no        = (int)$member['mb_no'];
 $my_company_id   = (int)($member['company_id'] ?? 0);
 $my_company_name = (string)($member['company_name'] ?? '');
 
+// 역할 라디오 필터
+$role_filter = isset($_GET['role_filter']) ? trim($_GET['role_filter']) : 'all';
+$allowed_role_filters = ($my_level >= 9)
+    ? ['all','company','leader','member']   // 9+: 회사관리자/그룹리더/상담원
+    : (($my_level >= 8) ? ['all','leader','member'] : ['all']);
+if (!in_array($role_filter, $allowed_role_filters, true)) $role_filter = 'all';
+
 // -------------------------------------------
 // 셀렉션 스코프
 // -------------------------------------------
@@ -123,7 +130,7 @@ if ($my_level >= 8) {
 $sql_common = " FROM {$g5['member_table']} m ";
 $where = [];
 $where[] = "1";
-$where[] = "(m.mb_level < 10)"; // 플랫폼관리자 제외
+$where[] = "(m.mb_level < 9)"; // 플랫폼관리자 제외
 
 if ($my_level == 7) {
     $where[] = "(m.mb_group = '{$sel_mb_group}' OR m.mb_no = '{$my_mb_no}')";
@@ -134,6 +141,20 @@ if ($my_level == 7) {
 } else { // 9+
     if ($sel_company_id > 0) $where[] = "m.company_id = '{$sel_company_id}'";
     if ($sel_mb_group > 0)   $where[] = "m.mb_group = '{$sel_mb_group}'";
+}
+
+// 역할 라디오 필터
+if ($my_level >= 8) {
+    if ($role_filter === 'company' && $my_level >= 9) {
+        // 회사관리자만 (레벨 8)
+        $where[] = "(m.mb_level = 8)";
+    } elseif ($role_filter === 'leader') {
+        // 그룹리더만 (레벨 7)
+        $where[] = "(m.mb_level = 7)";
+    } elseif ($role_filter === 'member') {
+        // 상담원만 (레벨 6 이하 가정)
+        $where[] = "(m.mb_level <= 6)";
+    }
 }
 
 if (!$include_blocked) {
@@ -251,6 +272,21 @@ $colspan = ($member['mb_level'] >= 8) ? 10 : 9;
         <input type="hidden" name="mb_group" value="<?php echo (int)$sel_mb_group; ?>">
     <?php } ?>
 
+    <?php if ($my_level >= 8) { ?>
+        <!-- (NEW) 권한 라디오 필터 -->
+        <span class="role-radio" style="margin-left:10px;">
+            <label><input type="radio" name="role_filter" value="all" <?php echo $role_filter==='all'?'checked':''; ?>> 전체</label>
+            <?php if ($my_level >= 9) { ?>
+                <label><input type="radio" name="role_filter" value="company" <?php echo $role_filter==='company'?'checked':''; ?>> 회사관리자</label>
+            <?php } ?>
+            <label><input type="radio" name="role_filter" value="leader" <?php echo $role_filter==='leader'?'checked':''; ?>> 그룹리더</label>
+            <label><input type="radio" name="role_filter" value="member" <?php echo $role_filter==='member'?'checked':''; ?>> 상담원</label>
+        </span>
+    <?php } else { ?>
+        <input type="hidden" name="role_filter" value="all">
+    <?php } ?>
+
+
     <label for="include_blocked" style="margin-left:10px;">
         <input type="checkbox" name="include_blocked" id="include_blocked" value="1" <?php echo $include_blocked?'checked':''; ?>>
         차단/탈퇴 포함
@@ -275,13 +311,16 @@ $colspan = ($member['mb_level'] >= 8) ? 10 : 9;
                 <?php if($member['mb_level'] >= 8) { ?>
                 <th scope="col">권한</th>
                 <?php } ?>
-                <th scope="col"><?php echo subject_sort_link('m.company_name', "company_id={$sel_company_id}&mb_group={$sel_mb_group}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}"); ?>회사</a></th>
+                <?php
+                $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_filter={$role_filter}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}";
+                ?>
+                <th scope="col"><?php echo subject_sort_link('m.company_name', $qstr_member_list); ?>회사</a></th>
                 <th scope="col">조직명</th>
-                <th scope="col"><?php echo subject_sort_link('m.mb_name', "company_id={$sel_company_id}&mb_group={$sel_mb_group}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}"); ?>이름</a></th>
-                <th scope="col"><?php echo subject_sort_link('m.mb_id', "company_id={$sel_company_id}&mb_group={$sel_mb_group}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}"); ?>아이디</a></th>
+                <th scope="col"><?php echo subject_sort_link('m.mb_name', $qstr_member_list); ?>이름</a></th>
+                <th scope="col"><?php echo subject_sort_link('m.mb_id', $qstr_member_list); ?>아이디</a></th>
                 <th scope="col">상태</th>
-                <th scope="col"><?php echo subject_sort_link('m.mb_datetime', "company_id={$sel_company_id}&mb_group={$sel_mb_group}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}"); ?>등록일</a></th>
-                <th scope="col"><?php echo subject_sort_link('m.mb_today_login', "company_id={$sel_company_id}&mb_group={$sel_mb_group}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}"); ?>최종접속일</a></th>
+                <th scope="col"><?php echo subject_sort_link('m.mb_datetime', $qstr_member_list); ?>등록일</a></th>
+                <th scope="col"><?php echo subject_sort_link('m.mb_today_login', $qstr_member_list); ?>최종접속일</a></th>
                 <th scope="col">수정</th>
                 <th scope="col">차단</th>
             </tr>
@@ -350,15 +389,16 @@ $colspan = ($member['mb_level'] >= 8) ? 10 : 9;
 
 <?php
 // 페이징
-$qstr = http_build_query([
-    'company_id'=>$sel_company_id,
-    'mb_group'=>$sel_mb_group,
-    'include_blocked'=>$include_blocked,
-    'sfl'=>$sfl,
-    'stx'=>$stx,
-    'sst'=>$sst,
-    'sod'=>$sod
-]);
+// $qstr = http_build_query([
+//     'company_id'=>$sel_company_id,
+//     'mb_group'=>$sel_mb_group,
+//     'include_blocked'=>$include_blocked,
+//     'sfl'=>$sfl,
+//     'stx'=>$stx,
+//     'sst'=>$sst,
+//     'sod'=>$sod
+// ]);
+$qstr = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_filter={$role_filter}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}&sod={$sod}";
 echo get_paging(G5_IS_MOBILE ? $config['cf_mobile_pages'] : $config['cf_write_pages'], $page, $total_page, "{$_SERVER['SCRIPT_NAME']}?{$qstr}&amp;page=");
 ?>
 
@@ -376,6 +416,8 @@ echo get_paging(G5_IS_MOBILE ? $config['cf_mobile_pages'] : $config['cf_write_pa
 /* 상태 라벨 */
 .mb_leave_msg { color:#d14343; font-weight:600; }
 .mb_intercept_msg { color:#b45309; font-weight:600; }
+
+.role-radio label { margin-right:8px; }
 </style>
 
 <?php include_once (G5_ADMIN_PATH.'/admin.tail.php'); ?>

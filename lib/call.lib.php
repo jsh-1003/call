@@ -187,12 +187,12 @@ function is_json(): bool {
 }
 // 안전 JSON decode (문자열→배열), 실패/빈값은 null
 function safe_json_decode_or_null($json) {
-    if ($json === null || $json === '') return null;
+    if ($json === null || $json === '') return array();
     $decoded = json_decode($json, true);
     if (json_last_error() === JSON_ERROR_NONE) return $decoded;
     // 로그만 남기고 null로 폴백(원문을 같이 보내고 싶으면 meta_raw 등 필드로 분리)
     error_log('[meta_json] invalid json: ' . json_last_error_msg());
-    return null;
+    return array();
 }
 /**
  * Bearer 토큰 파서
