@@ -444,7 +444,7 @@ if (!$is_new) {
                 <tr id="row_company_name_input" style="display:<?php echo (($is_new && $default_role==='company') || (!$is_new && $default_role==='company'))?'':'none'; ?>;">
                     <th scope="row"><label for="company_name">회사명</label></th>
                     <td colspan="3">
-                        <input type="text" name="company_name" id="company_name" class="frm_input" maxlength="100" value="<?php echo get_text($default_company_name); ?>" placeholder="예) 콜프로그램(주)">
+                        <input type="text" name="company_name" id="company_name" class="frm_input" maxlength="100" value="<?php echo get_text($default_company_name); ?>" placeholder="예) 콜프로(주)">
                         <div class="help">회사관리자 생성/수정 시 입력.</div>
                     </td>
                 </tr>

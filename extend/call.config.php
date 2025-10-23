@@ -9,7 +9,7 @@ define('CALL_API_COUNT', 5);
 // 배정 유효 기본 시간
 define('CALL_LEASE_MIN', 180);
 // 세션 만료 시간
-define('API_SESSION_TTL_SECONDS', 60*60*24*7); // 2일
+define('API_SESSION_TTL_SECONDS', 60*60*24*1); // 1일
 
 define('AWS_REGION', 'ap-northeast-2'); // 서울 리전
 define('S3_BUCKET',  'call-save');

@@ -45,7 +45,7 @@ if ($mb_level >= 9) {
 }
 
 // 배정상태 라벨
-$ASSIGN_LABEL = [ 0=>'미배정', 1=>'배정', 3=>'완료' ]; // 2=>'진행중', 
+$ASSIGN_LABEL = [ 0=>'미배정', 1=>'배정', 3=>'완료', 4=>'거절' ]; // 2=>'진행중', 
 
 // ----------------------------------------------------------------------------------
 // WHERE 구성 (+ 삭제 캠페인 제외 조건)
@@ -105,7 +105,7 @@ if ($f_dnc === '0' || $f_dnc === '1') {
     $where[] = "t.do_not_call = ".(int)$f_dnc;
 }
 // 배정상태 필터
-if ($f_asgn !== '' && in_array($f_asgn, ['0','1','2','3'], true)) {
+if ($f_asgn !== '' && in_array($f_asgn, ['0','1','2','3', '4'], true)) {
     $where[] = "t.assigned_status = ".(int)$f_asgn;
 }
 
@@ -225,7 +225,7 @@ if ($mb_level >= 9) {
 .small-muted { color:#888; font-size:12px; }
 pre.json { text-align:left; white-space:pre-wrap; background:#f8f9fa; padding:8px; border:1px solid #eee; border-radius:4px; }
 td.meta { text-align:left !important; }
-td.camp-cell, td.org-cell { text-align:left !important; }
+td.camp-cell, td.org-cell { text-align:left !important; font-size:11px; letter-spacing: -1px; }
 tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.025), rgba(0,0,0,0.025)); }
 .meta-sex { font-weight:bold; margin-right:8px; }
 </style>
@@ -312,7 +312,7 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
         <label for="as">배정상태</label>
         <select name="as" id="as">
             <option value=""  <?php echo $f_asgn===''?'selected':'';?>>전체</option>
-            <?php foreach ([0=>'미배정',1=>'배정',2=>'진행중',3=>'완료'] as $k=>$v){ ?>
+            <?php foreach ($ASSIGN_LABEL as $k=>$v){ ?>
                 <option value="<?php echo $k;?>" <?php echo $f_asgn!=='' && (int)$f_asgn===$k?'selected':'';?>><?php echo _h($v);?></option>
             <?php } ?>
         </select>
@@ -380,28 +380,17 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
                 $last_result = (int)$row['last_result'];
                 $last_label  = $last_result ? status_label($last_result) : '';
 
-                // meta 표시: 성별을 맨 앞에 추가(남성/여성만), 뒤에 meta_json 일부 요약
-                $meta_arr = json_decode($row['meta_json'], true);
-                $parts = [];
-
-                // 성별 표시
+                // 추가 정보 표시
                 $sex_txt = '';
                 if ((int)$row['sex'] === 1) $sex_txt = '남성';
-                elseif ((int)$row['sex'] === 2) $sex_txt = '여성';
-                if ($sex_txt !== '') $parts[] = '<span class="meta-sex">'.$sex_txt.'</span>';
-
-                if (is_array($meta_arr) && $meta_arr) {
-                    $pairs = [];
-                    $i=0;
-                    foreach ($meta_arr as $k=>$v) {
-                        if ($v === '' || $v === null) continue;
-                        $pairs[] = _h(is_scalar($v)?$v:json_encode($v, JSON_UNESCAPED_UNICODE));
-                        if (++$i>=5) break; // 최대 5개만 요약
-                    }
-                    if ($pairs) $parts[] = implode(', ', $pairs);
+                elseif ((int)$row['sex'] === 2) $sex_txt = '여성';                
+                $meta_json = $row['meta_json'];
+                $meta_txt  = '';
+                if ($sex_txt !== '') $meta_txt .= $sex_txt;
+                if (is_array($meta_json) && !empty($meta_json)) {
+                    if ($meta_txt !== '') $meta_txt .= ', ';
+                    $meta_txt .= implode(', ', $meta_json);
                 }
-
-                $meta_html = $parts ? implode(' ', $parts) : '';
 
                 $agent_txt   = $row['assigned_mb_no'] ? get_agent_name_cached((int)$row['assigned_mb_no']) : '-';
                 $camp_inactive = ((int)$row['campaign_status'] === 0);
@@ -421,7 +410,7 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
                     <td><?php echo $hp_fmt; ?></td>
 
                     <td><?php echo _h($row['name']);?> / <?php echo _h($age_txt);?></td>
-                    <td class="meta"><?php echo $meta_html; ?></td>
+                    <td class="meta"><?php echo $meta_txt; ?></td>
                     
                     <td><?php echo _h($as_label);?></td>
                     <td><?php echo _h($agent_txt);?></td>

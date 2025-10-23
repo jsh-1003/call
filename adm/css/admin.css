@@ -1488,3 +1488,6 @@ body.ac-open{ overflow:hidden; }
 .ac-actions { display:flex; gap:8px; margin:12px 0; }
 .ac-input { width:100%; }
 .btn-mini2 { padding:4px 8px; min-width:70px; font-size:12px; }
+
+td.small_txt {font-size:11px;letter-spacing:-1px;}
+td.btn_one {width:65px;}

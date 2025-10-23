@@ -354,100 +354,25 @@ $status_ui = [];
 $rui = sql_query("SELECT call_status, ui_type FROM call_status_code WHERE mb_group=0");
 while ($v = sql_fetch_array($rui)) $status_ui[(int)$v['call_status']] = ($v['ui_type'] ?: 'secondary');
 
-/* ==========================
-   에이전트/그룹 드롭다운 (레벨별)
-   ========================== */
-// 상담원 목록은 기존 로직 유지(단, 회사 필터가 있으면 해당 회사 그룹만 포함)
-$agent_options = [];
-$agent_where = [];
-$agent_order = " ORDER BY mb_group ASC, mb_name ASC, mb_no ASC ";
 
-if ($mb_level >= 8) {
-    if ($sel_mb_group > 0) {
-        $agent_where[] = "mb_group = {$sel_mb_group}";
-    } else {
-        if ($mb_level >= 9 && $sel_company_id > 0) {
-            $agent_where[] = "mb_group IN (SELECT mb_no FROM {$member_table} WHERE mb_level=7 AND company_id='{$sel_company_id}')";
-        }
-        // ★ 추가: 레벨 8은 자기 회사 전체
-        elseif ($mb_level == 8) {
-            $agent_where[] = "mb_group IN (SELECT mb_no FROM {$member_table} WHERE mb_level=7 AND company_id='{$my_company_id}')";
-        } else {
-            $agent_where[] = "mb_group > 0"; // (실제로 도달 X)
-        }
-    }
-} else {
-    $agent_where[] = "mb_group = {$my_group}";
-}
+/**
+ * ========================
+ * 회사/그룹/담당자 드롭다운 옵션
+ * ========================
+ */
+$build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
+// 회사 옵션(9+)
+$company_options = $build_org_select_options['company_options'];
+// 그룹 옵션(8+)
+$group_options = $build_org_select_options['group_options'];
+// 상담사 옵션(회사/그룹 필터 반영) — 상담원 레벨(3)만
+$agent_options = $build_org_select_options['agent_options'];
+/**
+ * ========================
+ * // 회사/그룹/담당자 드롭다운 옵션
+ * ========================
+ */
 
-$agent_where_sql = $agent_where ? ('WHERE '.implode(' AND ', $agent_where)) : '';
-$qr = sql_query("
-    SELECT mb_no, mb_name, mb_group,
-           COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_group)) AS mb_group_name
-      FROM {$member_table}
-    {$agent_where_sql}
-    {$agent_order}
-");
-while ($r = sql_fetch_array($qr)) {
-    $agent_options[] = [
-        'mb_no'         => (int)$r['mb_no'],
-        'mb_name'       => get_text($r['mb_name']),
-        'mb_group'      => (int)$r['mb_group'],
-        'mb_group_name' => get_text($r['mb_group_name']),
-    ];
-}
-
-// 그룹 옵션(상단 셀렉트 초기 렌더용)
-$group_options = [];
-if ($mb_level >= 8) {
-    $where_g = " WHERE m.mb_level = 7 ";
-    if ($mb_level >= 9) {
-        if ($sel_company_id > 0) $where_g .= " AND m.company_id = '{$sel_company_id}' ";
-    } else {
-        $where_g .= " AND m.company_id = '{$my_company_id}' ";
-    }
-    $res = sql_query("
-        SELECT m.mb_no AS mb_group, m.company_id
-        FROM {$member_table} m
-        {$where_g}
-        ORDER BY m.company_id ASC, COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹-', m.mb_no)) ASC, m.mb_no ASC
-    ");
-    while ($r = sql_fetch_array($res)) {
-        $gid   = (int)$r['mb_group'];
-        $cid   = (int)$r['company_id'];
-        $gname = get_group_name_cached($gid);
-        $cname = get_company_name_cached($cid);
-        $mcnt  = count_members_by_group_cached($gid);
-        $group_options[] = [
-            'mb_group'      => $gid,
-            'company_id'    => $cid,
-            'company_name'  => $cname,
-            'mb_group_name' => $gname,
-            'member_count'  => $mcnt,
-        ];
-    }
-}
-
-// 회사 옵션(9+만)
-$company_options = [];
-if ($mb_level >= 9) {
-    $res = sql_query("
-        SELECT m.mb_no AS company_id
-          FROM {$member_table} m
-         WHERE m.mb_level = 8
-         ORDER BY COALESCE(NULLIF(m.company_name,''), CONCAT('회사-', m.mb_no)) ASC, m.mb_no ASC
-    ");
-    while ($r = sql_fetch_array($res)) {
-        $cid   = (int)$r['company_id'];
-        $cname = get_company_name_cached($cid);
-        $gcnt  = count_groups_by_company_cached($cid);
-        $company_options[] = [
-            'company_id'   => $cid,
-            'company_name' => $cname,
-            'group_count'  => $gcnt,
-        ];
-    }
-}
 
 /* ==========================
    총 건수
@@ -695,16 +620,17 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
                 $bday = empty($row['birth_date']) ? '-' : substr(get_text($row['birth_date']), 2, 8);
                 $man_age = is_null($row['man_age']) ? '-' : ((int)$row['man_age']).'세';
 
-                $meta = '-';
-                if (!is_null($row['meta_json']) && $row['meta_json'] !== '') {
-                    $arr = json_decode($row['meta_json'], true);
-                    if (is_array($arr) && !empty($arr)) $meta = get_text(implode(', ', array_values($arr)));
-                }
-                // 성별 표시
+                // 추가 정보 표시
                 $sex_txt = '';
                 if ((int)$row['sex'] === 1) $sex_txt = '남성';
-                elseif ((int)$row['sex'] === 2) $sex_txt = '여성';
-                if ($sex_txt !== '') $meta = '<span class="meta-sex">'.$sex_txt.'</span>, '.$meta;
+                elseif ((int)$row['sex'] === 2) $sex_txt = '여성';                
+                $meta_json = $row['meta_json'];
+                $meta_txt  = '';
+                if ($sex_txt !== '') $meta_txt .= $sex_txt;
+                if (is_array($meta_json) && !empty($meta_json)) {
+                    if ($meta_txt !== '') $meta_txt .= ', ';
+                    $meta_txt .= implode(', ', $meta_json);
+                }
 
                 $ac_time  = $row['ac_updated_at'] ? fmt_datetime(get_text($row['ac_updated_at']), 'mdhis') : '-';
                 $schedule_disp = format_schedule_display($row['ac_scheduled_at'], $row['ac_schedule_note']);
@@ -720,13 +646,13 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
                     <td><?php echo get_text($row['target_name'] ?: '-'); ?></td>
                     <td><?php echo $bday; ?></td>
                     <td><?php echo $man_age; ?></td>
-                    <td><?php echo $meta; ?></td>
+                    <td><?php echo $meta_txt; ?></td>
                     <td><?php echo get_text($hp_fmt); ?></td>
                     <td class="status-col status-<?php echo get_text($ac_ui); ?>"><?php echo get_text($ac_label); ?></td>
-                    <td><?php echo $schedule_disp; ?></td>
+                    <td class="small_txt"><?php echo $schedule_disp; ?></td>
                     <td><?php echo $ac_time; ?></td>
-                    <td><?php echo get_text($row['campaign_name'] ?: '-'); ?></td>
-                    <td>
+                    <td class="small_txt"><?php echo get_text($row['campaign_name'] ?: '-'); ?></td>
+                    <td class="btn_one">
                         <button type="button"
                                 class="btn btn_02 ac-edit-btn"
                                 data-campaign-id="<?php echo (int)$row['campaign_id'];?>"
@@ -737,7 +663,7 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
                                 data-state-id="<?php echo (int)$row['ac_state_id'];?>"
                                 data-birth="<?php echo $bday; ?>"
                                 data-age="<?php echo is_null($row['man_age'])?'':(int)$row['man_age']; ?>"
-                                data-meta="<?php echo htmlspecialchars($meta, ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); ?>"
+                                data-meta="<?php echo $meta_txt; ?>"
                                 >
                             처리
                         </button>
@@ -882,11 +808,10 @@ function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getD
       // 상담원 초기화
       var agent = document.getElementById('agent'); if (agent) agent.selectedIndex = 0;
 
-      fetch('./call/ajax_group_options.php', {
+      fetch('./ajax_group_options.php', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
-        //   'X-CSRF-TOKEN': '<?php echo $_SESSION['call_upload_token'] ?? ''; ?>
         },
         body: JSON.stringify({ company_id: parseInt(this.value||'0',10)||0 }),
         credentials: 'same-origin'
@@ -916,6 +841,177 @@ function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getD
       });
     });
   }
+  // 모달/단건 조회/저장/타임라인 렌더
+  var panel   = document.getElementById('acPanel');
+  var overlay = document.getElementById('acOverlay');
+  var btnClose= document.getElementById('acClose');
+  var btnCancel=document.getElementById('acCancel');
+
+  function openPanel(){ panel.hidden=false; overlay.hidden=false; panel.setAttribute('aria-hidden','false'); document.body.classList.add('ac-open'); }
+  function closePanel(){ panel.hidden=true; overlay.hidden=true; panel.setAttribute('aria-hidden','true'); document.body.classList.remove('ac-open'); }
+  if (btnClose)  btnClose.addEventListener('click', closePanel);
+  if (btnCancel) btnCancel.addEventListener('click', closePanel);
+  if (overlay)   overlay.addEventListener('click', closePanel);
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePanel(); });
+
+  // 타임라인 렌더
+  function renderTimeline(history, notes){
+    var el = document.getElementById('f_timeline');
+    el.innerHTML = '';
+
+    // 합치고 정렬
+    var items = [];
+    (history||[]).forEach(function(h){
+      items.push({
+        t: new Date(h.changed_at.replace(' ','T')),
+        time: h.changed_at,
+        who: h.who_name || h.who_id || h.changed_by,
+        kind: 'state',
+        text: (h.prev_label || (h.prev_state==null?'-':h.prev_state))+' → '+(h.new_label || h.new_state)
+      });
+    });
+    (notes||[]).forEach(function(n){
+      items.push({
+        t: new Date(n.created_at.replace(' ','T')),
+        time: n.created_at,
+        who: n.who_name || n.who_id || n.created_by,
+        kind: n.note_type,
+        text: n.note_type==='schedule'
+              ? ((n.scheduled_at? (n.scheduled_at.substring(5,16)+' / ') : '') + (n.note_text||''))
+              : (n.note_text||'')
+      });
+    });
+    items.sort(function(a,b){ return b.t - a.t; });
+
+    if (!items.length) {
+      var none = document.createElement('div');
+      none.className='ac-timeline__item';
+      none.innerHTML = '<div class="ac-timeline__time">-</div><div class="ac-timeline__body small-muted">로그가 없습니다.</div>';
+      el.appendChild(none);
+      return;
+    }
+
+    items.forEach(function(it){
+      var row = document.createElement('div'); row.className='ac-timeline__item';
+      var badgeClass = it.kind==='state' ? 'ac-badge ac-badge--state' : (it.kind==='schedule'?'ac-badge ac-badge--sched':'ac-badge ac-badge--note');
+      var typeLabel  = it.kind==='state' ? '상태' : (it.kind==='schedule'?'일정':'메모');
+
+      var time = document.createElement('div'); time.className='ac-timeline__time'; time.textContent = it.time;
+      var body = document.createElement('div'); body.className='ac-timeline__body';
+      body.innerHTML = '<span class="'+badgeClass+'">'+typeLabel+'</span>'
+                     + '<b>'+ (it.who||'') +'</b> · '
+                     + (it.text ? (it.text+'') : '');
+      row.appendChild(time); row.appendChild(body);
+      el.appendChild(row);
+    });
+  }
+
+  // 팝업 열기
+  document.querySelectorAll('.ac-edit-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var campaign_id = this.getAttribute('data-campaign-id');
+      var mb_group    = this.getAttribute('data-mb-group');
+      var target_id   = this.getAttribute('data-target-id');
+      var targetName  = this.getAttribute('data-target-name') || '';
+      var hp          = this.getAttribute('data-call-hp') || '';
+      var state_id    = this.getAttribute('data-state-id') || 0;
+
+      // 고객 요약
+      document.getElementById('s_target_name').textContent = targetName || '-';
+      document.getElementById('s_hp').textContent = hp || '';
+      document.getElementById('s_birth').textContent = this.getAttribute('data-birth') || '-';
+      var age = this.getAttribute('data-age') || '';
+      document.getElementById('s_age').textContent = (age!==''? (age+'세') : '-');
+      document.getElementById('s_meta').textContent = this.getAttribute('data-meta') || '-';
+
+      // 폼 기본값
+      document.getElementById('f_campaign_id').value = campaign_id;
+      document.getElementById('f_mb_group').value    = mb_group;
+      document.getElementById('f_target_id').value   = target_id;
+      document.getElementById('f_state_id').value    = state_id;
+      document.getElementById('f_memo').value        = '';
+      document.getElementById('f_schedule_date').value = '';
+      document.getElementById('f_schedule_time').value = '';
+      document.getElementById('f_schedule_note').value = '';
+      document.getElementById('f_schedule_clear').value = '0';
+      renderTimeline([],[]);
+
+      // 티켓/이력/노트 로드
+      var url = new URL('./call_after_list.php', location.href);
+      url.searchParams.set('ajax','get');
+      url.searchParams.set('campaign_id', campaign_id);
+      url.searchParams.set('mb_group', mb_group);
+      url.searchParams.set('target_id', target_id);
+      fetch(url.toString(), {credentials:'same-origin'})
+        .then(r=>r.json())
+        .then(j=>{
+          if (j && j.success) {
+            var t = j.ticket || {};
+            if (typeof t.state_id !== 'undefined' && t.state_id !== null)
+              document.getElementById('f_state_id').value = t.state_id;
+
+            // 일정 값 프리필
+            if (t.scheduled_at) {
+              // YYYY-MM-DD HH:MM:SS
+              var d = t.scheduled_at.split(' ');
+              if (d[0]) document.getElementById('f_schedule_date').value = d[0];
+              if (d[1]) document.getElementById('f_schedule_time').value = d[1].slice(0,5);
+            }
+            if (t.schedule_note) document.getElementById('f_schedule_note').value = t.schedule_note;
+
+            renderTimeline(j.history || [], j.notes || []);
+          }
+        })
+        .catch(console.error);
+
+      openPanel();
+    });
+  });
+
+  // 일정 퀵버튼
+  function setDateInput(offsetDays){
+    var iDate = document.getElementById('f_schedule_date');
+    var d = new Date();
+    d.setDate(d.getDate() + offsetDays);
+    var y = d.getFullYear(), m = (d.getMonth()+1+'').padStart(2,'0'), day = (d.getDate()+'').padStart(2,'0');
+    iDate.value = y+'-'+m+'-'+day;
+  }
+  var btnToday = document.getElementById('btnSchedToday');
+  var btnTomorrow = document.getElementById('btnSchedTomorrow');
+  var btnClear = document.getElementById('btnSchedClear');
+  if (btnToday) btnToday.addEventListener('click', function(){ setDateInput(0); if(!document.getElementById('f_schedule_time').value) document.getElementById('f_schedule_time').value='14:00'; });
+  if (btnTomorrow) btnTomorrow.addEventListener('click', function(){ setDateInput(1); if(!document.getElementById('f_schedule_time').value) document.getElementById('f_schedule_time').value='10:00'; });
+  if (btnClear) btnClear.addEventListener('click', function(){
+      document.getElementById('f_schedule_date').value='';
+      document.getElementById('f_schedule_time').value='';
+      document.getElementById('f_schedule_note').value='';
+      document.getElementById('f_schedule_clear').value='1';
+  });
+
+  // 저장
+  var form = document.getElementById('acForm');
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var fd = new FormData(form);
+    fetch('./call_after_list.php', {method:'POST', body:fd, credentials:'same-origin'})
+      .then(r=>r.json())
+      .then(j=>{
+        if (j && j.success) {
+          // 타임라인 갱신
+          renderTimeline(j.history || [], j.notes || []);
+          // 리스트 최신 반영 위해 새로고침
+          location.reload();
+        } else {
+          alert('저장 실패: '+(j && j.message ? j.message : ''));
+        }
+      })
+      .catch(err=>{ console.error(err); alert('저장 중 오류'); });
+  });
+
+  // 닫기
+  var btnCancel = document.getElementById('acCancel');
+  if (btnCancel) btnCancel.addEventListener('click', function(){ closePanel(); });
+
 })();
 </script>
 

@@ -256,8 +256,9 @@ $qstr = http_build_query([
 ]);
 ?>
 <style>
-.td_cntsmall {width:60px}
-.td_cnt {font-weight:bold}
+.td_cnt {width:auto;min-width:110px;font-weight:bold;font-size:1.05em;font-family:sans-serif}
+.td_cntsmall {width:56px}
+.td_cam_name {font-size:0.85em;letter-spacing:-1px;}
 :root {
     --remain-low:   #f8bfbf;
     --remain-mid:   #f9d9a8;
@@ -424,7 +425,7 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
                 <td class="td_chk">
                     <input type="checkbox" name="chk[]" value="<?php echo $cid; ?>" title="선택">
                 </td>
-                <td class="td_left">
+                <td class="td_left td_cam_name">
                     <span class="name-text"><?php echo get_text($r['name']); ?></span>
                     <?php if ($inactive) { ?>
                         <span class="badge badge-inactive">비활성</span>
@@ -438,9 +439,8 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
                     }
                     ?>
                 </td>
-                <td class="td_left">
-                    <div><b><?php echo get_text($cname); ?></b></div>
-                    <div><?php echo get_text($gname); ?></div>
+                <td class="td_left" style="line-height:1em">
+                    <b><?php echo get_text($cname); ?></b><br><?php echo get_text($gname); ?>
                 </td>
                 <td class="td_left"><?php echo get_text($r['campaign_memo']); ?></td>
                 <td class="td_cnt" style='background:<?php echo $bg_rate ?>;'><?php echo $rate ?>%</td>

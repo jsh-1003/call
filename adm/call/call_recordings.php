@@ -167,13 +167,18 @@ while ($v = sql_fetch_array($rcl)) {
  * 회사/그룹/담당자 드롭다운 옵션
  * ========================
  */
-$build_org_select_options = build_org_select_options();
+$build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
 // 회사 옵션(9+)
 $company_options = $build_org_select_options['company_options'];
 // 그룹 옵션(8+)
 $group_options = $build_org_select_options['group_options'];
 // 상담사 옵션(회사/그룹 필터 반영) — 상담원 레벨(3)만
 $agent_options = $build_org_select_options['agent_options'];
+/**
+ * ========================
+ * // 회사/그룹/담당자 드롭다운 옵션
+ * ========================
+ */
 
 
 // -----------------------------
@@ -274,7 +279,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['recording_id']; }
 ?>
 <style>
-audio {max-width:260px}
+audio {max-width:260px;max-height:30px;}
 </style>
 <div class="local_ov01 local_ov">
     <?php echo $listall ?>

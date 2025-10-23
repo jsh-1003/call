@@ -71,7 +71,7 @@ $q         = _g('q', '');
 $q_type    = _g('q_type', '');           // name | last4 | full | all
 $f_status  = isset($_GET['status']) ? (int)$_GET['status'] : 0;  // 0=전체
 $page      = max(1, (int)(_g('page', '1')));
-$page_rows = 15; // 상세 리스트 15건 고정
+$page_rows = 50; // 상세 리스트 50건 고정
 $offset    = ($page - 1) * $page_rows;
 
 // --------------------------------------------------
@@ -252,17 +252,10 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
     } else {
         $ids = array_keys($result['matrix']);
         if ($ids) {
-            $id_list = implode(',', array_map('intval', $ids));
-            $rs = sql_query("
-                SELECT DISTINCT mb_group,
-                       COALESCE(mb_group_name, CONCAT('그룹 ', mb_group)) AS nm
-                  FROM {$member_table}
-                 WHERE mb_group IN ({$id_list})
-            ");
-            while ($r = sql_fetch_array($rs)) {
-                $result['dim_labels'][(int)$r['mb_group']] = get_text($r['nm']);
+            foreach ($ids as $gid) {
+                $gid = (int)$gid;
+                $result['dim_labels'][$gid] = get_group_name_cached($gid);
             }
-            foreach ($ids as $gid) if (!isset($result['dim_labels'][$gid])) $result['dim_labels'][$gid] = '그룹 '.$gid;
         }
     }
 
@@ -298,17 +291,9 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         // 라벨 벌크
         if ($result['group_agent_matrix']) {
             $gids = array_map('intval', array_keys($result['group_agent_matrix']));
-            $glist = implode(',', $gids);
-            $rqg = sql_query("
-                SELECT DISTINCT mb_group,
-                       COALESCE(mb_group_name, CONCAT('그룹 ', mb_group)) AS nm
-                  FROM {$member_table}
-                 WHERE mb_group IN ({$glist})
-            ");
-            while ($r = sql_fetch_array($rqg)) {
-                $result['group_labels'][(int)$r['mb_group']] = get_text($r['nm']);
+            foreach ($gids as $gid) {
+                $result['group_labels'][$gid] = get_group_name_cached($gid);
             }
-            foreach ($gids as $gid) if (!isset($result['group_labels'][$gid])) $result['group_labels'][$gid] = '그룹 '.$gid;
 
             $agent_ids = [];
             foreach ($result['group_agent_matrix'] as $gid => $agents) {
@@ -349,7 +334,6 @@ $sql_list = "
     SELECT
         l.call_id, 
         l.mb_group,
-        COALESCE(g.mv_group_name, CONCAT('그룹 ', l.mb_group))          AS group_name,
         l.mb_no                                                        AS agent_id,
         m.mb_name                                                      AS agent_name,
         m.mb_id                                                        AS agent_mb_id,
@@ -377,13 +361,6 @@ $sql_list = "
       ON t.target_id = l.target_id
  LEFT JOIN {$member_table} m 
       ON m.mb_no = l.mb_no
-    /* 그룹명: 그룹별 대표명 파생 */
- LEFT JOIN (
-        SELECT mb_group, MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_group))) AS mv_group_name
-          FROM {$member_table}
-         WHERE mb_group > 0
-         GROUP BY mb_group
- ) AS g ON g.mb_group = l.mb_group
     /* 통화결과 라벨(공통셋) */
  LEFT JOIN call_status_code sc
       ON sc.call_status = l.call_status AND sc.mb_group = 0
@@ -422,18 +399,24 @@ $group_totals        = $stats['group_totals'];
 $group_labels        = $stats['group_labels'];
 $agent_labels        = $stats['agent_labels'];
 
+
 /**
  * ========================
  * 회사/그룹/담당자 드롭다운 옵션
  * ========================
  */
-$build_org_select_options = build_org_select_options();
+$build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
 // 회사 옵션(9+)
 $company_options = $build_org_select_options['company_options'];
 // 그룹 옵션(8+)
 $group_options = $build_org_select_options['group_options'];
 // 상담사 옵션(회사/그룹 필터 반영) — 상담원 레벨(3)만
 $agent_options = $build_org_select_options['agent_options'];
+/**
+ * ========================
+ * // 회사/그룹/담당자 드롭다운 옵션
+ * ========================
+ */
 
 
 // --------------------------------------------------
@@ -690,7 +673,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
     <?php } ?>
 <?php } ?>
 
-<!-- 상세 목록 : 15건 고정 -->
+<!-- 상세 목록 : 50건 고정 -->
 <div class="tbl_head01 tbl_wrap" style="margin-top:14px;">
     <table class="table-fixed">
         <thead>
@@ -718,14 +701,13 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
         } else {
             while ($row = sql_fetch_array($res_list)) {
                 // 포맷팅
-                $hp_fmt   = format_korean_phone($row['call_hp']);
                 $talk_sec = is_null($row['talk_time']) ? '-' : fmt_hms((int)$row['talk_time']);
                 $call_sec = is_null($row['call_time']) ? '-' : fmt_hms((int)$row['call_time']);
                 $bday     = empty($row['birth_date']) ? '-' : get_text($row['birth_date']);
                 $man_age  = is_null($row['man_age'])   ? '-' : ((int)$row['man_age']).'세';
                 $agent    = $row['agent_name'] ? get_text($row['agent_name']) : (string)$row['agent_mb_id'];
                 $status   = $row['status_label'] ?: ('코드 '.$row['call_status']);
-                $gname    = $row['group_name'] ?: ('그룹 '.(int)$row['mb_group']);
+                $gname = get_group_name_cached((int)$row['mb_group']);
                 $meta     = '-';
                 if (!is_null($row['meta_json']) && $row['meta_json'] !== '') {
                     $decoded = json_decode($row['meta_json'], true);
@@ -743,10 +725,13 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                 // ★ 전화번호 숨김 규칙:
                 //   - 캠페인 cc.is_open_number == 0 이고
                 //   - 상태코드 sc.is_after_call != 1 이면, 번호는 "(숨김처리)"
-                $hp_display = $hp_fmt;
-                if ((int)$row['cc_is_open_number'] === 0 && (int)$row['sc_is_after_call'] !== 1) {
+                $hp_display = '';
+                if ((int)$row['cc_is_open_number'] === 0 && (int)$row['sc_is_after_call'] !== 1 && $mb_level < 9) {
                     $hp_display = '(숨김처리)';
+                } else {
+                    $hp_display = get_text(format_korean_phone($row['call_hp']));
                 }
+
                 ?>
                 <tr>
                     <td><?php echo get_text($gname); ?></td>
@@ -760,7 +745,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                     <td><?php echo get_text($row['target_name'] ?: '-'); ?></td>
                     <td><?php echo $bday; ?></td>
                     <td><?php echo $man_age; ?></td>
-                    <td><?php echo get_text($hp_display); ?></td>
+                    <td><?php echo $hp_display; ?></td>
                     <td><?php echo $meta; ?></td>
                     <td><?php echo get_text($row['campaign_name'] ?: '-'); ?></td>
                 </tr>

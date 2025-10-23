@@ -118,6 +118,13 @@ function build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_statu
     if ($sel_agent_no > 0) $w[] = "l.mb_no = {$sel_agent_no}";
     return $w ? ('WHERE '.implode(' AND ', $w)) : '';
 }
+
+$code_list = get_code_list($sel_mb_group);
+$status_ui = [];
+foreach($code_list as $v) {
+    $status_ui[(int)$v['call_status']] = $v['ui_type'] ?? 'secondary';
+}
+
 $where_sql = build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_status, $sel_company_id, $sel_mb_group, $sel_agent_no);
 
 // 버킷(30분)
@@ -378,7 +385,7 @@ elseif ($type === 'recent_detail') {
             AND cc.status      IN (0,1)
         ".build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_status, $sel_company_id, $sel_mb_group, $sel_agent_no)."
         ORDER BY l.call_start DESC, l.call_id DESC
-        LIMIT 20
+        LIMIT 50
     ";
     $res = sql_query($sql);
     $rows = [];
@@ -407,6 +414,8 @@ elseif ($type === 'recent_detail') {
         } else {
             $hp_display = get_text(format_korean_phone($r['call_hp']));
         }
+        $ui = !empty($status_ui[$r['call_status']]) ? $status_ui[$r['call_status']] : 'secondary';
+        $class_name = 'status-col status-'.get_text($ui);
 
         $rows[] = [
             'group_name'   => get_text($r['group_name'] ?: ('그룹 '.(int)$r['mb_group'])),
@@ -423,6 +432,7 @@ elseif ($type === 'recent_detail') {
             'call_hp'      => $hp_display,
             'meta'         => $meta,
             'campaign_name'=> get_text($r['campaign_name'] ?: '-'),
+            'class_name'        => $class_name
         ];
     }
     echo json_encode(['ok'=>true, 'rows'=>$rows], JSON_UNESCAPED_UNICODE);

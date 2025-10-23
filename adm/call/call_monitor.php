@@ -63,7 +63,7 @@ include_once(G5_ADMIN_PATH.'/admin.head.php');
  * 회사/그룹/담당자 드롭다운 옵션
  * ========================
  */
-$build_org_select_options = build_org_select_options();
+$build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
 // 회사 옵션(9+)
 $company_options = $build_org_select_options['company_options'];
 // 그룹 옵션(8+)
@@ -194,8 +194,8 @@ canvas { background:#fff; }
 <div class="kpi" id="kpiWrap">
     <div class="card"><div>잔여DB</div><div class="big" id="kpiRemainDb">-</div></div>
     <div class="card"><div>총 통화</div><div class="big" id="kpiTotal">-</div></div>
-    <div class="card"><div>통화성공</div><div class="big" id="kpiSuccess">-</div></div>
-    <div class="card"><div>통화실패</div><div class="big" id="kpiFail">-</div></div>
+    <div class="card"><div>성공</div><div class="big" id="kpiSuccess">-</div></div>
+    <div class="card"><div>실패</div><div class="big" id="kpiFail">-</div></div>
     <div class="card"><div>성공률</div><div class="big" id="kpiRate">-</div></div>
     <div class="card"><div>평균 통화(초)</div><div class="big" id="kpiAvg">-</div></div>
     <div class="card"><div>DNC 발생</div><div class="big" id="kpiDnc">-</div></div>
@@ -260,7 +260,7 @@ canvas { background:#fff; }
 <!-- 최근 통화 상세 -->
 <div class="tbl_head01 tbl_wrap section" style="margin-top:12px;">
     <h3 style="margin:0 8px 10px 0; display:flex; align-items:center; gap:8px;">
-        최근 통화 상세 (최근 20건)
+        최근 통화 상세 (최근 50건)
         <span class="small-muted">통계 페이지와 동일 컬럼</span>
     </h3>
     <div class="scrolling-body">
@@ -462,7 +462,7 @@ canvas { background:#fff; }
                 td(row.group_name) +
                 td(row.agent_mb_id) +
                 td(row.agent_name) +
-                td(row.status_label) +
+                `<td class="${row.class_name ?? ''}">${row.status_label}</td>` +
                 td(row.call_start) +
                 td(row.call_end) +
                 td(row.call_time) +

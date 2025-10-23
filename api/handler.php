@@ -101,12 +101,13 @@ function handle_get_call_status_codes(): void {
 }
 
 /**
- * 통화 업로드/저장 처리 (완성형)
+ * 통화 업로드/저장 처리
  * - 필수: target_id, call_status
  * - 선택: call_start, call_end, memo, duration_sec
  * - 파일: (선택) multipart/form-data 에서 'file' 필드
  * - 인증: Authorization: Bearer <token>
  * 응답: { success, message, call_id, recording_id, s3_key }
+ * 참고: call_time은 엔드타임-스타트타임 시간, duration_sec은 녹취파일시간(앱에서주는)으로 기록
  */
 function handle_call_upload(): void {
     // AWS SDK (EC2 IAM Role 사용 권장). 루트/vendor 기준.
@@ -141,10 +142,11 @@ function handle_call_upload(): void {
     $memo         = isset($in['memo'])        ? trim((string)$in['memo'])        : null;
     $duration_sec = isset($in['durationSec']) ? (int)$in['durationSec']          : null;
     $hp = isset($in['phoneNumber']) ? preg_replace('/\D+/', '', (string)$in['phoneNumber'] ?? '') : null;
+    $my_hp = isset($in['myPhoneNumber']) ? preg_replace('/\D+/', '', (string)$in['myPhoneNumber'] ?? '') : null;
 
     if ($target_id < 0 || $call_status === null || $hp === null) {
         send_json(['success'=>false, 'message'=>'targetId나 callStatus나 phoneNumber가 없습니다.'
-            .' / 타겟:'.$target_id.' / 스테이터스값:'.$call_status.' / phoneNumber:'.$call_status
+            .' / 타겟:'.$target_id.' / 스테이터스값:'.$call_status.' / phoneNumber:'.$hp
         ], 400);
     }
 
@@ -219,9 +221,9 @@ function handle_call_upload(): void {
     $memo_sql     = "'".sql_escape_string((string)$memo)."'";
     $qlog = "
         INSERT INTO call_log
-            (campaign_id, mb_group, target_id, mb_no, call_hp, call_status, call_start, call_end, call_time, memo)
+            (campaign_id, mb_group, target_id, mb_no, call_hp, agent_phone, call_status, call_start, call_end, call_time, memo)
         VALUES
-            ({$campaign_id}, {$mb_group}, {$target_id}, {$mb_no}, '".sql_escape_string($call_hp)."',
+            ({$campaign_id}, {$mb_group}, {$target_id}, {$mb_no}, '".sql_escape_string($call_hp)."', '".sql_escape_string($my_hp)."', 
              {$call_status}, '".sql_escape_string($call_start)."', {$call_end_sql}, {$call_time}, {$memo_sql})
     ";
     $ok = sql_query($qlog, true);
@@ -256,7 +258,7 @@ function handle_call_upload(): void {
             $set[] = "assigned_status = 4";
             $set[] = "attempt_count = attempt_count + 1";
             $set[] = "next_try_at = DATE_ADD(NOW(), INTERVAL {$next_min} MINUTE)";
-            $set[] = "assigned_status = 1";
+            // $set[] = "assigned_status = 1";
         }
     }
 
@@ -344,6 +346,7 @@ function handle_call_upload(): void {
         'call_id'      => $call_id,
         'recording_id' => $recording_id,
         's3_key'       => $s3_key,
+        'agent_phone' => $my_hp,
     ]);
 }
 
