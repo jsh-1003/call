@@ -186,7 +186,7 @@ $colspan = ($my_level >= 8) ? 10 : 9;
 
 /* 상태 라벨 */
 .mb_leave_msg { color:#d14343; font-weight:600; }
-.mb_intercept_msg { color:#b45309; font-weight:600; }
+.mb_intercept_msg { padding:5px 8px;background-color:#b45309;color:#fff;font-weight:800; }
 
 .role-radio label { margin-right:8px; }
 </style>
@@ -336,7 +336,7 @@ $colspan = ($my_level >= 8) ? 10 : 9;
                             <?php if (empty($row['mb_intercept_date'])) { ?>
                                 <a href="./call_member_block.php?action=block&amp;mb_id=<?php echo urlencode($row['mb_id']); ?>&amp;<?php echo http_build_query(['_ret'=>$_SERVER['REQUEST_URI']]); ?>" class="btn btn_02" onclick="return confirm('해당 회원을 차단하시겠습니까?');">차단</a>
                             <?php } else { ?>
-                                <a href="./call_member_block.php?action=unblock&amp;mb_id=<?php echo urlencode($row['mb_id']); ?>&amp;<?php echo http_build_query(['_ret'=>$_SERVER['REQUEST_URI']]); ?>" class="btn btn_02" onclick="return confirm('해당 회원의 차단을 해제하시겠습니까?');">해제</a>
+                                <a href="./call_member_block.php?action=unblock&amp;mb_id=<?php echo urlencode($row['mb_id']); ?>&amp;<?php echo http_build_query(['_ret'=>$_SERVER['REQUEST_URI']]); ?>" class="btn btn_02" onclick="return confirm('해당 회원의 차단을 해제하시겠습니까?');" style="background:#d14343 !important;color:#fff !important">해제</a>
                             <?php } ?>
                         <?php } ?>
                     </td>

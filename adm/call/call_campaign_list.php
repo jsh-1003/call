@@ -35,28 +35,21 @@ if ($my_level >= 9) {
     $sel_mb_group   = $my_group;
 }
 
-// --------------------------------------------------------
-// 회사 옵션(레벨9+만)
-// --------------------------------------------------------
-$company_options = [];
-if ($my_level >= 9) {
-    $res = sql_query("
-        SELECT m.mb_no AS company_id
-        FROM {$g5['member_table']} m
-        WHERE m.mb_level = 8
-        ORDER BY COALESCE(NULLIF(m.company_name,''), CONCAT('회사-', m.mb_no)) ASC, m.mb_no ASC
-    ");
-    while ($r = sql_fetch_array($res)) {
-        $cid   = (int)$r['company_id'];
-        $cname = get_company_name_cached($cid);
-        $gcnt  = count_groups_by_company_cached($cid);
-        $company_options[] = [
-            'company_id'   => $cid,
-            'company_name' => $cname,
-            'group_count'  => $gcnt,
-        ];
-    }
-}
+/**
+ * ========================
+ * 회사/그룹/담당자 드롭다운 옵션
+ * ========================
+ */
+$build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
+// 회사 옵션(9+)
+$company_options = $build_org_select_options['company_options'];
+// 그룹 옵션(8+)
+$group_options = $build_org_select_options['group_options'];
+/**
+ * ========================
+ * // 회사/그룹/담당자 드롭다운 옵션
+ * ========================
+ */
 
 // --------------------------------------------------------
 // 검색키 목록 (선택한 mb_group 기준으로 코드를 가져온다는 가정)
@@ -168,14 +161,6 @@ if ($group_ids) {
         ];
     }
 }
-$company_name_cache = [];
-function _company_name($cid){
-    global $company_name_cache;
-    if (!isset($company_name_cache[$cid])) {
-        $company_name_cache[$cid] = get_company_name_cached($cid);
-    }
-    return $company_name_cache[$cid];
-}
 
 // --------------------------------------------------------
 // 통계 집계(call_target.last_result)
@@ -256,9 +241,6 @@ $qstr = http_build_query([
 ]);
 ?>
 <style>
-.td_cnt {width:auto;min-width:110px;font-weight:bold;font-size:1.05em;font-family:sans-serif}
-.td_cntsmall {width:56px}
-.td_cam_name {font-size:0.85em;letter-spacing:-1px;}
 :root {
     --remain-low:   #f8bfbf;
     --remain-mid:   #f9d9a8;
@@ -280,6 +262,9 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
 .status-toggle { margin-left:8px; }
 .status-toggle label { margin-right:10px; }
 .opt-sep{font-weight:bold;color:#666}
+.td_cnt {width:60px;font-weight:bold;font-size:1.05em;font-family:sans-serif}
+.td_cntsmall {width:56px}
+.td_cam_name {font-size:0.85em;letter-spacing:-1px;}
 </style>
 
 <div class="local_ov01 local_ov">
@@ -292,9 +277,8 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
 
 <form name="fsearch" id="fsearch" class="local_sch01 local_sch" method="get" autocomplete="off">
     <?php if ($my_level >= 9) { ?>
-        <!-- 회사 선택(9+): AJAX로 그룹 동기화 -->
-        <select name="company_id" id="company_id" title="회사선택">
-            <option value="0"<?php echo get_selected($sel_company_id, 0); ?>>-- 전체 회사 --</option>
+        <select name="company_id" id="company_id">
+            <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
             <?php foreach ($company_options as $c) { ?>
                 <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
                     <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
@@ -306,42 +290,23 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
     <?php } ?>
 
     <?php if ($my_level >= 8) { ?>
-        <!-- 그룹 선택(8+): 회사 변경 시 비동기 갱신 -->
-        <select name="mb_group" id="mb_group" title="그룹선택">
-            <option value="0"<?php echo get_selected($sel_mb_group, 0); ?>>-- 전체 그룹 --</option>
+        <select name="mb_group" id="mb_group">
+            <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
             <?php
-            // 초기 렌더(첫 진입/새로고침)용, 선택 회사/권한에 맞춰 서버에서 구성
-            $where = " WHERE m.mb_level=7 ";
-            if ($my_level >= 9) {
-                if ($sel_company_id > 0) $where .= " AND m.company_id='{$sel_company_id}' ";
-            } else {
-                $where .= " AND m.company_id='{$sel_company_id}' ";
-            }
-            $gr = sql_query("
-                SELECT m.mb_no AS mb_group, m.company_id
-                FROM {$g5['member_table']} m
-                {$where}
-                ORDER BY m.company_id ASC,
-                         COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹-', m.mb_no)) ASC,
-                         m.mb_no ASC
-            ");
-            $last_c = null;
-            if ($my_level >= 9 && $sel_company_id == 0) {
-                // 회사별 구분선
-                while ($g = sql_fetch_array($gr)) {
-                    $gid = (int)$g['mb_group'];
-                    $cid = (int)$g['company_id'];
-                    if ($last_c !== $cid) {
-                        if ($last_c !== null) echo ''; // 구분만
-                        echo '<option value="" disabled class="opt-sep">── '.get_text(_company_name($cid)).' ──</option>';
-                        $last_c = $cid;
+            if ($group_options) {
+                if ($my_level >= 9 && $sel_company_id == 0) {
+                    $last_cid = null;
+                    foreach ($group_options as $g) {
+                        if ($last_cid !== (int)$g['company_id']) {
+                            echo '<option value="" disabled>── '.get_text($g['company_name']).' ──</option>';
+                            $last_cid = (int)$g['company_id'];
+                        }
+                        echo '<option value="'.(int)$g['mb_group'].'" '.get_selected($sel_mb_group,(int)$g['mb_group']).'>'.get_text($g['mb_group_name']).' (상담원 '.(int)$g['member_count'].')</option>';
                     }
-                    echo '<option value="'.$gid.'" '.get_selected($sel_mb_group, $gid).'>'.get_text(get_group_name_cached($gid)).'</option>';
-                }
-            } else {
-                while ($g = sql_fetch_array($gr)) {
-                    $gid = (int)$g['mb_group'];
-                    echo '<option value="'.$gid.'" '.get_selected($sel_mb_group, $gid).'>'.get_text(get_group_name_cached($gid)).'</option>';
+                } else {
+                    foreach ($group_options as $g) {
+                        echo '<option value="'.(int)$g['mb_group'].'" '.get_selected($sel_mb_group,(int)$g['mb_group']).'>'.get_text($g['mb_group_name']).' (상담원 '.(int)$g['member_count'].')</option>';
+                    }
                 }
             }
             ?>
@@ -349,6 +314,7 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
     <?php } else { ?>
         <input type="hidden" name="mb_group" id="mb_group" value="<?php echo (int)$sel_mb_group; ?>">
     <?php } ?>
+
 
     <select name="sfl" title="검색대상">
         <option value="name"<?php echo get_selected($sfl, "name"); ?>>파일명</option>
@@ -382,9 +348,9 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
             <label for="chkall" class="sound_only">전체</label>
             <input type="checkbox" id="chkall" onclick="check_all(this.form)">
         </th>
-        <th scope="col"><?php echo subject_sort_link('name', "company_id={$sel_company_id}&mb_group={$sel_mb_group}&sfl={$sfl}&stx={$stx}&status={$status_filter}"); ?>파일명</a></th>
         <th scope="col">회사 / 그룹</th>
         <th scope="col">메모</th>
+        <th scope="col"><?php echo subject_sort_link('name', "company_id={$sel_company_id}&mb_group={$sel_mb_group}&sfl={$sfl}&stx={$stx}&status={$status_filter}"); ?>파일명</a></th>
         <th scope="col">잔여율</th>
         <th scope="col">총합</th>
         <th scope="col" style="background-color:#137a2a !important">잔여</th>
@@ -418,14 +384,18 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
             // 회사/그룹명
             $gid = (int)$r['mb_group'];
             $ginfo = $group_map[$gid] ?? ['group_name'=>'-', 'company_id'=>0];
-            $cname = ($ginfo['company_id']>0) ? _company_name((int)$ginfo['company_id']) : '-';
+            $cname = ($ginfo['company_id']>0) ? get_company_name_cached((int)$ginfo['company_id']) : '-';
             $gname = $ginfo['group_name'] ?: '-';
             ?>
             <tr class="<?php echo $bg; ?> <?php echo $inactive ? 'row-inactive' : ''; ?>">
                 <td class="td_chk">
                     <input type="checkbox" name="chk[]" value="<?php echo $cid; ?>" title="선택">
                 </td>
-                <td class="td_left td_cam_name">
+                <td class="td_left" style="line-height:1em">
+                    <b><?php echo get_text($cname); ?></b><br><?php echo get_text($gname); ?>
+                </td>
+                <td class="td_left"><?php echo get_text($r['campaign_memo']); ?></td>
+                <td class="td_left td_cam_name" style='background:<?php echo $bg_rate ?>;'>
                     <span class="name-text"><?php echo get_text($r['name']); ?></span>
                     <?php if ($inactive) { ?>
                         <span class="badge badge-inactive">비활성</span>
@@ -439,11 +409,7 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
                     }
                     ?>
                 </td>
-                <td class="td_left" style="line-height:1em">
-                    <b><?php echo get_text($cname); ?></b><br><?php echo get_text($gname); ?>
-                </td>
-                <td class="td_left"><?php echo get_text($r['campaign_memo']); ?></td>
-                <td class="td_cnt" style='background:<?php echo $bg_rate ?>;'><?php echo $rate ?>%</td>
+                <td class="td_cnt"><?php echo $rate ?>%</td>
                 <td class="td_cntsmall"><?php echo number_format($total); ?></td>
                 <td class="td_cntsmall"><?php echo number_format($preassign); ?></td>
                 <?php
@@ -576,7 +542,7 @@ function open_upload_popup() {
                     'Content-Type': 'application/json',
                     // 목록 페이지는 별도의 CSRF 토큰을 쓰지 않아도 되지만,
                     // ajax_group_options.php가 CSRF 검증을 사용한다면 아래처럼 세션 토큰을 헤더로 주도록 수정 필요.
-                    // 'X-CSRF-TOKEN': '<?php echo $_SESSION['call_upload_token'] ?? ''; ?>'
+                    // 'X-CSRF-TOKEN': '<?php //echo $_SESSION['call_upload_token'] ?? ''; ?>'
                 },
                 body: JSON.stringify({ company_id: cid }),
                 credentials: 'same-origin'

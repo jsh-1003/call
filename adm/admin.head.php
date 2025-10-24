@@ -85,7 +85,7 @@ if (!empty($_COOKIE['g5_admin_btn_gnb'])) {
     $adm_menu_cookie['btn_gnb'] = 'btn_gnb_open';
 }
 ?>
-
+<script src="<?php echo G5_ADMIN_URL ?>/admin.js?ver=<?php echo G5_JS_VER; ?>"></script>
 <script>
     var g5_admin_csrf_token_key = "<?php echo (function_exists('admin_csrf_token_key')) ? admin_csrf_token_key() : ''; ?>";
     var tempX = 0;
@@ -108,7 +108,11 @@ if (!empty($_COOKIE['g5_admin_btn_gnb'])) {
             selectBoxHidden(id);
     }
 </script>
-
+<style>
+#hd_top {background:#344a57 !important}
+#logo {background:#212c33 !important;padding:0;padding-left:50px}
+#logo img {height:50px;}
+</style>
 <?php if(empty($is_popup_page)) { ?>
 
 <div id="to_content"><a href="#container">본문 바로가기</a></div>
@@ -117,7 +121,7 @@ if (!empty($_COOKIE['g5_admin_btn_gnb'])) {
     <h1><?php echo $config['cf_title'] ?></h1>
     <div id="hd_top">
         <button type="button" id="btn_gnb" class="btn_gnb_close <?php echo $adm_menu_cookie['btn_gnb']; ?>">메뉴</button>
-        <div id="logo"><a href="<?php echo correct_goto_url(G5_ADMIN_URL); ?>"><img src="<?php echo G5_ADMIN_URL ?>/img/logo.png" alt="<?php echo get_text($config['cf_title']); ?> 관리자"></a></div>
+        <div id="logo"><a href="<?php echo correct_goto_url(G5_ADMIN_URL); ?>"><img src="<?php echo G5_ADMIN_URL ?>/img/admin_logo.png" alt="<?php echo get_text($config['cf_title']); ?> 관리자"></a></div>
 
         <div id="tnb">
             <ul>
@@ -128,7 +132,7 @@ if (!empty($_COOKIE['g5_admin_btn_gnb'])) {
                 <!-- <li class="tnb_li"><a href="<?php echo G5_ADMIN_URL ?>/service.php" class="tnb_service">부가서비스</a></li> -->
                 <li class="tnb_li"><button type="button" class="tnb_mb_btn">관리자<span class="./img/btn_gnb.png">메뉴열기</span></button>
                     <ul class="tnb_mb_area">
-                        <li><a href="<?php echo G5_ADMIN_URL ?>/member_form.php?w=u&amp;mb_id=<?php echo $member['mb_id'] ?>">관리자정보</a></li>
+                        <!-- <li><a href="<?php echo G5_ADMIN_URL ?>/member_form.php?w=u&amp;mb_id=<?php echo $member['mb_id'] ?>">관리자정보</a></li> -->
                         <li id="tnb_logout"><a href="<?php echo G5_BBS_URL ?>/logout.php">로그아웃</a></li>
                     </ul>
                 </li>

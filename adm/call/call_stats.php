@@ -344,6 +344,7 @@ $sql_list = "
         l.call_start, 
         l.call_end,
         l.call_time,                                                   -- 통화시간(초)
+        l.agent_phone,                                                 -- 발신전화번호
         rec.duration_sec                                               AS talk_time,          -- 상담시간
         t.name                                                         AS target_name,
         t.birth_date,
@@ -681,6 +682,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                 <th>그룹명</th>
                 <th>아이디</th>
                 <th>상담원명</th>
+                <th>발신번호</th>
                 <th>통화결과</th>
                 <th>통화시작</th>
                 <th>통화종료</th>
@@ -731,12 +733,17 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                 } else {
                     $hp_display = get_text(format_korean_phone($row['call_hp']));
                 }
-
+                $agent_phone = '-';
+                if($row['agent_phone']) {
+                    $agent_phone = get_text(format_korean_phone($row['agent_phone']));
+                    if(strlen($agent_phone) == 13) $agent_phone = substr($agent_phone, 4, 9);
+                }
                 ?>
                 <tr>
                     <td><?php echo get_text($gname); ?></td>
                     <td><?php echo get_text($row['agent_mb_id']); ?></td>
                     <td><?php echo get_text($agent); ?></td>
+                    <td><?php echo $agent_phone; ?></td>
                     <td class="<?php echo $class ?>"><?php echo get_text($status); ?></td>
                     <td><?php echo fmt_datetime(get_text($row['call_start']), 'mdhi'); ?></td>
                     <td><?php echo fmt_datetime(get_text($row['call_end']), 'mdhi'); ?></td>

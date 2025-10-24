@@ -1,8 +1,12 @@
 <?php
-// /adm/call/ajax_group_options.php
+// /adm/call/ajax_call_monitor.php
 include_once('./_common.php');
 // JSON 응답
 header('Content-Type: application/json; charset=utf-8');
+// 접근 권한: 관리자 레벨 7 이상만
+if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
+    die('접근 권한이 없습니다.');
+}
 
 /* ==========================
    기본 파라미터
@@ -346,6 +350,7 @@ elseif ($type === 'recent_detail') {
             l.call_start, 
             l.call_end,
             l.call_time,
+            l.agent_phone,
             rec.duration_sec                                               AS talk_time,
             t.name                                                         AS target_name,
             t.birth_date,
@@ -414,6 +419,14 @@ elseif ($type === 'recent_detail') {
         } else {
             $hp_display = get_text(format_korean_phone($r['call_hp']));
         }
+        
+        // 발신 번호 표시
+        $agent_phone = '-';
+        if($r['agent_phone']) {
+            $agent_phone = get_text(format_korean_phone($r['agent_phone']));
+            if(strlen($agent_phone) == 13) $agent_phone = substr($agent_phone, 4, 9);
+        }
+
         $ui = !empty($status_ui[$r['call_status']]) ? $status_ui[$r['call_status']] : 'secondary';
         $class_name = 'status-col status-'.get_text($ui);
 
@@ -421,6 +434,7 @@ elseif ($type === 'recent_detail') {
             'group_name'   => get_text($r['group_name'] ?: ('그룹 '.(int)$r['mb_group'])),
             'agent_mb_id'  => get_text($r['agent_mb_id']),
             'agent_name'   => get_text($r['agent_name'] ?: (string)$r['agent_mb_id']),
+            'agent_phone'  => $agent_phone,
             'status_label' => get_text($r['status_label'] ?: ('코드 '.(int)$r['call_status'])),
             'call_start'   => fmt_datetime(get_text($r['call_start']), 'mdhi'),
             'call_end'     => fmt_datetime(get_text($r['call_end']),   'mdhi'),

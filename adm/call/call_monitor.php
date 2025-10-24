@@ -261,7 +261,7 @@ canvas { background:#fff; }
 <div class="tbl_head01 tbl_wrap section" style="margin-top:12px;">
     <h3 style="margin:0 8px 10px 0; display:flex; align-items:center; gap:8px;">
         최근 통화 상세 (최근 50건)
-        <span class="small-muted">통계 페이지와 동일 컬럼</span>
+        <span class="small-muted"></span>
     </h3>
     <div class="scrolling-body">
         <table class="table-fixed" id="recentDetailTable" style="min-width:1200px;">
@@ -270,6 +270,7 @@ canvas { background:#fff; }
                     <th>그룹명</th>
                     <th>아이디</th>
                     <th>상담원명</th>
+                    <th>발신번호</th>
                     <th>통화결과</th>
                     <th>통화시작</th>
                     <th>통화종료</th>
@@ -462,6 +463,7 @@ canvas { background:#fff; }
                 td(row.group_name) +
                 td(row.agent_mb_id) +
                 td(row.agent_name) +
+                td(row.agent_phone) +
                 `<td class="${row.class_name ?? ''}">${row.status_label}</td>` +
                 td(row.call_start) +
                 td(row.call_end) +

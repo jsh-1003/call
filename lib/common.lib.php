@@ -4017,8 +4017,8 @@ function check_write_token($bo_table)
     $token = get_session('ss_write_'.$bo_table.'_token');
     set_session('ss_write_'.$bo_table.'_token', '');
 
-    if(!$token || !$_REQUEST['token'] || $token != $_REQUEST['token'])
-        alert('올바른 방법으로 이용해 주십시오.', G5_URL);
+    if(!$token || !$_REQUEST['bbs_token'] || $token != $_REQUEST['bbs_token'])
+        alert('올바른 방법으로 이용해 주십시오.-', G5_URL);
 
     return true;
 }

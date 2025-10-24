@@ -506,6 +506,7 @@ function admin_csrf_token_key($is_must=0){
 // 관리자 페이지 referer 체크
 function admin_referer_check($return = false)
 {
+    global $member;
     $referer = isset($_SERVER['HTTP_REFERER']) ? trim($_SERVER['HTTP_REFERER']) : '';
     if (!$referer) {
         $msg = '정보가 올바르지 않습니다.';
@@ -526,7 +527,7 @@ function admin_referer_check($return = false)
         $msg = '올바른 방법으로 이용해 주십시오.';
     }
 
-    if ($p['path'] && !preg_match('/\/' . preg_quote(G5_ADMIN_DIR) . '\//i', $p['path'])) {
+    if ($member['mb_level'] < 10 && $p['path'] && !preg_match('/\/' . preg_quote(G5_ADMIN_DIR) . '\//i', $p['path'])) {
         $msg = '올바른 방법으로 이용해 주십시오';
     }
 

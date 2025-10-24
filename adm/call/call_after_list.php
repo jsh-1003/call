@@ -450,6 +450,15 @@ $sql_list = "
 ";
 $res_list = sql_query($sql_list);
 
+
+// 현재 GET 그대로를 보존
+$__q_all = $_GET;
+$__q_all['mode'] = 'screen';     $href_screen    = './call_after_list_excel.php?'.http_build_query($__q_all);
+$__q_all['mode'] = 'condition';  $href_condition = './call_after_list_excel.php?'.http_build_query($__q_all);
+// '전체'는 날짜/검색/상태/담당자 필터를 무시하고 '조직범위(회사/그룹/권한)'만 적용
+$__q_all['mode'] = 'all';        $href_all       = './call_after_list_excel.php?'.http_build_query($__q_all);
+
+
 /* ==========================
    렌더
    ========================== */
@@ -623,13 +632,17 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
                 // 추가 정보 표시
                 $sex_txt = '';
                 if ((int)$row['sex'] === 1) $sex_txt = '남성';
-                elseif ((int)$row['sex'] === 2) $sex_txt = '여성';                
+                elseif ((int)$row['sex'] === 2) $sex_txt = '여성';
+
+                $meta_txt = $sex_txt;
                 $meta_json = $row['meta_json'];
-                $meta_txt  = '';
-                if ($sex_txt !== '') $meta_txt .= $sex_txt;
-                if (is_array($meta_json) && !empty($meta_json)) {
-                    if ($meta_txt !== '') $meta_txt .= ', ';
-                    $meta_txt .= implode(', ', $meta_json);
+                if (is_string($meta_json)) {
+                    $j = json_decode($meta_json, true);
+                    if (json_last_error() === JSON_ERROR_NONE && $j && is_array($j)) {
+                        $meta_txt .= ($meta_txt ? ', ' : '').implode(', ', array_values($j));
+                    }
+                } elseif (is_array($meta_json)) {
+                    $meta_txt .= ($meta_txt ? ', ' : '').implode(', ', array_values($meta_json));
                 }
 
                 $ac_time  = $row['ac_updated_at'] ? fmt_datetime(get_text($row['ac_updated_at']), 'mdhis') : '-';
@@ -758,6 +771,12 @@ $base = './call_after_list.php?'.http_build_query($qstr);
       </div>
     </form>
   </div>
+</div>
+
+<div class="btn_fixed_top">
+    <a href="<?php echo $href_all;       ?>" class="btn btn_02">전체 엑셀다운</a>&nbsp;&nbsp;&nbsp;
+    <a href="<?php echo $href_condition; ?>" class="btn btn_02">현재조건 엑셀다운</a>&nbsp;&nbsp;&nbsp;
+    <a href="<?php echo $href_screen;    ?>" class="btn btn_02" style="background:#e5e7eb !important">현재화면 엑셀다운</a>
 </div>
 
 <script>

@@ -1,6 +1,19 @@
 <?php
 if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 
+function get_company_name_from_group_id_cached(int $group_id) {
+    static $company_name = [];
+    if(!empty($company_name[$group_id])) return $company_name[$group_id];
+    $sql = "SELECT company_id, company_name from g5_member where mb_no = ( SELECT company_id FROM g5_member WHERE mb_no = '{$group_id}' ) ";
+    $row = sql_fetch($sql);
+    if($row) {
+        $company_name[$group_id] = $row['company_name'];
+    } else {
+        $company_name[$group_id] = '회사-???';
+    }
+    return $company_name[$group_id];
+}
+
 // 에이전트 드롭다운용 HTML 조각 준비 (그룹 구분 포함)
 function render_agent_options($agent_options, $sel_agent_no){
     if (empty($agent_options)) return '<option value="" disabled>담당자가 없습니다</option>';
@@ -314,4 +327,15 @@ function get_code_list($sel_mb_group=0) {
         return $a['sort_order'] <=> $b['sort_order'];
     });
     return $code_list;
+}
+
+function status_label($code){
+    static $status_cache;
+    $code = (int)$code;
+    if ($code <= 0) return '';
+    if (!isset($status_cache[$code])) {
+        $r = sql_fetch("SELECT name_ko FROM call_status_code WHERE call_status={$code} AND mb_group=0 LIMIT 1");
+        $status_cache[$code] = $r ? $r['name_ko'] : ('코드 '.$code);
+    }
+    return $status_cache[$code];
 }
