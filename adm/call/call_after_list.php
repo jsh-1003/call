@@ -4,7 +4,7 @@ $sub_menu = '700400';
 require_once './_common.php';
 
 // 접근 권한: 관리자 레벨 7 이상만
-if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
+if ($is_admin !== 'super' && (int)$member['mb_level'] < 5) {
     alert('접근 권한이 없습니다.');
 }
 
@@ -396,8 +396,7 @@ $total_count = (int)($row_cnt['cnt'] ?? 0);
 /* ==========================
    상세 목록 (중복 제거: rn=1만)
    ========================== */
-$sql_list = "
-  SELECT
+$sql_list = "SELECT
     b.call_id, b.mb_group, b.campaign_id, b.target_id, b.mb_no AS agent_id,
     b.call_status, b.call_start, b.call_end, b.call_time, b.call_hp,
 
@@ -491,10 +490,16 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
         <span class="tilde">~</span>
         <input type="date" id="end" name="end" value="<?php echo get_text($end_date);?>" class="frm_input">
 
-        <span class="btn-line">
-            <button type="button" class="btn-mini" id="btnYesterday">어제</button>
-            <button type="button" class="btn-mini" id="btnToday">오늘</button>
-        </span>
+        <?php
+        // 어제, 오늘, 지난주, 이번주, 지난달, 이번달 버튼
+        render_date_range_buttons('dateRangeBtns');
+        ?>
+        <script>
+          DateRangeButtons.init({
+            container: '#dateRangeBtns', startInput: '#start', endInput: '#end', form: '#searchForm',
+            autoSubmit: true, weekStart: 1, thisWeekEndToday: true, thisMonthEndToday: true
+          });
+        </script>
 
         <span class="pipe">|</span>
 
@@ -536,7 +541,7 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
         <span class="row-split"></span>
 
         <?php if ($mb_level >= 9) { ?>
-            <label for="company_id">회사</label>
+            <!-- <label for="company_id">회사</label> -->
             <select name="company_id" id="company_id">
                 <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
                 <?php foreach ($company_options as $c) { ?>
@@ -550,7 +555,7 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
         <?php } ?>
 
         <?php if ($mb_level >= 8) { ?>
-            <label for="mb_group">그룹선택</label>
+            <!-- <label for="mb_group">그룹선택</label> -->
             <select name="mb_group" id="mb_group">
                 <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
                 <?php
@@ -577,9 +582,9 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
         <?php } ?>
 
         <?php if ($sel_mb_group > 0 || $mb_level >= 7) { ?>
-        <label for="agent">담당자</label>
+        <!-- <label for="agent">담당자</label> -->
         <select name="agent" id="agent">
-            <option value="0">전체 담당자</option>
+            <option value="0">전체 상담원</option>
             <?php echo render_agent_options($agent_options, $sel_agent_no); ?>
         </select>
         <?php } ?>
@@ -624,7 +629,7 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
                 $ui_call = !empty($status_ui[$row['call_status']]) ? $status_ui[$row['call_status']] : 'secondary';
 
                 $ac_label = $row['ac_state_label'] ?: '대기';
-                $ac_ui    = $row['ac_state_ui'] ?: 'secondary';
+                $ac_ui    = $row['ac_state_ui'] ?: '';
 
                 $bday = empty($row['birth_date']) ? '-' : substr(get_text($row['birth_date']), 2, 8);
                 $man_age = is_null($row['man_age']) ? '-' : ((int)$row['man_age']).'세';
@@ -780,34 +785,8 @@ $base = './call_after_list.php?'.http_build_query($qstr);
 </div>
 
 <script>
-// 날짜 버튼
-function pad2(n){ return (n<10?'0':'')+n; }
-function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
 (function(){
-  var $start = document.getElementById('start');
-  var $end   = document.getElementById('end');
   var $form  = document.getElementById('searchForm');
-  var btnYesterday = document.getElementById('btnYesterday');
-  var btnToday = document.getElementById('btnToday');
-
-  function setActive(){
-    var start = $start.value, end = $end.value;
-    var today = fmt(new Date());
-    var yd = new Date(); yd.setDate(yd.getDate()-1);
-    var yest = fmt(yd);
-    btnYesterday.classList.toggle('active', start===yest && end===yest);
-    btnToday.classList.toggle('active', start===today && end===today);
-  }
-  setActive();
-  btnYesterday.addEventListener('click', function(){
-    var now = new Date(); now.setDate(now.getDate()-1);
-    var y = fmt(now); $start.value = y; $end.value = y; setActive(); $form.submit();
-  });
-  btnToday.addEventListener('click', function(){
-    var now = new Date(); var t = fmt(now);
-    $start.value = t; $end.value = t; setActive(); $form.submit();
-  });
-
   // 그룹/상담원 자동 제출
   var mbGroup = document.getElementById('mb_group');
   if (mbGroup) mbGroup.addEventListener('change', function(){
@@ -819,47 +798,12 @@ function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getD
 
   // 회사→그룹 비동기(9+만)
   var companySel = document.getElementById('company_id');
-  if (companySel) {
-    companySel.addEventListener('change', function(){
-      var groupSel = document.getElementById('mb_group');
-      if (!groupSel) return;
-      groupSel.innerHTML = '<option value="">로딩 중...</option>';
-      // 상담원 초기화
-      var agent = document.getElementById('agent'); if (agent) agent.selectedIndex = 0;
 
-      fetch('./ajax_group_options.php', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ company_id: parseInt(this.value||'0',10)||0 }),
-        credentials: 'same-origin'
-      })
-      .then(function(res){ if(!res.ok) throw new Error('네트워크 오류'); return res.json(); })
-      .then(function(json){
-        if (!json.success) throw new Error(json.message || '가져오기 실패');
-        var opts = [];
-        opts.push(new Option('전체 그룹', 0));
-        json.items.forEach(function(item){
-          if (item.separator) {
-            var sep = document.createElement('option');
-            sep.textContent = '── ' + item.separator + ' ──';
-            sep.disabled = true;
-            opts.push(sep);
-          } else {
-            opts.push(new Option(item.label, item.value));
-          }
-        });
-        groupSel.innerHTML = '';
-        opts.forEach(function(o){ groupSel.appendChild(o); });
-        groupSel.value = '0'; // 회사 변경 시 전체 그룹 유지
-      })
-      .catch(function(err){
-        alert('그룹 목록을 불러오지 못했습니다: ' + err.message);
-        groupSel.innerHTML = '<option value="0">전체 그룹</option>';
-      });
-    });
-  }
+  // 9+에서만 회사 변경 이벤트 연결
+  <?php if ($mb_level >= 9) { ?>
+  initCompanyGroupSelector(companySel, mbGroup);
+  <?php } ?>
+
   // 모달/단건 조회/저장/타임라인 렌더
   var panel   = document.getElementById('acPanel');
   var overlay = document.getElementById('acOverlay');
@@ -886,7 +830,10 @@ function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getD
         time: h.changed_at,
         who: h.who_name || h.who_id || h.changed_by,
         kind: 'state',
-        text: (h.prev_label || (h.prev_state==null?'-':h.prev_state))+' → '+(h.new_label || h.new_state)
+        text: (h.prev_label || (h.prev_state == null ? '대기' : h.prev_state))
+              + ' → ' 
+              + (h.new_label || h.new_state)
+              + (h.memo ? ' <span class="small-muted-system">(' + h.memo + ')</span>' : '')
       });
     });
     (notes||[]).forEach(function(n){

@@ -11,37 +11,6 @@ if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
 }
 
 // --------------------------------------------------
-// 마이크로 캐시(APCu) 유틸
-// --------------------------------------------------
-function microcache_get($key) {
-    if (function_exists('apcu_fetch')) {
-        $v = apcu_fetch($key, $ok);
-        if ($ok) return $v;
-    }
-    return null;
-}
-function microcache_set($key, $val, $ttl=30) {
-    if (function_exists('apcu_store')) {
-        apcu_store($key, $val, $ttl);
-    }
-}
-function stats_cache_key($suffix='') {
-    $params = [
-        'start'=>$_GET['start']??'',
-        'end'=>$_GET['end']??'',
-        'q'=>$_GET['q']??'',
-        'q_type'=>$_GET['q_type']??'',
-        'status'=>$_GET['status']??'',
-        'company_id'=>$_GET['company_id']??'',
-        'mb_group'=>$_GET['mb_group']??'',
-        'agent'=>$_GET['agent']??'',
-        'role'=>$GLOBALS['member']['mb_level']??0,
-        'myg'=>$GLOBALS['member']['mb_group']??0,
-    ];
-    return 'callstats:'.md5(json_encode($params).':'.$suffix);
-}
-
-// --------------------------------------------------
 // 기본/입력 파라미터
 // --------------------------------------------------
 $mb_no         = (int)($member['mb_no'] ?? 0);
@@ -438,14 +407,20 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
     <form method="get" action="./call_stats.php" class="form-row" id="searchForm">
         <!-- 1줄차: 기간/바로가기/검색기본 -->
         <label for="start">기간</label>
-        <input type="date" id="start" name="start" value="<?php echo get_text($start_date);?>" class="frm_input" style="width:140px">
-        ~
-        <input type="date" id="end" name="end" value="<?php echo get_text($end_date);?>" class="frm_input" style="width:140px">
+        <input type="date" id="start" name="start" value="<?php echo get_text($start_date);?>" class="frm_input">
+        <span class="tilde">~</span>
+        <input type="date" id="end" name="end" value="<?php echo get_text($end_date);?>" class="frm_input">
 
-        <span class="btn-line">
-            <button type="button" class="btn-mini" id="btnYesterday">어제</button>
-            <button type="button" class="btn-mini" id="btnToday">오늘</button>
-        </span>
+        <?php
+        // 어제, 오늘, 지난주, 이번주, 지난달, 이번달 버튼
+        render_date_range_buttons('dateRangeBtns');
+        ?>
+        <script>
+          DateRangeButtons.init({
+            container: '#dateRangeBtns', startInput: '#start', endInput: '#end', form: '#searchForm',
+            autoSubmit: true, weekStart: 1, thisWeekEndToday: true, thisMonthEndToday: true
+          });
+        </script>
 
         <span>&nbsp;|&nbsp;</span>
 
@@ -789,91 +764,33 @@ $base = './call_stats.php?'.http_build_query($qstr);
 </div>
 
 <script>
-// 날짜 유틸
-function pad2(n){ return (n<10?'0':'')+n; }
-function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
-
-// 어제/오늘 버튼 및 자동검색 + 회사/그룹/담당자 연동
+// ===============================
+// 비동기 조직(회사→그룹) 셀렉트
+// ===============================
 (function(){
-    var $start = document.getElementById('start');
-    var $end   = document.getElementById('end');
-    var $form  = document.getElementById('searchForm');
-
-    document.getElementById('btnYesterday').addEventListener('click', function(){
-        var now = new Date(); now.setDate(now.getDate()-1);
-        var y = fmt(now);
-        $start.value = y;
-        $end.value   = y;
-        $form.submit();
-    });
-
-    document.getElementById('btnToday').addEventListener('click', function(){
-        var now = new Date();
-        var t = fmt(now);
-        $start.value = t;
-        $end.value   = t;
-        $form.submit();
-    });
-
-    const today = fmt(new Date());
-    const yestDate = new Date(); yestDate.setDate(yestDate.getDate() - 1);
-    const yesterday = fmt(yestDate);
-    if ($start.value === yesterday && $end.value === yesterday) {
-        btnYesterday.classList.add('active');
-    } else if ($start.value === today && $end.value === today) {
-        btnToday.classList.add('active');
-    }
-
-    // ★ 회사 변경 시 그룹/담당자 초기화 후 자동검색
     var companySel = document.getElementById('company_id');
-    if (companySel) {
-        companySel.addEventListener('change', function(){
-            var g = document.getElementById('mb_group');
-            if (g) g.selectedIndex = 0;
-            var a = document.getElementById('agent');
-            if (a) a.selectedIndex = 0;
-            $form.submit();
-        });
-    }
+    var groupSel   = document.getElementById('mb_group');
+    if (!groupSel) return;
 
-    // 그룹 변경 시 담당자 초기화 후 자동검색
-    var mbGroup = document.getElementById('mb_group');
+    // 9+에서만 회사 변경 이벤트 연결
+    <?php if ($mb_level >= 9) { ?>
+    initCompanyGroupSelector(companySel, groupSel);
+    <?php } ?>
+    // 그룹/상담사 자동 제출
+    const mbGroup = document.getElementById('mb_group');
     if (mbGroup) {
         mbGroup.addEventListener('change', function(){
-            var agent = document.getElementById('agent');
+            const agent = document.getElementById('agent');
             if (agent) agent.selectedIndex = 0;
-            $form.submit();
+            document.getElementById('searchForm').submit();
         });
     }
-
-    // 담당자 변경 시 자동검색
     var agentSel = document.getElementById('agent');
     if (agentSel) {
         agentSel.addEventListener('change', function(){
-            $form.submit();
+            document.getElementById('searchForm').submit();
         });
     }
-})();
-
-// 상단 통계 Ajax(+APCu 캐시)
-(function(){
-  function refreshStats(){
-    var url = new URL(location.href);
-    url.searchParams.set('ajax','stats');
-    fetch(url.toString(), {credentials:'same-origin'})
-      .then(r=>r.json())
-      .then(data=>{
-        var nf = new Intl.NumberFormat();
-        var elTotal = document.getElementById('stat_grand_total');
-        var elSucc  = document.getElementById('stat_success_total');
-        var elFail  = document.getElementById('stat_fail_total');
-        if (elTotal) elTotal.textContent = nf.format(data.grand_total||0);
-        if (elSucc)  elSucc.textContent  = nf.format(data.success_total||0);
-        if (elFail)  elFail.textContent  = nf.format(data.fail_total||0);
-      })
-      .catch(console.error);
-  }
-  document.addEventListener('DOMContentLoaded', refreshStats);
 })();
 </script>
 

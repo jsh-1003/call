@@ -198,7 +198,7 @@ canvas { background:#fff; }
     <div class="card"><div>실패</div><div class="big" id="kpiFail">-</div></div>
     <div class="card"><div>성공률</div><div class="big" id="kpiRate">-</div></div>
     <div class="card"><div>평균 통화(초)</div><div class="big" id="kpiAvg">-</div></div>
-    <div class="card"><div>DNC 발생</div><div class="big" id="kpiDnc">-</div></div>
+    <div class="card"><div>블랙고객 발생</div><div class="big" id="kpiDnc">-</div></div>
     <div class="card"><div>활성 상담원 수</div><div class="big" id="kpiAgents">-</div></div>
     <div class="card"><div>활성 그룹 수</div><div class="big" id="kpiGroups">-</div></div>
 </div>

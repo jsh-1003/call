@@ -25,6 +25,9 @@ $my_group = isset($member['mb_group']) ? (int)$member['mb_group'] : 0;
 $mb_group = ($my_level >= 8) ? (int)($_POST['mb_group'] ?? 0) : $my_group;
 if (!$mb_group) alert_close('그룹이 선택되지 않았습니다.');
 
+// 회사 ID (그룹→회사 캐시 헬퍼 사용)
+$company_id = (int)get_company_id_from_group_id_cached($mb_group);
+
 // ===== is_open_number 결정(캠페인 플래그) =====
 // 레벨 9+만 체크박스 허용: 체크되면 0(1차 비공개), 미체크=1(공개)
 // 레벨 9 미만은 항상 1(공개) 강제
@@ -280,13 +283,30 @@ try {
     }
 
     // 최종 적재
+    // $ins_sql = "
+    //   INSERT IGNORE INTO call_target
+    //   (campaign_id, mb_group, call_hp, name, birth_date, sex, meta_json, created_at, updated_at)
+    //   SELECT s.campaign_id, s.mb_group, s.call_hp, s.name, s.birth_date, s.sex, s.meta_json, NOW(), NOW()
+    //   FROM call_stg_target_upload s
+    //   WHERE s.batch_id = '{$batch_id}' AND s.mb_group = '{$mb_group}' AND s.campaign_id = '{$campaign_id}'
+    // ";
+    // 블랙리스트 제외
     $ins_sql = "
-      INSERT IGNORE INTO call_target
-      (campaign_id, mb_group, call_hp, name, birth_date, sex, meta_json, created_at, updated_at)
-      SELECT s.campaign_id, s.mb_group, s.call_hp, s.name, s.birth_date, s.sex, s.meta_json, NOW(), NOW()
-      FROM call_stg_target_upload s
-      WHERE s.batch_id = '{$batch_id}' AND s.mb_group = '{$mb_group}' AND s.campaign_id = '{$campaign_id}'
+    INSERT IGNORE INTO call_target
+    (campaign_id, mb_group, call_hp, name, birth_date, sex, meta_json, created_at, updated_at)
+    SELECT s.campaign_id, s.mb_group, s.call_hp, s.name, s.birth_date, s.sex, s.meta_json, NOW(), NOW()
+        FROM call_stg_target_upload s
+    WHERE s.batch_id   = '{$batch_id}'
+        AND s.mb_group   = '{$mb_group}'
+        AND s.campaign_id= '{$campaign_id}'
+        AND NOT EXISTS (
+            SELECT 1
+                FROM call_blacklist b
+                WHERE b.company_id = {$company_id}
+                AND b.call_hp    = s.call_hp
+        )
     ";
+
     sql_query($ins_sql);
     $ins_count = max(0, (int)mysqli_affected_rows($g5['connect_db']));
     $dup_count = max(0, $stg_count - $ins_count);

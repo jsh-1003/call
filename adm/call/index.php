@@ -45,7 +45,7 @@ if ($mb_level >= 9) {
 }
 
 // 배정상태 라벨
-$ASSIGN_LABEL = [ 0=>'미배정', 1=>'배정', 3=>'완료', 4=>'거절' ]; // 2=>'진행중', 
+$ASSIGN_LABEL = [ 0=>'미배정', 1=>'배정', 3=>'완료', 4=>'거절', 9=>'블랙' ]; // 2=>'진행중', 
 
 // ----------------------------------------------------------------------------------
 // WHERE 구성 (+ 삭제 캠페인 제외 조건)
@@ -248,12 +248,12 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
         </select>
         <input type="text" name="q" value="<?php echo _h($q);?>" class="frm_input" style="width:220px" placeholder="검색어 입력">
 
-        <label for="dnc">DNC</label>
+        <!-- <label for="dnc">블랙고객</label>
         <select name="dnc" id="dnc">
             <option value=""  <?php echo $f_dnc===''?'selected':'';?>>전체</option>
             <option value="0" <?php echo $f_dnc==='0'?'selected':'';?>>N</option>
             <option value="1" <?php echo $f_dnc==='1'?'selected':'';?>>Y</option>
-        </select>
+        </select> -->
 
         <label for="as">배정상태</label>
         <select name="as" id="as">

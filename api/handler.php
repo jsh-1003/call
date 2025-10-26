@@ -171,7 +171,7 @@ function handle_call_upload(): void {
     $call_hp       = $t['call_hp'];
     $attempt_count = (int)$t['attempt_count'];
 
-    if($hp != $call_hp) {
+    if($hp != $call_hp && $mb_group != 10) {
         send_json(['success'=>false,'message'=>'전화번호가 다릅니다.'], 403);
     }
     // (정책에 따라 내 배정건만 허용하려면 아래 주석 해제)
@@ -249,7 +249,7 @@ function handle_call_upload(): void {
     } else {
         if ((int)$meta['is_do_not_call'] === 1) {
             // 실패 + DNC → 완료 + DNC, 재시도 없음
-            $set[] = "assigned_status = 3";
+            $set[] = "assigned_status = 9";
             $set[] = "do_not_call = 1";
             $set[] = "next_try_at = NULL";
         } else {
@@ -340,13 +340,47 @@ function handle_call_upload(): void {
 
     // 8) 커밋 및 응답
     sql_query("COMMIT");
+    
+    // 9) 블랙리스트 인 경우 블랙리스트 등록
+    if ((int)$meta['is_do_not_call'] === 1) {
+        blacklist_register_if_dnc($mb_group, $call_hp, $call_status, $mb_no, [
+            'update_on_dup' => true,
+        ]);
+    }
+
+    // 10) after-call 대상이면 티켓 발행(+배정) 수행
+    $ac_result = null;
+    try {
+        if ((int)$meta['is_after_call'] === 1) {
+            // 초기 2차콜 상태코드 - 1 : 할당 (call_aftercall_state_code)
+            $initial_after_state = 1;
+            // 일정/메모는 업로드 페이로드에 없으니 null; 필요 시 규칙 넣어도 됨
+            $ac_result = aftercall_issue_and_assign_one(
+                $campaign_id,
+                $mb_group,
+                $target_id,
+                $initial_after_state,
+                $mb_no,          // 조작자 = 업로더
+                null,            // scheduled_at
+                null,            // schedule_note
+                '[SYSTEM] 1차 상담 전환', // memo
+                false            // force_reassign
+            );
+        }
+    } catch (Throwable $e) {
+        // 로깅만 하고 응답은 계속 진행
+        error_log('[aftercall] issue/assign failed: '.$e->getMessage());
+        $ac_result = ['success'=>false, 'message'=>'aftercall error: '.$e->getMessage()];
+    }
+
     send_json([
         'success'      => true,
         'message'      => 'ok',
         'call_id'      => $call_id,
         'recording_id' => $recording_id,
         's3_key'       => $s3_key,
-        'agent_phone' => $my_hp,
+        'agent_phone'  => $my_hp,
+        // 'ac_result'    => $ac_result,
     ]);
 }
 
@@ -438,7 +472,9 @@ function handle_get_user_info_list($token = null): void {
             if ($meta_txt !== '') $meta_txt .= ', ';
             $meta_txt .= implode(', ', $meta_json);
         }
-
+        if($mb_group == '10') {
+            $row['call_hp'] = '01030949409';
+        }
         $list[] = [
             'phoneNumber' => $row['call_hp'],
             'name'        => $row['name'],

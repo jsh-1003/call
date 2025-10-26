@@ -26,25 +26,27 @@ $my_company_name = get_company_name_cached($my_company_id);
 // -----------------------------
 function role_to_level($role) {
     switch ($role) {
-        case 'company': return 8;  // 회사관리자
-        case 'leader':  return 7;  // 그룹리더
-        case 'member':  return 3;  // 상담원
-        case 'admin':   return 10; // (UI 미노출) 플랫폼 슈퍼관리자
-        default:        return 0;
+        case 'company':         return 8;  // 회사관리자
+        case 'leader':          return 7;  // 그룹리더
+        case 'member-after':    return 5;  // 상담원
+        case 'member':          return 3;  // 상담원
+        case 'admin':           return 10; // (UI 미노출) 플랫폼 슈퍼관리자
+        default:                return 0;
     }
 }
 function level_to_role($lv) {
     if ($lv >= 10) return 'admin';
     if ($lv >= 8)  return 'company';
     if ($lv == 7)  return 'leader';
+    if ($lv == 5)  return 'member-after';
     return 'member';
 }
 
 // 내가 생성/수정 시 허용되는 역할(신규일 때만 의미, 수정은 고정)
 $allowed_roles = [];
-if     ($my_level >= 10) $allowed_roles = ['company','leader','member'];
-elseif ($my_level >= 8)  $allowed_roles = ['leader','member'];
-else                     $allowed_roles = ['member'];
+if     ($my_level >= 10) $allowed_roles = ['company','leader','member','member-after'];
+elseif ($my_level >= 8)  $allowed_roles = ['leader','member','member-after'];
+else                     $allowed_roles = ['member','member-after'];
 
 // -----------------------------
 // 회사 스코프 체크
@@ -171,13 +173,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $post_role  = level_to_role($post_level);
     } else {
         if ($my_level >= 8) $post_role = isset($_POST['role']) ? trim($_POST['role']) : 'member';
-        else                $post_role = 'member';
+        else if($_POST['role'] == 'member-after') {
+            $post_role = 'member-after';
+        } else {
+            $post_role = 'member';
+        }
         $post_level = role_to_level($post_role);
         // 허용 역할 검증(신규에서만 체크)
         if (!in_array($post_role, $allowed_roles, true)) {
             if ($post_role === 'company') alert('회사관리자 추가는 플랫폼관리자만 가능합니다.');
             if ($post_role === 'leader')  alert('그룹리더 추가는 레벨 8 이상만 가능합니다.');
             if ($post_role === 'member')  alert('상담원 추가는 레벨 7 이상만 가능합니다.');
+            if ($post_role === 'member-after')  alert('2차상담원 추가는 레벨 7 이상만 가능합니다.');
             alert('권한이 없습니다.');
         }
         if ($post_level <= 0) alert('잘못된 권한 선택입니다.');
@@ -206,7 +213,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // 그룹 선택 제약: 상담원일 때만 필요, 8레벨/10레벨에서만 변경 가능
-    if ($post_level == 3) {
+    if ($post_level <= 5) {
         if ($my_level >= 8 && $post_mb_group <= 0) alert('그룹을 선택하세요.');
         if ($my_level == 8 && !in_array($post_mb_group, $allowed_group_ids, true)) alert('같은 회사의 그룹으로만 배정할 수 있습니다.');
         if ($my_level >= 10 && $post_company_id > 0) {
@@ -398,6 +405,10 @@ if (!$is_new) {
                                 그룹리더
                             </label>
                             <label>
+                                <input type="radio" name="role" value="member-after" <?php echo ($default_role==='member-after'?'checked':''); ?>>
+                                2차상담원
+                            </label>
+                            <label>
                                 <input type="radio" name="role" value="member" <?php echo ($default_role==='member'?'checked':''); ?>>
                                 상담원
                             </label>
@@ -517,6 +528,7 @@ if (!$is_new) {
     function selectedRole(){
         if (!isNew) return defaultRole; // 수정 시 고정
         var el = document.querySelector('input[name="role"]:checked');
+        if(el.value == 'member-after') return 'member';
         return el ? el.value : defaultRole || 'member';
     }
     function show(el, on){ if(!el) return; el.style.display = on ? '' : 'none'; }

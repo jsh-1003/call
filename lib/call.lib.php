@@ -16,7 +16,7 @@ function get_call_status_meta(int $call_status, int $mb_group = 0): array {
 
     // 조직 우선(= mb_group = ?), 없으면 기본(=0)
     $sql = "
-        SELECT call_status, mb_group, result_group, is_do_not_call, ui_type, sort_order
+        SELECT call_status, mb_group, result_group, is_do_not_call, is_after_call, ui_type, sort_order
           FROM call_status_code
          WHERE status = 1
            AND call_status = {$call_status}
@@ -33,6 +33,7 @@ function get_call_status_meta(int $call_status, int $mb_group = 0): array {
             'mb_group'      => (int)$row['mb_group'],
             'result_group'  => (int)$row['result_group'],     // 0=실패, 1=성공
             'is_do_not_call'=> (int)$row['is_do_not_call'],   // 0/1
+            'is_after_call'=>  (int)$row['is_after_call'],   // 0/1
             'ui_type'       => (string)$row['ui_type'],
             'sort_order'    => (int)$row['sort_order'],
         ];
@@ -48,6 +49,7 @@ function get_call_status_meta(int $call_status, int $mb_group = 0): array {
         'mb_group'      => 0,
         'result_group'  => ($call_status >= 200 && $call_status < 300) ? 1 : 0,
         'is_do_not_call'=> 0,
+        'is_after_call' => 0,
         'ui_type'       => 'secondary',
         'sort_order'    => 999,
     ];

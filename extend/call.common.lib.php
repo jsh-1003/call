@@ -1,6 +1,151 @@
 <?php
 if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 
+/**
+ * 블랙리스트 등록(회사 공통 적용)
+ * - 입력: mb_group(등록 그룹), call_hp(전화번호), 옵션배열
+ *   옵션: company_id(없으면 그룹→회사 맵핑), reason, memo, created_by(mb_no),
+ *        update_on_dup(bool, 기본 false) — true면 reason/memo 갱신
+ *
+ * @return array [ ok, action(insert|update|skip), blacklist_id, company_id, error ]
+ */
+function blacklist_register(int $mb_group, string $call_hp, array $opt = []): array
+{
+    global $g5;
+
+    $result = ['ok'=>false,'action'=>null,'blacklist_id'=>null,'company_id'=>null,'error'=>null];
+
+    // 1) 전화번호 정규화/검증
+    $hp = preg_replace('/\D+/', '', $call_hp);
+    if (!preg_match('/^[0-9]{10,12}$/', $hp)) {
+        $result['error'] = '전화번호는 숫자만 10~12자리여야 합니다.';
+        return $result;
+    }
+
+    // 2) company_id 결정
+    $company_id = isset($opt['company_id']) ? (int)$opt['company_id'] : 0;
+    if ($company_id <= 0) {
+        // 그룹장(mb_level=7) 레코드에서 company_id 가져오기
+        $sql = "SELECT company_id FROM {$g5['member_table']} 
+                WHERE mb_no=".(int)$mb_group." AND mb_level=7 LIMIT 1";
+        $row = sql_fetch($sql);
+        $company_id = (int)($row['company_id'] ?? 0);
+        if ($company_id <= 0) {
+            $result['error'] = '회사 식별에 실패했습니다.';
+            return $result;
+        }
+    }
+    $result['company_id'] = $company_id;
+
+    // 3) 기타 파라미터
+    $reason      = isset($opt['reason']) ? trim((string)$opt['reason']) : '';
+    $memo        = isset($opt['memo'])   ? trim((string)$opt['memo'])   : '';
+    $created_by  = isset($opt['created_by']) ? (int)$opt['created_by'] : 0;
+    $update_on_dup = !empty($opt['update_on_dup']);
+
+    $reason_esc = sql_escape_string($reason);
+    $memo_esc   = sql_escape_string($memo);
+    $hp_esc     = sql_escape_string($hp);
+
+    // 4) INSERT 처리 (경쟁조건 대비)
+    if ($update_on_dup) {
+        // 중복 시 reason/memo 덮어쓰기(공란이면 기존 유지)
+        $sql = "INSERT INTO call_blacklist
+                    (company_id, mb_group, call_hp, reason, memo, created_by, created_at)
+                VALUES
+                    ('{$company_id}', '".(int)$mb_group."', '{$hp_esc}', '{$reason_esc}', '{$memo_esc}', '".(int)$created_by."', NOW())
+                ON DUPLICATE KEY UPDATE
+                    reason = IF(VALUES(reason)='', reason, VALUES(reason)),
+                    memo   = IF(VALUES(memo)  ='', memo,   VALUES(memo))";
+        $ok = sql_query($sql, false);
+        if (!$ok) {
+            $result['error'] = 'DB 오류(INSERT/UPDATE)'; 
+            return $result;
+        }
+        // 영향행 수로 insert/update 판정
+        $aff = mysqli_affected_rows($g5['connect_db']);
+        if ($aff === 1) $result['action'] = 'insert';
+        elseif ($aff > 1) $result['action'] = 'update';
+        else $result['action'] = 'skip'; // 드물게 0
+    } else {
+        // 중복 무시
+        $sql = "INSERT IGNORE INTO call_blacklist
+                    (company_id, mb_group, call_hp, reason, memo, created_by, created_at)
+                VALUES
+                    ('{$company_id}', '".(int)$mb_group."', '{$hp_esc}', '{$reason_esc}', '{$memo_esc}', '".(int)$created_by."', NOW())";
+        $ok = sql_query($sql, false);
+        if (!$ok) {
+            $result['error'] = 'DB 오류(INSERT IGNORE)'; 
+            return $result;
+        }
+        $aff = mysqli_affected_rows($g5['connect_db']);
+        $result['action'] = ($aff === 1) ? 'insert' : 'skip';
+    }
+
+    // 5) blacklist_id 조회(공통)
+    $row2 = sql_fetch("SELECT blacklist_id FROM call_blacklist 
+                       WHERE company_id='{$company_id}' AND call_hp='{$hp_esc}' LIMIT 1");
+    if (!empty($row2['blacklist_id'])) {
+        $result['blacklist_id'] = (int)$row2['blacklist_id'];
+    }
+
+    $result['ok'] = true;
+    return $result;
+}
+
+/**
+ * 상태코드 기반 자동 블랙리스트 등록
+ * - call_status_code에서 is_do_not_call=1 이면 등록
+ * - 그룹 커스터마이징(동일 status) 우선: (mb_group=요청그룹) → (mb_group=0 공통)
+ *
+ * @return array [ triggered(bool), register(array|null), status_row(array|null) ]
+ */
+function blacklist_register_if_dnc(int $mb_group, string $call_hp, int $call_status, int $created_by, array $opt = []): array
+{
+    $out = ['triggered'=>false, 'register'=>null, 'status_row'=>null];
+
+    // 상태코드 조회 (그룹우선 → 공통)
+    $q = "SELECT call_status, mb_group, name_ko, is_do_not_call
+          FROM call_status_code
+          WHERE call_status=".(int)$call_status." 
+            AND (mb_group=".(int)$mb_group." OR mb_group=0)
+          ORDER BY (mb_group=".(int)$mb_group.") DESC
+          LIMIT 1";
+    $row = sql_fetch($q);
+    $out['status_row'] = $row ?: null;
+
+    if (!$row || (int)$row['is_do_not_call'] !== 1) {
+        return $out; // 트리거 아님
+    }
+
+    // 블랙리스트 등록 사유 기본값
+    $reason = $opt['reason'] ?? ("상태코드 {$call_status} - ".(string)($row['name_ko'] ?? 'DNC'));
+    $memo   = $opt['memo']   ?? 'API auto-blacklist';
+
+    $reg = blacklist_register($mb_group, $call_hp, [
+        'company_id'   => $opt['company_id'] ?? null, // 있으면 사용
+        'reason'       => $reason,
+        'memo'         => $memo,
+        'created_by'   => $created_by,
+        'update_on_dup'=> !empty($opt['update_on_dup']),
+    ]);
+
+    $out['triggered'] = true;
+    $out['register']  = $reg;
+    return $out;
+}
+/* 샘플 : 특정이벤트에서 직접 등록 
+require_once __DIR__ . '/_lib_call_blacklist.php';
+$r = blacklist_register($mb_group, $call_hp, [
+    'reason'       => '사용자 요청 차단',
+    'memo'         => '앱 내 신고',
+    'created_by'   => $mb_no,
+    'update_on_dup'=> true, // 기존이면 reason/memo 갱신
+]);
+// $r['action'] 으로 insert/update/skip 구분 가능
+*/
+
+// 그룹ID로 회사명 가져오기
 function get_company_name_from_group_id_cached(int $group_id) {
     static $company_name = [];
     if(!empty($company_name[$group_id])) return $company_name[$group_id];
@@ -12,6 +157,20 @@ function get_company_name_from_group_id_cached(int $group_id) {
         $company_name[$group_id] = '회사-???';
     }
     return $company_name[$group_id];
+}
+
+// 그룹ID로 회사ID 가져오기
+function get_company_id_from_group_id_cached(int $group_id) {
+    static $company_id = [];
+    if(!empty($company_id[$group_id])) return $company_id[$group_id];
+    $sql = "SELECT company_id FROM g5_member WHERE mb_no = '{$group_id}'";
+    $row = sql_fetch($sql);
+    if($row) {
+        $company_id[$group_id] = $row['company_id'];
+    } else {
+        $company_id[$group_id] = null;
+    }
+    return $company_id[$group_id];
 }
 
 // 에이전트 드롭다운용 HTML 조각 준비 (그룹 구분 포함)

@@ -98,7 +98,7 @@ tr.inactive { background-color:#f8f9fa; color:#999; opacity:0.7; }
                     <th>표시 이름</th>
                     <th>그룹</th>
                     <th>2차콜대상</th>
-                    <th>DNC</th>
+                    <th>블랙등록</th>
                     <th>버튼 스타일</th>
                     <th>상태</th>
                     <th>관리</th>

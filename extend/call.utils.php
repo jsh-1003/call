@@ -5,6 +5,42 @@ function _g($key, $def='') { return isset($_GET[$key]) ? trim((string)$_GET[$key
 function _p($key, $def='') { return isset($_POST[$key]) ? trim((string)$_POST[$key]) : $def; }
 function _h($s){ return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 
+
+/**
+ * 날짜 범위 버튼 렌더링
+ *
+ * @param string $container_id  버튼 컨테이너 id (페이지 내 유일)
+ * @param array  $ranges        노출할 범위 키 배열
+ *                              ['yesterday','last_week','last_month','today','this_week','this_month']
+ * @param string $class_wrap    래퍼 class
+ * @param string $class_btn     버튼 class
+ */
+function render_date_range_buttons(
+    string $container_id = 'dateRangeBtns',
+    array $ranges = ['yesterday','last_week','last_month','today','this_week','this_month'],
+    string $class_wrap = 'btn-line btn-grid-2x3',
+    string $class_btn = 'btn-mini'
+){
+    // key => label
+    $labels = [
+        'yesterday'   => '어제',
+        'today'       => '오늘',
+        'last_week'   => '지난주',
+        'this_week'   => '이번주',
+        'last_month'  => '지난달',
+        'this_month'  => '이번달',
+    ];
+    echo '<span class="'.htmlspecialchars($class_wrap).'" id="'.htmlspecialchars($container_id).'"';
+    echo ' data-range-container="1">';
+    foreach ($ranges as $k) {
+        if (!isset($labels[$k])) continue;
+        echo '<button type="button" class="'.htmlspecialchars($class_btn).'" data-range="'.htmlspecialchars($k).'">'
+            . htmlspecialchars($labels[$k]) . '</button>';
+    }
+    echo '</span>';
+}
+
+
 /** JSON 미리보기(1줄 요약 + 펼치기 토글) */
 function pretty_json_preview($json_str){
     if ($json_str === null || $json_str === '') return '';

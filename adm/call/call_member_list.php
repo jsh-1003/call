@@ -32,8 +32,8 @@ $my_company_name = (string)($member['company_name'] ?? '');
 // 역할 라디오 필터
 $role_filter = isset($_GET['role_filter']) ? trim($_GET['role_filter']) : 'all';
 $allowed_role_filters = ($my_level >= 9)
-    ? ['all','company','leader','member']   // 9+: 회사관리자/그룹리더/상담원
-    : (($my_level >= 8) ? ['all','leader','member'] : ['all']);
+    ? ['all','company','leader','member', 'member-after']   // 9+: 회사관리자/그룹리더/상담원
+    : (($my_level >= 8) ? ['all','leader','member', 'member-after'] : ['all']);
 if (!in_array($role_filter, $allowed_role_filters, true)) $role_filter = 'all';
 
 // -------------------------------------------
@@ -59,6 +59,7 @@ function role_label_and_class($lv){
     if ($lv >= 10) return ['플랫폼관리자','badge-admin'];
     if ($lv >= 8)  return ['회사관리자','badge-company'];
     if ($lv == 7)  return ['그룹리더','badge-leader'];
+    if ($lv == 5)  return ['2차상담원','badge-member-after'];
     return ['상담원','badge-member'];
 }
 
@@ -106,8 +107,11 @@ if ($my_level >= 8) {
         // 그룹리더만 (레벨 7)
         $where[] = "(m.mb_level = 7)";
     } elseif ($role_filter === 'member') {
-        // 상담원만 (레벨 6 이하 가정)
-        $where[] = "(m.mb_level <= 6)";
+        // 상담원만 (레벨 3)
+        $where[] = "(m.mb_level = 3)";
+    } elseif ($role_filter === 'member-after') {
+        // 상담원만 (레벨 5)
+        $where[] = "(m.mb_level = 5)";
     }
 }
 
@@ -182,6 +186,7 @@ $colspan = ($my_level >= 8) ? 10 : 9;
 .badge-company { background:#2563eb; } /* 파랑: 회사관리자 */
 .badge-leader  { background:#059669; } /* 초록: 그룹리더 */
 .badge-member  { background:#6b7280; } /* 회색: 상담원 */
+.badge-member-after  { background:#df612a; } /* 회색: 2차상담원 */
 .badge-admin   { background:#7c3aed; } /* 보라: 플랫폼관리자(참고) */
 
 /* 상태 라벨 */
@@ -248,6 +253,7 @@ $colspan = ($my_level >= 8) ? 10 : 9;
                 <label><input type="radio" name="role_filter" value="company" <?php echo $role_filter==='company'?'checked':''; ?>> 회사관리자</label>
             <?php } ?>
             <label><input type="radio" name="role_filter" value="leader" <?php echo $role_filter==='leader'?'checked':''; ?>> 그룹리더</label>
+            <label><input type="radio" name="role_filter" value="member-after" <?php echo $role_filter==='member-after'?'checked':''; ?>> 2차상담원</label>
             <label><input type="radio" name="role_filter" value="member" <?php echo $role_filter==='member'?'checked':''; ?>> 상담원</label>
         </span>
     <?php } else { ?>

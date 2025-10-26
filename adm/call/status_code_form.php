@@ -138,13 +138,12 @@ include_once(G5_ADMIN_PATH.'/admin.head.php');
             </tr>
 
             <tr>
-                <th scope="row">발신 금지(DNC) 처리</th>
+                <th scope="row">블랙고객 처리</th>
                 <td>
                     <label><input type="checkbox" name="is_do_not_call" value="1" <?php echo ((int)($row['is_do_not_call'] ?? 0)===1?'checked':''); ?>> 적용</label>
                     <span class="help">
-                        체크 시, 이 상태로 저장될 경우 해당 대상은 <b>발신 금지(Do Not Call)</b>로 표시되며<br>
-                        재시도 대상에서 제외되고(재발신 차단), <code>next_try_at</code>은 비워집니다.<br>
-                        예) <b>결번</b> 등 법·운영상 다시 전화하면 안 되는 경우에 사용합니다.
+                        체크 시, 이 상태로 저장될 경우 해당 대상은 <b>블랙고객</b>으로 표시되며<br>
+                        대상에서 제외되고(재발신 차단) 엑셀 업로드시에도 자동으로 제외 됩니다.
                     </span>
                 </td>
             </tr>

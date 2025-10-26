@@ -298,11 +298,17 @@ audio {max-width:260px;max-height:30px;}
         <span class="tilde">~</span>
         <input type="date" id="end" name="end" value="<?php echo get_text($end_date);?>" class="frm_input">
 
-        <span class="btn-line">
-            <button type="button" class="btn-mini" id="btnYesterday">어제</button>
-            <button type="button" class="btn-mini" id="btnToday">오늘</button>
-        </span>
-
+        <?php
+        // 어제, 오늘, 지난주, 이번주, 지난달, 이번달 버튼
+        render_date_range_buttons('dateRangeBtns');
+        ?>
+        <script>
+          DateRangeButtons.init({
+            container: '#dateRangeBtns', startInput: '#start', endInput: '#end', form: '#searchForm',
+            autoSubmit: true, weekStart: 1, thisWeekEndToday: true, thisMonthEndToday: true
+          });
+        </script>
+        
         <span class="pipe">|</span>
 
         <label for="q_type">검색구분</label>
@@ -508,42 +514,7 @@ $base = './call_recordings.php?'.http_build_query($qstr);
 </div>
 
 <script>
-// 날짜 유틸
-function pad2(n){ return (n<10?'0':'')+n; }
-function fmt(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
-
 (function(){
-    var $start = document.getElementById('start');
-    var $end   = document.getElementById('end');
-    var $form  = document.getElementById('searchForm');
-
-    document.getElementById('btnYesterday').addEventListener('click', function(){
-        var now = new Date(); now.setDate(now.getDate()-1);
-        var y = fmt(now);
-        $start.value = y;
-        $end.value   = y;
-        $form.submit();
-    });
-
-    document.getElementById('btnToday').addEventListener('click', function(){
-        var now = new Date();
-        var t = fmt(now);
-        $start.value = t;
-        $end.value   = t;
-        $form.submit();
-    });
-
-    const start = $start.value;
-    const end = $end.value;
-    const today = fmt(new Date());
-    const yestDate = new Date(); yestDate.setDate(yestDate.getDate() - 1);
-    const yesterday = fmt(yestDate);
-    if (start === yesterday && end === yesterday) {
-        btnYesterday.classList.add('active');
-    } else if (start === today && end === today) {
-        btnToday.classList.add('active');
-    }
-
     // ★ 회사 변경 시 그룹/담당자 초기화 후 자동검색
     var companySel = document.getElementById('company_id');
     if (companySel) {

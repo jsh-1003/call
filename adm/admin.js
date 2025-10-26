@@ -269,7 +269,137 @@ function initCompanyGroupSelector(companySel, groupSel, csrfToken = null) {
     });
 }
 
+// ===============================================
+// 공통 날짜 범위 버튼 유틸
+// - weekStart: 1(월) | 0(일)
+// - thisWeekEndToday/thisMonthEndToday: true면 '이번주/이번달' 종료일을 오늘로 설정
+// ===============================================
+(function(global){
+  function pad(n){ return (n<10?'0':'')+n; }
+  function fmt(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
 
+  // 로컬(브라우저) 기준 자정으로 맞추기
+  function startOfDay(d){ const x = new Date(d); x.setHours(0,0,0,0); return x; }
+  function endOfDay(d){ const x = new Date(d); x.setHours(23,59,59,999); return x; }
+
+  function startOfWeek(d, weekStart){ // weekStart: 1=Mon, 0=Sun
+    const x = startOfDay(d);
+    const day = x.getDay(); // 0~6 (Sun~Sat)
+    const diff = ( (day - weekStart + 7) % 7 );
+    x.setDate(x.getDate() - diff);
+    return x;
+  }
+  function endOfWeek(d, weekStart){
+    const s = startOfWeek(d, weekStart);
+    const e = new Date(s);
+    e.setDate(s.getDate()+6);
+    return endOfDay(e);
+  }
+  function startOfMonth(d){
+    const x = startOfDay(d);
+    x.setDate(1);
+    return x;
+  }
+  function endOfMonth(d){
+    const x = startOfDay(d);
+    x.setMonth(x.getMonth()+1, 0); // 다음달 0일 = 말일
+    return endOfDay(x);
+  }
+
+  function calcRange(key, opts){
+    const now = new Date();
+    const today = startOfDay(now);
+    const y = new Date(today); y.setDate(today.getDate()-1);
+
+    const weekStart = (opts && typeof opts.weekStart==='number') ? opts.weekStart : 1; // 월요일
+    const thisWeekEndToday = !!(opts && opts.thisWeekEndToday !== false);   // default true
+    const thisMonthEndToday = !!(opts && opts.thisMonthEndToday !== false); // default true
+
+    switch(key){
+      case 'yesterday':
+        return { start: fmt(y), end: fmt(y) };
+      case 'today':
+        return { start: fmt(today), end: fmt(today) };
+
+      case 'last_week': {
+        const lastWeekRef = new Date(today); lastWeekRef.setDate(today.getDate()-7);
+        const s = startOfWeek(lastWeekRef, weekStart);
+        const e = endOfWeek(lastWeekRef, weekStart);
+        return { start: fmt(s), end: fmt(e) };
+      }
+      case 'this_week': {
+        const s = startOfWeek(today, weekStart);
+        let e = thisWeekEndToday ? today : endOfWeek(today, weekStart);
+        return { start: fmt(s), end: fmt(e) };
+      }
+
+      case 'last_month': {
+        const ref = new Date(today); ref.setMonth(ref.getMonth()-1);
+        const s = startOfMonth(ref);
+        const e = endOfMonth(ref);
+        return { start: fmt(s), end: fmt(e) };
+      }
+      case 'this_month': {
+        const s = startOfMonth(today);
+        let e = thisMonthEndToday ? today : endOfMonth(today);
+        return { start: fmt(s), end: fmt(e) };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 버튼 초기화
+   * @param {Object} cfg
+   *  - container: 버튼 래퍼 요소 또는 selector (data-range 버튼들을 자식으로 가짐)
+   *  - startInput, endInput: input 요소 또는 selector
+   *  - form: submit할 form 요소 또는 selector
+   *  - autoSubmit: true면 클릭 시 즉시 submit
+   *  - weekStart, thisWeekEndToday, thisMonthEndToday: 동작 옵션(위 설명)
+   */
+  function initDateRangeButtons(cfg){
+    const $container = typeof cfg.container==='string' ? document.querySelector(cfg.container) : cfg.container;
+    const $start = typeof cfg.startInput==='string' ? document.querySelector(cfg.startInput) : cfg.startInput;
+    const $end   = typeof cfg.endInput==='string' ? document.querySelector(cfg.endInput) : cfg.endInput;
+    const $form  = cfg.form ? (typeof cfg.form==='string' ? document.querySelector(cfg.form) : cfg.form) : null;
+    const autoSubmit = !!cfg.autoSubmit;
+
+    if (!$container || !$start || !$end) return;
+
+    function setActive(){
+      const s = $start.value;
+      const e = $end.value;
+      const btns = $container.querySelectorAll('[data-range]');
+      btns.forEach(btn=>{
+        const key = btn.getAttribute('data-range');
+        const rg = calcRange(key, cfg);
+        const active = !!(rg && rg.start === s && rg.end === e);
+        btn.classList.toggle('active', active);
+      });
+    }
+
+    $container.addEventListener('click', function(ev){
+      const t = ev.target.closest('[data-range]');
+      if (!t) return;
+      const key = t.getAttribute('data-range');
+      const rg = calcRange(key, cfg);
+      if (!rg) return;
+      $start.value = rg.start;
+      $end.value   = rg.end;
+      setActive();
+      if (autoSubmit && $form) $form.submit();
+    });
+
+    // 최초 활성화 반영
+    setActive();
+
+    // 외부에서 값이 바뀌었을 때 갱신하고 싶다면 아래를 호출:
+    return { refresh: setActive };
+  }
+
+  // export
+  global.DateRangeButtons = { init: initDateRangeButtons, calcRange: calcRange };
+})(window);
 
 
 $(function() {
