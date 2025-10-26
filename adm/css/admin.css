@@ -1416,7 +1416,7 @@ a.btn_ov02:hover, a.ov_listall:hover {color:#fff}
 .badge-fail    { background:#6c757d; color:#fff; }
 .badge-dnc     { background:#dc3545; color:#fff; }
 .small-muted { color:#888; font-size:12px; }
-.small-muted-system { color:#aaa; font-size:11px;font-style:italic; }
+.small-muted-system { color:#999; font-size:12px; font-style:italic; }
 .table-fixed td { word-break:break-all; }
 .btn-line { display:flex; gap:6px; align-items:center; }
 .btn-mini { padding:2px 8px; font-size:0.95em; border:1px solid #ccc; background:#f8f9fa; border-radius:4px; cursor:pointer; }

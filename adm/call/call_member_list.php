@@ -63,21 +63,83 @@ function role_label_and_class($lv){
     return ['상담원','badge-member'];
 }
 
+// 특정 타깃 회원을 토글할 수 있는지 권한/범위 체크
+function can_toggle_aftercall($me_level, $me_company_id, $me_mb_no, $target_row) {
+    $t_level   = (int)$target_row['mb_level'];
+    $t_company = (int)$target_row['company_id'];
+    $t_group   = (int)$target_row['mb_group'];
+    $t_mb_no   = (int)$target_row['mb_no'];
+
+    // 레벨 5 또는 7만 토글 대상
+    if (!in_array($t_level, [5,7], true)) return false;
+
+    if ($me_level >= 9) {
+        return true; // 전역
+    } elseif ($me_level == 8) {
+        // 같은 회사 소속만
+        return ($me_company_id > 0 && $me_company_id === $t_company);
+    } elseif ($me_level == 7) {
+        // 내 그룹원(=mb_group==내 mb_no) 또는 본인
+        return ($t_group === $me_mb_no) || ($t_mb_no === $me_mb_no);
+    }
+    return false;
+}
+
 /**
  * ========================
- * 회사/그룹/담당자 드롭다운 옵션
+ * 회사/그룹 드롭다운 옵션
  * ========================
  */
 $build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
-// 회사 옵션(9+)
 $company_options = $build_org_select_options['company_options'];
-// 그룹 옵션(8+)
-$group_options = $build_org_select_options['group_options'];
-/**
- * ========================
- * // 회사/그룹/담당자 드롭다운 옵션
- * ========================
- */
+$group_options   = $build_org_select_options['group_options'];
+
+// ===============================
+// AJAX: 2차콜담당 ON/OFF 토글
+// ===============================
+if (isset($_POST['ajax']) && $_POST['ajax'] === 'toggle_after') {
+    header('Content-Type: application/json; charset=utf-8');
+
+//    check_admin_token();
+
+    $target_mb_no = (int)($_POST['mb_no'] ?? 0);
+    $want         = isset($_POST['want']) ? (int)$_POST['want'] : -1; // 0 or 1
+
+    if ($target_mb_no <= 0 || ($want !== 0 && $want !== 1)) {
+        echo json_encode(['success'=>false,'message'=>'invalid'], JSON_UNESCAPED_UNICODE); exit;
+    }
+
+    // 대상 회원 조회
+    $rowT = sql_fetch("SELECT mb_no, mb_id, mb_name, mb_level, company_id, mb_group, IFNULL(is_after_call,0) AS is_after_call
+                         FROM {$g5['member_table']} 
+                        WHERE mb_no={$target_mb_no}
+                        LIMIT 1");
+    if (!$rowT) {
+        echo json_encode(['success'=>false,'message'=>'대상 회원 없음'], JSON_UNESCAPED_UNICODE); exit;
+    }
+
+    // 권한/범위 검증
+    if (!can_toggle_aftercall($my_level, $my_company_id, $my_mb_no, $rowT)) {
+        echo json_encode(['success'=>false,'message'=>'권한 없음'], JSON_UNESCAPED_UNICODE); exit;
+    }
+
+    // 변경 불필요
+    if ((int)$rowT['is_after_call'] === $want) {
+        echo json_encode(['success'=>true,'changed'=>false,'value'=>$want]); exit;
+    }
+
+    // 실제 업데이트
+    $ok = sql_query("UPDATE {$g5['member_table']} 
+                        SET is_after_call={$want}
+                      WHERE mb_no={$target_mb_no}
+                      LIMIT 1", true);
+
+    if (!$ok) {
+        echo json_encode(['success'=>false,'message'=>'업데이트 실패']); exit;
+    }
+
+    echo json_encode(['success'=>true,'changed'=>true,'value'=>$want]); exit;
+}
 
 // -------------------------------------------
 // 검색 조건
@@ -101,16 +163,12 @@ if ($my_level == 7) {
 // 역할 라디오 필터
 if ($my_level >= 8) {
     if ($role_filter === 'company' && $my_level >= 9) {
-        // 회사관리자만 (레벨 8)
         $where[] = "(m.mb_level = 8)";
     } elseif ($role_filter === 'leader') {
-        // 그룹리더만 (레벨 7)
         $where[] = "(m.mb_level = 7)";
     } elseif ($role_filter === 'member') {
-        // 상담원만 (레벨 3)
         $where[] = "(m.mb_level = 3)";
     } elseif ($role_filter === 'member-after') {
-        // 상담원만 (레벨 5)
         $where[] = "(m.mb_level = 5)";
     }
 }
@@ -153,7 +211,7 @@ $total_page  = $rows ? (int)ceil($total_count / $rows) : 1;
 $from_record = ($page - 1) * $rows;
 
 // -------------------------------------------
-// 목록 조회(회사/그룹 “표시용 이름”은 캐시 함수로 변환)
+// 목록 조회
 // -------------------------------------------
 $sql = "
   SELECT 
@@ -161,7 +219,8 @@ $sql = "
     m.company_id, m.company_name,
     m.mb_group,  m.mb_group_name,
     m.mb_datetime, m.mb_today_login,
-    m.mb_leave_date, m.mb_intercept_date
+    m.mb_leave_date, m.mb_intercept_date,
+    IFNULL(m.is_after_call,0) AS is_after_call
   {$sql_common}
   {$sql_search}
   {$sql_order}
@@ -174,8 +233,11 @@ include_once (G5_ADMIN_PATH.'/admin.head.php');
 
 $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목록</a>';
 
-// 컬럼수: 권한(8+만 보임) + 회사 + 조직명 + 이름 + 아이디 + 상태 + 등록일 + 최종접속일 + 수정 + 차단
-$colspan = ($my_level >= 8) ? 10 : 9;
+// 컬럼수: 권한(8+만 보임) + 회사 + 조직명 + 이름 + 아이디 + 2차콜담당 + 상태 + 등록일 + 최종접속일 + 수정 + 차단
+$colspan = ($my_level >= 8) ? 11 : 10;
+
+$csrf_token = get_token();
+$qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_filter={$role_filter}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}";
 ?>
 <style>
 /* 회사별 구분선 option */
@@ -186,7 +248,7 @@ $colspan = ($my_level >= 8) ? 10 : 9;
 .badge-company { background:#2563eb; } /* 파랑: 회사관리자 */
 .badge-leader  { background:#059669; } /* 초록: 그룹리더 */
 .badge-member  { background:#6b7280; } /* 회색: 상담원 */
-.badge-member-after  { background:#df612a; } /* 회색: 2차상담원 */
+.badge-member-after  { background:#df612a; } /* 주황: 2차상담원 */
 .badge-admin   { background:#7c3aed; } /* 보라: 플랫폼관리자(참고) */
 
 /* 상태 라벨 */
@@ -194,7 +256,18 @@ $colspan = ($my_level >= 8) ? 10 : 9;
 .mb_intercept_msg { padding:5px 8px;background-color:#b45309;color:#fff;font-weight:800; }
 
 .role-radio label { margin-right:8px; }
+
+/* 토글 버튼 */
+.toggle-after {
+    display:inline-flex; align-items:center; justify-content:center;
+    min-width:54px; padding:2px 8px; border-radius:12px; font-size:12px; line-height:1.6;
+    cursor:pointer; border:0; color:#fff;
+}
+.toggle-after.on  { background:#16a34a; } /* green */
+.toggle-after.off { background:#9ca3af; } /* gray */
+.toggle-after[disabled] { opacity:.5; cursor:not-allowed; }
 </style>
+
 <div class="local_ov">
     <?php echo $listall; ?>
     <span class="btn_ov01">
@@ -246,7 +319,7 @@ $colspan = ($my_level >= 8) ? 10 : 9;
     <?php } ?>
 
     <?php if ($my_level >= 8) { ?>
-        <!-- (NEW) 권한 라디오 필터 -->
+        <!-- 권한 라디오 필터 -->
         <span class="role-radio" style="margin-left:10px;">
             <label><input type="radio" name="role_filter" value="all" <?php echo $role_filter==='all'?'checked':''; ?>> 전체</label>
             <?php if ($my_level >= 9) { ?>
@@ -259,7 +332,6 @@ $colspan = ($my_level >= 8) ? 10 : 9;
     <?php } else { ?>
         <input type="hidden" name="role_filter" value="all">
     <?php } ?>
-
 
     <label for="include_blocked" style="margin-left:10px;">
         <input type="checkbox" name="include_blocked" id="include_blocked" value="1" <?php echo $include_blocked?'checked':''; ?>>
@@ -285,13 +357,11 @@ $colspan = ($my_level >= 8) ? 10 : 9;
                 <?php if($my_level >= 8) { ?>
                 <th scope="col">권한</th>
                 <?php } ?>
-                <?php
-                $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_filter={$role_filter}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}";
-                ?>
                 <th scope="col"><?php echo subject_sort_link('m.company_name', $qstr_member_list); ?>회사</a></th>
                 <th scope="col">조직명</th>
                 <th scope="col"><?php echo subject_sort_link('m.mb_name', $qstr_member_list); ?>이름</a></th>
                 <th scope="col"><?php echo subject_sort_link('m.mb_id', $qstr_member_list); ?>아이디</a></th>
+                <th scope="col">2차콜온오프</th><!-- NEW -->
                 <th scope="col">상태</th>
                 <th scope="col"><?php echo subject_sort_link('m.mb_datetime', $qstr_member_list); ?>등록일</a></th>
                 <th scope="col"><?php echo subject_sort_link('m.mb_today_login', $qstr_member_list); ?>최종접속일</a></th>
@@ -315,13 +385,19 @@ $colspan = ($my_level >= 8) ? 10 : 9;
                 // 권한 배지
                 list($role_name, $role_class) = role_label_and_class((int)$row['mb_level']);
 
-                // 표시용 회사/그룹 이름(정식 소유자 레코드 기준)
+                // 표시용 회사/그룹 이름
                 $disp_company = get_company_name_cached((int)$row['company_id']);
                 $disp_group   = get_group_name_cached((int)$row['mb_group']);
 
                 // 날짜
                 $reg_date   = $row['mb_datetime']     ? substr($row['mb_datetime'], 0, 10) : '';
                 $last_login = $row['mb_today_login']  ? substr($row['mb_today_login'], 0, 10) : '';
+
+                // 토글 가능/표시여부
+                $is_after = (int)$row['is_after_call'] === 1;
+                $is_toggle_target = in_array((int)$row['mb_level'], [5,7], true);
+                $can_toggle = $is_toggle_target && can_toggle_aftercall($my_level, $my_company_id, $my_mb_no, $row);
+
                 ?>
                 <tr class="<?php echo $bg; ?>">
                     <?php if($my_level >= 8) { ?>
@@ -331,6 +407,22 @@ $colspan = ($my_level >= 8) ? 10 : 9;
                     <td class="td_left"><?php echo get_text($disp_group); ?></td>
                     <td class="td_mbname"><?php echo get_text($row['mb_name']); ?></td>
                     <td class="td_left"><?php echo get_text($row['mb_id']); ?></td>
+
+                    <!-- NEW: 2차콜담당 토글 -->
+                    <td class="td_center">
+                        <?php if ($is_toggle_target) { ?>
+                            <button type="button"
+                                    class="toggle-after <?php echo $is_after ? 'on':'off'; ?>"
+                                    data-mb-no="<?php echo (int)$row['mb_no']; ?>"
+                                    data-value="<?php echo $is_after ? 1:0; ?>"
+                                    <?php echo $can_toggle ? '' : 'disabled'; ?>>
+                                <?php echo $is_after ? 'ON':'OFF'; ?>
+                            </button>
+                        <?php } else { ?>
+                            -
+                        <?php } ?>
+                    </td>
+
                     <td class="td_mbstat"><?php echo $status_label; ?></td>
                     <td class="td_datetime"><?php echo $reg_date; ?></td>
                     <td class="td_datetime"><?php echo $last_login; ?></td>
@@ -363,15 +455,6 @@ $colspan = ($my_level >= 8) ? 10 : 9;
 
 <?php
 // 페이징
-// $qstr = http_build_query([
-//     'company_id'=>$sel_company_id,
-//     'mb_group'=>$sel_mb_group,
-//     'include_blocked'=>$include_blocked,
-//     'sfl'=>$sfl,
-//     'stx'=>$stx,
-//     'sst'=>$sst,
-//     'sod'=>$sod
-// ]);
 $qstr = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_filter={$role_filter}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}&sod={$sod}";
 echo get_paging(G5_IS_MOBILE ? $config['cf_mobile_pages'] : $config['cf_write_pages'], $page, $total_page, "{$_SERVER['SCRIPT_NAME']}?{$qstr}&amp;page=");
 ?>
@@ -380,45 +463,82 @@ echo get_paging(G5_IS_MOBILE ? $config['cf_mobile_pages'] : $config['cf_write_pa
 // 회사→그룹 비동기(9+만)
 var companySel = document.getElementById('company_id');
 if (companySel) {
-companySel.addEventListener('change', function(){
+  companySel.addEventListener('change', function(){
     var groupSel = document.getElementById('mb_group');
     if (!groupSel) return;
     groupSel.innerHTML = '<option value="">로딩 중...</option>';
-    // 상담원 초기화
-    var agent = document.getElementById('agent'); if (agent) agent.selectedIndex = 0;
 
     fetch('./ajax_group_options.php', {
-    method: 'POST',
-    headers: {
-        'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ company_id: parseInt(this.value||'0',10)||0 }),
-    credentials: 'same-origin'
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ company_id: parseInt(this.value||'0',10)||0 }),
+      credentials: 'same-origin'
     })
     .then(function(res){ if(!res.ok) throw new Error('네트워크 오류'); return res.json(); })
     .then(function(json){
-    if (!json.success) throw new Error(json.message || '가져오기 실패');
-    var opts = [];
-    opts.push(new Option('전체 그룹', 0));
-    json.items.forEach(function(item){
+      if (!json.success) throw new Error(json.message || '가져오기 실패');
+      var opts = [];
+      opts.push(new Option('전체 그룹', 0));
+      json.items.forEach(function(item){
         if (item.separator) {
-        var sep = document.createElement('option');
-        sep.textContent = '── ' + item.separator + ' ──';
-        sep.disabled = true;
-        opts.push(sep);
+          var sep = document.createElement('option');
+          sep.textContent = '── ' + item.separator + ' ──';
+          sep.disabled = true;
+          opts.push(sep);
         } else {
-        opts.push(new Option(item.label, item.value));
+          opts.push(new Option(item.label, item.value));
         }
-    });
-    groupSel.innerHTML = '';
-    opts.forEach(function(o){ groupSel.appendChild(o); });
-    groupSel.value = '0'; // 회사 변경 시 전체 그룹 유지
+      });
+      groupSel.innerHTML = '';
+      opts.forEach(function(o){ groupSel.appendChild(o); });
+      groupSel.value = '0';
     })
     .catch(function(err){
-    alert('그룹 목록을 불러오지 못했습니다: ' + err.message);
-    groupSel.innerHTML = '<option value="0">전체 그룹</option>';
+      alert('그룹 목록을 불러오지 못했습니다: ' + err.message);
+      groupSel.innerHTML = '<option value="0">전체 그룹</option>';
+    });
+  });
+}
+
+// 2차콜담당 토글
+document.addEventListener('click', function(e){
+  var btn = e.target.closest('.toggle-after');
+  if (!btn) return;
+
+  if (btn.hasAttribute('disabled')) return;
+
+  var mbNo = parseInt(btn.getAttribute('data-mb-no') || '0', 10) || 0;
+  var cur  = parseInt(btn.getAttribute('data-value') || '0', 10) || 0;
+  var want = cur ? 0 : 1;
+
+  var fd = new FormData();
+  fd.append('ajax','toggle_after');
+  fd.append('mb_no', String(mbNo));
+  fd.append('want', String(want));
+  fd.append('token','<?php echo $csrf_token; ?>');
+
+  btn.setAttribute('disabled','disabled');
+
+  fetch('./call_member_list.php', { method:'POST', body:fd, credentials:'same-origin' })
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      if (!j || j.success === false) throw new Error((j && j.message) || '실패');
+      // UI 반영
+      if (typeof j.value !== 'undefined') {
+        var v = parseInt(j.value,10)===1;
+        btn.classList.toggle('on', v);
+        btn.classList.toggle('off', !v);
+        btn.textContent = v ? 'ON':'OFF';
+        btn.setAttribute('data-value', v ? '1':'0');
+      }
+    })
+    .catch(function(err){
+      alert('변경 실패: ' + err.message);
+    })
+    .finally(function(){
+      btn.removeAttribute('disabled');
     });
 });
-}
 </script>
-<?php include_once (G5_ADMIN_PATH.'/admin.tail.php'); ?>
+
+<?php include_once (G5_ADMIN_PATH.'/admin.tail.php');
