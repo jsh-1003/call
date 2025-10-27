@@ -145,6 +145,20 @@ $r = blacklist_register($mb_group, $call_hp, [
 // $r['action'] 으로 insert/update/skip 구분 가능
 */
 
+function get_company_name_from_cached(int $company_id) {
+    static $company_name = [];
+    if(!empty($company_name[$company_id])) return $company_name[$company_id];
+    $sql = "SELECT company_name from g5_member where mb_no = '{$company_id}' ";
+    $row = sql_fetch($sql);
+    if($row) {
+        $company_name[$company_id] = $row['company_name'];
+    } else {
+        $company_name[$company_id] = '회사-???';
+    }
+    return $company_name[$company_id];
+
+}
+
 // 그룹ID로 회사명 가져오기
 function get_company_name_from_group_id_cached(int $group_id) {
     static $company_name = [];
@@ -345,6 +359,8 @@ function build_org_select_options($sel_company_id=0, $sel_mb_group=0) {
             SELECT m.mb_no AS company_id
               FROM {$member_table} m
              WHERE m.mb_level = 8
+                AND IFNULL(mb_leave_date,'') = ''
+                AND IFNULL(mb_intercept_date,'') = ''
              ORDER BY COALESCE(NULLIF(m.company_name,''), CONCAT('회사-', m.mb_no)) ASC, m.mb_no ASC
         ");
         while ($r = sql_fetch_array($res)) {
@@ -369,6 +385,7 @@ function build_org_select_options($sel_company_id=0, $sel_mb_group=0) {
             if ((int)$sel_company_id > 0) $where_g .= " AND m.company_id = '".(int)$sel_company_id."' ";
         } else {
             $where_g .= " AND m.company_id = '".(int)$my_company_id."' ";
+            $where_g .= " AND IFNULL(m.mb_leave_date,'') = '' AND IFNULL(m.mb_intercept_date,'') = '' ";
         }
         $res = sql_query("SELECT m.mb_no AS mb_group, m.company_id FROM {$member_table} m {$where_g}
              ORDER BY m.company_id ASC,
@@ -411,7 +428,7 @@ function build_org_select_options($sel_company_id=0, $sel_mb_group=0) {
     } else { // 7
         $aw[] = "mb_group = ".(int)$my_group;
     }
-    $aw[] = "mb_level = 3";
+    $aw[] = " mb_level = 3 AND IFNULL(mb_leave_date,'') = '' AND IFNULL(mb_intercept_date,'') = '' ";
     $aw_sql = 'WHERE '.implode(' AND ', $aw);
 
     $ar = sql_query("SELECT mb_no, mb_name, company_id, mb_group FROM {$member_table} {$aw_sql} ORDER BY company_id ASC, mb_group ASC, mb_name ASC, mb_no ASC");

@@ -44,6 +44,158 @@ $page_rows = 50; // 상세 리스트 50건 고정
 $offset    = ($page - 1) * $page_rows;
 
 // --------------------------------------------------
+// 전역: 상태코드 목록
+// --------------------------------------------------
+$codes = [];
+$rc = sql_query("
+    SELECT call_status, name_ko, status
+      FROM call_status_code
+     WHERE mb_group=0
+     ORDER BY sort_order ASC, call_status ASC
+");
+while ($r = sql_fetch_array($rc)) $codes[] = $r;
+
+// ★ 단일 after-call 코드 조회 (is_after_call=1, status=1 우선)
+$after_code_row = sql_fetch("
+    SELECT call_status, name_ko
+      FROM call_status_code
+     WHERE mb_group=0 AND is_after_call=1
+     ORDER BY status DESC, sort_order ASC, call_status ASC
+     LIMIT 1
+");
+$AFTER_STATUS = (int)($after_code_row['call_status'] ?? 0);
+$AFTER_LABEL  = $after_code_row['name_ko'] ?? '접수(후처리)';
+
+// ===============================
+// AJAX: 접수(후처리)로 변경
+// ===============================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['mode'] ?? '') === 'convert_to_after') {
+    header('Content-Type: application/json; charset=utf-8');
+    require_once G5_LIB_PATH.'/call.assign.lib.php';
+
+    if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
+        echo json_encode(['ok'=>false,'message'=>'권한이 없습니다.']); exit;
+    }
+    if (!check_token()) {
+        echo json_encode(['ok'=>false,'message'=>'토큰이 유효하지 않습니다. 새로고침 후 다시 시도하세요.']); exit;
+    }
+    if ($AFTER_STATUS <= 0) {
+        echo json_encode(['ok'=>false,'message'=>'after-call 상태코드가 설정되어 있지 않습니다.']); exit;
+    }
+
+    $call_id = (int)($_POST['call_id'] ?? 0);
+    if ($call_id <= 0) {
+        echo json_encode(['ok'=>false,'message'=>'잘못된 요청값']); exit;
+    }
+
+    // 대상 로드 + 권한 스코프 확인
+    $row = sql_fetch("
+        SELECT l.call_id, l.mb_group, l.mb_no, l.campaign_id, l.target_id,
+               l.call_status AS cur_status,
+               sc.name_ko AS status_label,
+               sc.is_after_call AS cur_is_after,
+               m.company_id AS cur_company_id
+          FROM call_log l
+          JOIN call_status_code sc
+            ON sc.call_status = l.call_status AND sc.mb_group = 0
+          LEFT JOIN {$member_table} m
+            ON m.mb_no = l.mb_no
+         WHERE l.call_id = {$call_id}
+         LIMIT 1
+    ");
+    if (!$row) { echo json_encode(['ok'=>false,'message'=>'대상을 찾을 수 없습니다.']); exit; }
+
+    // 권한 스코프
+    if ($mb_level < 9) {
+        if ($mb_level == 8) {
+            if ((int)$row['cur_company_id'] !== $my_company_id) {
+                echo json_encode(['ok'=>false,'message'=>'회사 범위 밖 데이터입니다.']); exit;
+            }
+        } else { // 7
+            if ((int)$row['mb_group'] !== $my_group) {
+                echo json_encode(['ok'=>false,'message'=>'그룹 범위 밖 데이터입니다.']); exit;
+            }
+        }
+    }
+
+    // 이미 after-call 상태면 불가
+    if ((int)$row['cur_is_after'] === 1) {
+        echo json_encode(['ok'=>false,'message'=>'이미 접수(후처리) 상태입니다.']); exit;
+    }
+
+    // 트랜잭션
+    sql_query("START TRANSACTION");
+    try {
+        $target_id     = (int)$row['target_id'];
+        $mb_group      = (int)$row['mb_group'];
+        $campaign_id   = (int)$row['campaign_id'];
+
+        // 이전/이후 상태와 라벨 준비
+        $before_status = (int)$row['cur_status'];
+        $before_label  = get_text($row['status_label'] ?? ''); // 현재 라벨
+        $after_status  = $AFTER_STATUS;
+        $after_label   = $AFTER_LABEL;
+
+        // SQL 안전 문자열로
+        $before_label_esc = sql_escape_string($before_label);
+        $after_label_esc  = sql_escape_string($after_label);
+
+        // (선택) 조작자 표기
+        $operator_name    = get_text($member['mb_name'] ?? $member['mb_id'] ?? '');
+        $operator_name_esc= sql_escape_string($operator_name);
+        $operator_no      = (int)$mb_no;
+
+        // 메모 한 줄(타임스탬프 포함)
+        $memo_line = "[상태변경 ".date('Y-m-d H:i:s')." by {$operator_no}/{$operator_name}] "
+                . "{$before_status}({$before_label}) → {$after_status}({$after_label})";
+
+        // 업데이트: call_memo에 안전하게 prepend
+        sql_query("
+        UPDATE call_log
+            SET call_status   = {$after_status},
+                call_updatedat= NOW(),
+                memo     = CONCAT_WS('\n',
+                                    '".sql_escape_string($memo_line)."',
+                                    IFNULL(memo,'')
+                                )
+        WHERE call_id = {$call_id}
+        ");
+        
+        // 상태 변경
+        sql_query("UPDATE call_target SET last_result={$AFTER_STATUS}, updated_at=NOW() WHERE target_id={$target_id} AND mb_group={$mb_group} AND campaign_id={$campaign_id}");
+
+        // aftercall 티켓 발급 + 배정
+        $initial_after_state = 1;
+        $ac_result = aftercall_issue_and_assign_one(
+            $campaign_id,
+            $mb_group,
+            $target_id,
+            $initial_after_state,
+            $mb_no,          // 조작자
+            null,            // scheduled_at
+            null,            // schedule_note
+            '[SYSTEM] 1차 상담 전환 - 관리자 상태 변경',
+            false            // force_reassign
+        );
+
+        sql_query("COMMIT");
+
+        echo json_encode([
+            'ok'=>true,
+            'message'=>'변경 완료 되었습니다.',
+            'call_id'=>$call_id,
+            'new_status'=>$AFTER_STATUS,
+            'new_status_label'=>$AFTER_LABEL,
+            'ac_result'=>$ac_result
+        ]);
+        exit;
+    } catch (Throwable $e) {
+        sql_query("ROLLBACK");
+        echo json_encode(['ok'=>false,'message'=>'DB 오류: '.$e->getMessage()]); exit;
+    }
+}
+
+// --------------------------------------------------
 // WHERE 구성 (company/group/agent/기간/검색)
 // --------------------------------------------------
 $where = [];
@@ -94,34 +246,18 @@ if ($mb_level == 7) {
 } elseif ($mb_level < 7) {
     $where[] = "l.mb_no = {$mb_no}";
 } else {
-    // 회사 스코프는 에이전트의 company_id 기준
     if ($mb_level == 8) {
         $where[] = "m.company_id = {$my_company_id}";
     } elseif ($mb_level >= 9 && $sel_company_id > 0) {
         $where[] = "m.company_id = {$sel_company_id}";
     }
-    // 그룹 선택
     if ($sel_mb_group > 0) $where[] = "l.mb_group = {$sel_mb_group}";
 }
-
-// 담당자 선택
 if ($sel_agent_no > 0) {
     $where[] = "l.mb_no = {$sel_agent_no}";
 }
 
 $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
-
-// --------------------------------------------------
-// 전역: 상태코드 목록 (셀렉트 박스용)
-// --------------------------------------------------
-$codes = [];
-$rc = sql_query("
-    SELECT call_status, name_ko, status
-      FROM call_status_code
-     WHERE mb_group=0
-     ORDER BY sort_order ASC, call_status ASC
-");
-while ($r = sql_fetch_array($rc)) $codes[] = $r;
 
 // --------------------------------------------------
 // 코드 리스트(요약 헤더용)
@@ -136,8 +272,6 @@ foreach($code_list as $v) {
 
 // --------------------------------------------------
 // (공통) 통계 계산 함수
-//  ※ 회사 스코프 조건이 where_sql에 포함되므로
-//    반드시 g5_member m 조인이 필요
 // --------------------------------------------------
 function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $sel_mb_group) {
     $result = [
@@ -283,7 +417,7 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
 }
 
 // --------------------------------------------------
-// 총 건수 (상세 리스트 페이징용) — 회사 스코프 반영을 위해 m 조인
+// 총 건수 (상세 리스트 페이징용)
 // --------------------------------------------------
 $sql_cnt = "
     SELECT COUNT(*) AS cnt
@@ -296,8 +430,8 @@ $row_cnt = sql_fetch($sql_cnt);
 $total_count = (int)($row_cnt['cnt'] ?? 0);
 
 // --------------------------------------------------
-// 상세 목록 쿼리 (15건 고정)
-//  + 전화번호 숨김 규칙 적용을 위해 cc.is_open_number, sc.is_after_call 선택
+// 상세 목록 쿼리
+//   + sc.is_after_call 컬럼 포함
 // --------------------------------------------------
 $sql_list = "
     SELECT
@@ -309,7 +443,9 @@ $sql_list = "
         m.company_id                                                   AS agent_company_id,
         l.call_status,
         sc.name_ko                                                     AS status_label,
-        sc.is_after_call                                               AS sc_is_after_call,   -- ★ 추가
+        sc.is_after_call                                               AS sc_is_after_call,
+        l.campaign_id,
+        l.target_id,
         l.call_start, 
         l.call_end,
         l.call_time,                                                   -- 통화시간(초)
@@ -325,21 +461,18 @@ $sql_list = "
         l.call_hp,
         t.meta_json,
         cc.name                                                        AS campaign_name,
-        cc.is_open_number                                              AS cc_is_open_number   -- ★ 추가
+        cc.is_open_number                                              AS cc_is_open_number
     FROM call_log l
     JOIN call_target t 
       ON t.target_id = l.target_id
  LEFT JOIN {$member_table} m 
       ON m.mb_no = l.mb_no
-    /* 통화결과 라벨(공통셋) */
  LEFT JOIN call_status_code sc
       ON sc.call_status = l.call_status AND sc.mb_group = 0
-    /* 상담시간(녹취 길이) */
  LEFT JOIN call_recording rec
       ON rec.call_id = l.call_id 
      AND rec.mb_group = l.mb_group
      AND rec.campaign_id = l.campaign_id
-    /* 캠페인명/옵션 */
   JOIN call_campaign cc
       ON cc.campaign_id = l.campaign_id
      AND cc.mb_group = l.mb_group
@@ -350,7 +483,7 @@ $sql_list = "
 $res_list = sql_query($sql_list);
 
 // --------------------------------------------------
-// 상단/피벗/그룹별담당자 통계 계산 (HTML 렌더용)
+// 통계 계산 (상단/피벗/그룹별담당자)
 // --------------------------------------------------
 $stats = build_stats($where_sql, $member_table, $code_list_status, $mb_level, $sel_mb_group);
 $top_sum_by_status = $stats['top_sum_by_status'];
@@ -369,25 +502,18 @@ $group_totals        = $stats['group_totals'];
 $group_labels        = $stats['group_labels'];
 $agent_labels        = $stats['agent_labels'];
 
-
 /**
  * ========================
  * 회사/그룹/담당자 드롭다운 옵션
  * ========================
  */
 $build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
-// 회사 옵션(9+)
 $company_options = $build_org_select_options['company_options'];
-// 그룹 옵션(8+)
-$group_options = $build_org_select_options['group_options'];
-// 상담사 옵션(회사/그룹 필터 반영) — 상담원 레벨(3)만
-$agent_options = $build_org_select_options['agent_options'];
+$group_options   = $build_org_select_options['group_options'];
+$agent_options   = $build_org_select_options['agent_options'];
 /**
  * ========================
- * // 회사/그룹/담당자 드롭다운 옵션
- * ========================
  */
-
 
 // --------------------------------------------------
 // 화면 출력
@@ -398,23 +524,20 @@ include_once(G5_ADMIN_PATH.'/admin.head.php');
 $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목록</a>';
 ?>
 <style>
-/* 그룹 구분선 option */
 .opt-sep { color:#888; font-style:italic; }
+.status-chip { display:inline-block; padding:2px 6px; border-radius:10px; font-size:12px; vertical-align:middle; }
+.btn-convert-after { padding:4px 8px; font-size:12px; }
 </style>
 
 <!-- 검색/필터 -->
 <div class="local_sch01 local_sch">
     <form method="get" action="./call_stats.php" class="form-row" id="searchForm">
-        <!-- 1줄차: 기간/바로가기/검색기본 -->
         <label for="start">기간</label>
         <input type="date" id="start" name="start" value="<?php echo get_text($start_date);?>" class="frm_input">
         <span class="tilde">~</span>
         <input type="date" id="end" name="end" value="<?php echo get_text($end_date);?>" class="frm_input">
 
-        <?php
-        // 어제, 오늘, 지난주, 이번주, 지난달, 이번달 버튼
-        render_date_range_buttons('dateRangeBtns');
-        ?>
+        <?php render_date_range_buttons('dateRangeBtns'); ?>
         <script>
           DateRangeButtons.init({
             container: '#dateRangeBtns', startInput: '#start', endInput: '#end', form: '#searchForm',
@@ -446,9 +569,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
         </select>
 
         <button type="submit" class="btn btn_01">검색</button>
-        <?php if ($where_sql) { ?>
-        <a href="./call_stats.php" class="btn btn_02">초기화</a>
-        <?php } ?>
+        <?php if ($where_sql) { ?><a href="./call_stats.php" class="btn btn_02">초기화</a><?php } ?>
         <span class="small-muted">권한:
             <?php
             if ($mb_level >= 8) echo '전체';
@@ -459,7 +580,6 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 
         <span class="row-split"></span>
 
-        <!-- 2줄차: 회사/그룹/담당자 -->
         <?php if ($mb_level >= 9) { ?>
             <select name="company_id" id="company_id" style="width:120px">
                 <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
@@ -506,7 +626,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
             if (empty($agent_options)) {
                 echo '<option value="" disabled>상담사가 없습니다</option>';
             } else {
-                $last_gid = null;
+                $last_cid = null; $last_gid = null;
                 foreach ($agent_options as $a) {
                     if ($last_cid !== $a['company_id']) {
                         echo '<option value="" disabled class="opt-sep">[── '.get_text($a['company_name']).' ──]</option>';
@@ -522,7 +642,6 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
             }
             ?>
         </select>
-
     </form>
 </div>
 
@@ -592,10 +711,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
             <table><tbody><tr><td class="empty_table">데이터가 없습니다.</td></tr></tbody></table>
         </div>
     <?php } else { ?>
-        <?php
-        // ksort($group_agent_matrix, SORT_NUMERIC);
-        foreach ($group_agent_matrix as $gid => $agents) {
-        ?>
+        <?php foreach ($group_agent_matrix as $gid => $agents) { ?>
         <div class="tbl_head01 tbl_wrap" style="margin-top:10px;">
             <table style="table-layout:fixed">
                 <caption><?php echo get_text($group_labels[$gid] ?? ('그룹 '.$gid)); ?></caption>
@@ -669,12 +785,13 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                 <th>전화번호</th>
                 <th>추가정보</th>
                 <th>캠페인명</th>
+                <th>처리</th><!-- ★ 최우측 -->
             </tr>
         </thead>
         <tbody>
         <?php
         if ($total_count === 0) {
-            echo '<tr><td colspan="14" class="empty_table">데이터가 없습니다.</td></tr>';
+            echo '<tr><td colspan="16" class="empty_table">데이터가 없습니다.</td></tr>';
         } else {
             while ($row = sql_fetch_array($res_list)) {
                 // 포맷팅
@@ -684,24 +801,24 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                 $man_age  = is_null($row['man_age'])   ? '-' : ((int)$row['man_age']).'세';
                 $agent    = $row['agent_name'] ? get_text($row['agent_name']) : (string)$row['agent_mb_id'];
                 $status   = $row['status_label'] ?: ('코드 '.$row['call_status']);
-                $gname = get_group_name_cached((int)$row['mb_group']);
+                $gname    = get_group_name_cached((int)$row['mb_group']);
                 $meta     = '-';
                 if (!is_null($row['meta_json']) && $row['meta_json'] !== '') {
                     $decoded = json_decode($row['meta_json'], true);
                     if (is_array($decoded)) {
-                        $kv = [];
-                        foreach ($decoded as $k=>$v) $kv[] = $k.': '.$v;
-                        $meta = implode(', ', $kv);
+                        // $kv = [];
+                        // foreach ($decoded as $k=>$v) $kv[] = $k.': '.$v;
+                        // $meta = implode(', ', $kv);
+                        $meta = implode(',', $decoded);
                     } else {
                         $meta = get_text($row['meta_json']);
                     }
                 }
+                $meta = cut_str($meta, 30);
                 $ui = !empty($status_ui[$row['call_status']]) ? $status_ui[$row['call_status']] : 'secondary';
                 $class = 'status-col status-'.get_text($ui);
 
-                // ★ 전화번호 숨김 규칙:
-                //   - 캠페인 cc.is_open_number == 0 이고
-                //   - 상태코드 sc.is_after_call != 1 이면, 번호는 "(숨김처리)"
+                // 전화번호 숨김 규칙
                 $hp_display = '';
                 if ((int)$row['cc_is_open_number'] === 0 && (int)$row['sc_is_after_call'] !== 1 && $mb_level < 9) {
                     $hp_display = '(숨김처리)';
@@ -713,6 +830,8 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                     $agent_phone = get_text(format_korean_phone($row['agent_phone']));
                     if(strlen($agent_phone) == 13) $agent_phone = substr($agent_phone, 4, 9);
                 }
+
+                $is_after = (int)$row['sc_is_after_call'] === 1;
                 ?>
                 <tr>
                     <td><?php echo get_text($gname); ?></td>
@@ -730,6 +849,18 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                     <td><?php echo $hp_display; ?></td>
                     <td><?php echo $meta; ?></td>
                     <td><?php echo get_text($row['campaign_name'] ?: '-'); ?></td>
+                    <td>
+                        <?php if (!$is_after) { ?>
+                            <button type="button"
+                                class="btn btn_02 btn-convert-after"
+                                data-call-id="<?php echo (int)$row['call_id'];?>"
+                                data-cur-label="<?php echo get_text($status);?>">
+                                접수로 변경
+                            </button>
+                        <?php } else { ?>
+                            <span class="small-muted">-</span>
+                        <?php } ?>
+                    </td>
                 </tr>
                 <?php
             }
@@ -772,14 +903,21 @@ $base = './call_stats.php?'.http_build_query($qstr);
     var groupSel   = document.getElementById('mb_group');
     if (!groupSel) return;
 
-    // 9+에서만 회사 변경 이벤트 연결
     <?php if ($mb_level >= 9) { ?>
     initCompanyGroupSelector(companySel, groupSel);
+    if (companySel) {
+        companySel.addEventListener('change', function(){
+            if (groupSel) groupSel.selectedIndex = 0;
+            const agent = document.getElementById('agent');
+            if (agent) agent.selectedIndex = 0;
+            document.getElementById('searchForm').submit();
+        });
+    }
+
     <?php } ?>
-    // 그룹/상담사 자동 제출
     const mbGroup = document.getElementById('mb_group');
-    if (mbGroup) {
-        mbGroup.addEventListener('change', function(){
+    if (groupSel) {
+        groupSel.addEventListener('change', function(){
             const agent = document.getElementById('agent');
             if (agent) agent.selectedIndex = 0;
             document.getElementById('searchForm').submit();
@@ -791,6 +929,59 @@ $base = './call_stats.php?'.http_build_query($qstr);
             document.getElementById('searchForm').submit();
         });
     }
+})();
+</script>
+
+<script>
+// ===============================
+// 접수로 변경 버튼 처리
+// ===============================
+(function(){
+  const table = document.querySelector('table.table-fixed');
+  if (!table) return;
+
+  const AFTER_LABEL = <?php echo json_encode($AFTER_LABEL, JSON_UNESCAPED_UNICODE); ?>;
+
+  table.addEventListener('click', function(e){
+    const btn = e.target.closest('.btn-convert-after');
+    if (!btn) return;
+
+    const callId = parseInt(btn.getAttribute('data-call-id') || '0', 10);
+    if (!callId) return;
+
+    if (!confirm("정말 '" + AFTER_LABEL + "' 으로 변경하시겠습니까?")) return;
+
+    btn.disabled = true;
+
+    fetch(location.pathname, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+      body: new URLSearchParams({
+        mode: 'convert_to_after',
+        call_id: String(callId),
+        token: '<?php echo $token; ?>'
+      })
+    })
+    .then(res => res.json())
+    .then(json => {
+      if (!json.ok) throw new Error(json.message || '변경 실패');
+
+      // UI 업데이트: 같은 행의 통화결과 텍스트만 교체, 버튼 숨김
+      const tr = btn.closest('tr');
+      const tdResult = tr ? tr.children[4] : null; // 통화결과 칸
+      if (tdResult) {
+        tdResult.textContent = AFTER_LABEL;
+        tdResult.classList.remove('status-secondary','status-warning','status-fail');
+        tdResult.classList.add('status-success'); // 라벨 색상은 프로젝트 UI 규칙에 맞춰 조정
+      }
+      btn.replaceWith(document.createTextNode('완료'));
+    })
+    .catch(err => {
+      alert(err.message);
+      btn.disabled = false;
+    });
+  });
 })();
 </script>
 

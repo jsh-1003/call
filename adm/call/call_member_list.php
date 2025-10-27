@@ -8,7 +8,7 @@ auth_check_menu($auth, $sub_menu, 'r');
 // -------------------------------------------
 // 접근 권한: 레벨 7 미만 차단
 // -------------------------------------------
-if ((int)$member['mb_level'] < 7) {
+if ((int)$member['mb_level'] < 5) {
     alert('접근 권한이 없습니다.');
 }
 
@@ -81,6 +81,9 @@ function can_toggle_aftercall($me_level, $me_company_id, $me_mb_no, $target_row)
     } elseif ($me_level == 7) {
         // 내 그룹원(=mb_group==내 mb_no) 또는 본인
         return ($t_group === $me_mb_no) || ($t_mb_no === $me_mb_no);
+    } elseif ($me_level == 5) {
+        // 본인
+        return ($t_mb_no === $me_mb_no);
     }
     return false;
 }
@@ -197,10 +200,10 @@ $sql_search = ' WHERE '.implode(' AND ', $where);
 // -------------------------------------------
 // 정렬/페이징
 // -------------------------------------------
-$sst = $_GET['sst'] ?? 'm.mb_datetime';
+$sst = $_GET['sst'] ?? 'm.company_id desc, m.mb_group desc, m.mb_level asc, m.mb_no';
 $sod = strtolower($_GET['sod'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
 $allowed_sort = ['m.mb_datetime','m.mb_today_login','m.mb_name','m.mb_id','m.mb_group_name','m.company_name'];
-if (!in_array($sst, $allowed_sort, true)) $sst = 'm.mb_datetime';
+if (!in_array($sst, $allowed_sort, true)) $sst = 'm.company_id desc, m.mb_group desc, m.mb_level asc, m.mb_no';
 $sql_order = " ORDER BY {$sst} {$sod} ";
 
 $row = sql_fetch("SELECT COUNT(*) AS cnt {$sql_common} {$sql_search}");
@@ -256,16 +259,6 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
 .mb_intercept_msg { padding:5px 8px;background-color:#b45309;color:#fff;font-weight:800; }
 
 .role-radio label { margin-right:8px; }
-
-/* 토글 버튼 */
-.toggle-after {
-    display:inline-flex; align-items:center; justify-content:center;
-    min-width:54px; padding:2px 8px; border-radius:12px; font-size:12px; line-height:1.6;
-    cursor:pointer; border:0; color:#fff;
-}
-.toggle-after.on  { background:#16a34a; } /* green */
-.toggle-after.off { background:#9ca3af; } /* gray */
-.toggle-after[disabled] { opacity:.5; cursor:not-allowed; }
 </style>
 
 <div class="local_ov">
@@ -276,7 +269,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
     </span>
 </div>
 
-<form id="fsearch" name="fsearch" class="local_sch01 local_sch" method="get">
+<form id="searchForm" name="fsearch" class="local_sch01 local_sch" method="get">
     <?php if ($my_level >= 9) { ?>
         <label for="company_id">회사</label>
         <select name="company_id" id="company_id">
@@ -460,85 +453,30 @@ echo get_paging(G5_IS_MOBILE ? $config['cf_mobile_pages'] : $config['cf_write_pa
 ?>
 
 <script>
-// 회사→그룹 비동기(9+만)
-var companySel = document.getElementById('company_id');
-if (companySel) {
-  companySel.addEventListener('change', function(){
-    var groupSel = document.getElementById('mb_group');
-    if (!groupSel) return;
-    groupSel.innerHTML = '<option value="">로딩 중...</option>';
+(function(){
+    var $form = document.getElementById('searchForm');
+    // ★ 회사 변경 시 그룹/담당자 초기화 후 자동검색
+    var companySel = document.getElementById('company_id');
+    if (companySel) {
+        companySel.addEventListener('change', function(){
+            var g = document.getElementById('mb_group');
+            if (g) g.selectedIndex = 0;
+            var a = document.getElementById('agent');
+            if (a) a.selectedIndex = 0;
+            $form.submit();
+        });
+    }
 
-    fetch('./ajax_group_options.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ company_id: parseInt(this.value||'0',10)||0 }),
-      credentials: 'same-origin'
-    })
-    .then(function(res){ if(!res.ok) throw new Error('네트워크 오류'); return res.json(); })
-    .then(function(json){
-      if (!json.success) throw new Error(json.message || '가져오기 실패');
-      var opts = [];
-      opts.push(new Option('전체 그룹', 0));
-      json.items.forEach(function(item){
-        if (item.separator) {
-          var sep = document.createElement('option');
-          sep.textContent = '── ' + item.separator + ' ──';
-          sep.disabled = true;
-          opts.push(sep);
-        } else {
-          opts.push(new Option(item.label, item.value));
-        }
-      });
-      groupSel.innerHTML = '';
-      opts.forEach(function(o){ groupSel.appendChild(o); });
-      groupSel.value = '0';
-    })
-    .catch(function(err){
-      alert('그룹 목록을 불러오지 못했습니다: ' + err.message);
-      groupSel.innerHTML = '<option value="0">전체 그룹</option>';
-    });
-  });
-}
-
-// 2차콜담당 토글
-document.addEventListener('click', function(e){
-  var btn = e.target.closest('.toggle-after');
-  if (!btn) return;
-
-  if (btn.hasAttribute('disabled')) return;
-
-  var mbNo = parseInt(btn.getAttribute('data-mb-no') || '0', 10) || 0;
-  var cur  = parseInt(btn.getAttribute('data-value') || '0', 10) || 0;
-  var want = cur ? 0 : 1;
-
-  var fd = new FormData();
-  fd.append('ajax','toggle_after');
-  fd.append('mb_no', String(mbNo));
-  fd.append('want', String(want));
-  fd.append('token','<?php echo $csrf_token; ?>');
-
-  btn.setAttribute('disabled','disabled');
-
-  fetch('./call_member_list.php', { method:'POST', body:fd, credentials:'same-origin' })
-    .then(function(r){ return r.json(); })
-    .then(function(j){
-      if (!j || j.success === false) throw new Error((j && j.message) || '실패');
-      // UI 반영
-      if (typeof j.value !== 'undefined') {
-        var v = parseInt(j.value,10)===1;
-        btn.classList.toggle('on', v);
-        btn.classList.toggle('off', !v);
-        btn.textContent = v ? 'ON':'OFF';
-        btn.setAttribute('data-value', v ? '1':'0');
-      }
-    })
-    .catch(function(err){
-      alert('변경 실패: ' + err.message);
-    })
-    .finally(function(){
-      btn.removeAttribute('disabled');
-    });
-});
+    // 그룹 변경 시 담당자 초기화 후 자동검색
+    var mbGroup = document.getElementById('mb_group');
+    if (mbGroup) {
+        mbGroup.addEventListener('change', function(){
+            var agent = document.getElementById('agent');
+            if (agent) agent.selectedIndex = 0;
+            $form.submit();
+        });
+    }
+})();
 </script>
 
 <?php include_once (G5_ADMIN_PATH.'/admin.tail.php');

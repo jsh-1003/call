@@ -77,7 +77,7 @@ if ($action === 'block') {
         alert('탈퇴 회원은 차단할 수 없습니다.');
     }
     sql_query("UPDATE {$g5['member_table']}
-                  SET mb_intercept_date = '".G5_TIME_YMD."'
+                  SET mb_intercept_date = '".date("Ymd")."'
                 WHERE mb_id = '{$safe_mb_id}'");
 } else {
     // unblock

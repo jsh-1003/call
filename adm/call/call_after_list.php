@@ -5,7 +5,7 @@ require_once './_common.php';
 
 // 접근 권한: 관리자 레벨 5 이상
 if ($is_admin !== 'super' && (int)$member['mb_level'] < 5) {
-    alert('접근 권한이 없습니다.');
+    alert('접근 권한이 없습니다~!'.$member['mb_level']);
 }
 
 /** 일정 표시 포맷터 */
@@ -98,13 +98,15 @@ if (isset($_GET['ajax']) && $_GET['ajax']==='get') {
     $mb_group    = (int)($_GET['mb_group'] ?? 0);
     header('Content-Type: application/json; charset=utf-8');
     if ($target_id<=0 || $campaign_id<=0 || $mb_group<=0) { echo json_encode(['success'=>false,'message'=>'invalid'], JSON_UNESCAPED_UNICODE); exit; }
-    if ($mb_level == 7 && $mb_group !== $my_group) { echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit; }
+    if ($mb_level <= 7 && $mb_group !== $my_group) { echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit; }
     if ($mb_level == 8) {
         $own_grp = sql_fetch("SELECT 1 FROM {$member_table} WHERE mb_no={$mb_group} AND mb_level=7 AND company_id='{$my_company_id}' LIMIT 1");
         if (!$own_grp) { echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit; }
     }
-
-    if ($mb_level < 7) {
+    if ($mb_level == 5) {
+        $own = sql_fetch("SELECT 1 FROM call_aftercall_ticket WHERE target_id = {$target_id} and assigned_after_mb_no = {$mb_no} LIMIT 1 ");
+        if (!$own) { echo json_encode(['success'=>false,'message'=>'denied/3']); exit; }
+    } else if ($mb_level < 7) {
         $own = sql_fetch("SELECT 1 FROM call_log WHERE mb_group={$mb_group} AND campaign_id={$campaign_id} AND target_id={$target_id} AND mb_no={$mb_no} LIMIT 1");
         if (!$own) { echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit; }
     }
@@ -202,16 +204,19 @@ if (isset($_POST['ajax']) && $_POST['ajax']==='save') {
     header('Content-Type: application/json; charset=utf-8');
 
     if ($campaign_id<=0 || $mb_group<=0 || $target_id<=0) { echo json_encode(['success'=>false,'message'=>'invalid']); exit; }
-    if ($mb_level == 7 && $mb_group !== $my_group) { echo json_encode(['success'=>false,'message'=>'denied']); exit; }
+    if ($mb_level == 7 && $mb_group !== $my_group) { echo json_encode(['success'=>false,'message'=>'denied/1']); exit; }
     if ($mb_level == 8) {
         $own_grp = sql_fetch("SELECT 1 FROM {$member_table} WHERE mb_no={$mb_group} AND mb_level=7 AND company_id='{$my_company_id}' LIMIT 1");
-        if (!$own_grp) { echo json_encode(['success'=>false,'message'=>'denied']); exit; }
+        if (!$own_grp) { echo json_encode(['success'=>false,'message'=>'denied/2']); exit; }
     }
-    if ($mb_level < 7) {
-        $own = sql_fetch("SELECT 1 FROM call_log WHERE mb_group={$mb_group} AND campaign_id={$campaign_id} AND target_id={$target_id} AND mb_no={$mb_no} LIMIT 1");
-        if (!$own) { echo json_encode(['success'=>false,'message'=>'denied']); exit; }
+    if ($mb_level == 5) {
+        $own = sql_fetch("SELECT 1 FROM call_aftercall_ticket WHERE target_id = {$target_id} and assigned_after_mb_no = {$mb_no} LIMIT 1 ");
+        if (!$own) { echo json_encode(['success'=>false,'message'=>'denied/3']); exit; }
+    } else if ($mb_level < 7) {
+        $own = sql_fetch("SELECT 1 FROM call_log WHERE mb_group={$mb_group} AND target_id={$target_id} AND mb_no={$mb_no} LIMIT 1");
+        if (!$own) { echo json_encode(['success'=>false,'message'=>'denied/4']); exit; }
     }
-    $last = sql_fetch("SELECT call_id FROM call_log WHERE mb_group={$mb_group} AND campaign_id={$campaign_id} AND target_id={$target_id} ORDER BY call_start DESC, call_id DESC LIMIT 1");
+    $last = sql_fetch("SELECT call_id FROM call_log WHERE mb_group={$mb_group} AND target_id={$target_id} ORDER BY call_start DESC, call_id DESC LIMIT 1");
     $last_call_id = (int)($last['call_id'] ?? 0);
     $rowPrev = sql_fetch("SELECT ticket_id, state_id, scheduled_at, schedule_note, assigned_after_mb_no FROM call_aftercall_ticket WHERE mb_group={$mb_group} AND campaign_id={$campaign_id} AND target_id={$target_id} LIMIT 1");
     $prev_state_id = $rowPrev ? (int)$rowPrev['state_id'] : null;
@@ -385,7 +390,9 @@ if ($q !== '' && $q_type !== '') {
 // 권한 기반 / 조직 기반 범위
 if ($mb_level == 7) {
     $where[] = "l.mb_group = {$my_group}";
-} elseif ($mb_level < 7) {
+} elseif ($mb_level == 5) {
+    $where[] = "tk.assigned_after_mb_no = {$mb_no}";
+} elseif ($mb_level < 5) {
     $where[] = "l.mb_no = {$mb_no}";
 } else {
     // 8+
@@ -481,7 +488,6 @@ $sql_list = "SELECT
     b.call_id, b.mb_group, b.campaign_id, b.target_id, b.mb_no AS agent_id,
     b.call_status, b.call_start, b.call_end, b.call_time, b.call_hp,
 
-    COALESCE(g.mv_group_name, CONCAT('그룹 ', b.mb_group)) AS group_name,
     m.mb_name AS agent_name, m.mb_id AS agent_mb_id,
     COALESCE(NULLIF(m.mb_name,''), m.mb_id) AS agent_sort,
     sc.name_ko AS status_label,
@@ -545,19 +551,25 @@ $__q_all['mode'] = 'screen';     $href_screen    = './call_after_list_excel.php?
 $__q_all['mode'] = 'condition';  $href_condition = './call_after_list_excel.php?'.http_build_query($__q_all);
 $__q_all['mode'] = 'all';        $href_all       = './call_after_list_excel.php?'.http_build_query($__q_all);
 
-
 /* ==========================
    렌더
    ========================== */
 $token = get_token();
 $g5['title'] = '접수관리';
 include_once(G5_ADMIN_PATH.'/admin.head.php');
+// if($aa) echo $sql_list;
+
 $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체목록</a>';
 $qparams_for_sort = $_GET;
 unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['page']);
 ?>
 
 <style>
+table.call-list-table td {min-width:65px}
+table.call-list-table td.td_mdhi {width:95px}
+table.call-list-table td.small_txt {max-width:200px;}
+table.call-list-table td.td_mini_hp {width:85px}
+td.campaign_name {max-width:120px;}
 .th-sort { text-decoration:none; color:inherit; }
 .th-sort:hover { text-decoration:underline; }
 .ac-badge.on { display:inline-block; padding:1px 6px; border-radius:10px; font-size:11px; background:#16a34a; color:#fff; }
@@ -688,13 +700,13 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
 </div>
 
 <div class="tbl_head01 tbl_wrap">
-    <table class="table-fixed">
+    <table class="table-fixed call-list-table">
         <thead>
             <tr>
                 <th>그룹명</th>
                 <th>아이디</th>
                 <th><?php echo sort_th('agent_name','상담원명'); ?></th>
-                <th>통화결과</th>
+                <!-- <th>통화결과</th> -->
                 <th><?php echo sort_th('call_start','통화시작'); ?></th>
                 <th><?php echo sort_th('call_end','통화종료'); ?></th>
                 <th>통화시간</th>
@@ -756,23 +768,23 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
                 $schedule_disp = format_schedule_display($row['ac_scheduled_at'], $row['ac_schedule_note']);
                 ?>
                 <tr>
-                    <td><?php echo get_text($row['group_name']); ?></td>
+                    <td><?php echo get_group_name_cached($row['mb_group']); ?></td>
                     <td><?php echo get_text($row['agent_mb_id']); ?></td>
                     <td><?php echo get_text($agent); ?></td>
-                    <td class="status-col status-<?php echo get_text($ui_call); ?>"><?php echo get_text($status_label); ?></td>
-                    <td><?php echo fmt_datetime(get_text($row['call_start']), 'mdhi'); ?></td>
-                    <td><?php echo fmt_datetime(get_text($row['call_end']), 'mdhi'); ?></td>
+                    <!-- <td class="status-col status-<?php echo get_text($ui_call); ?>"><?php echo get_text($status_label); ?></td> -->
+                    <td class="td_mdhi"><?php echo fmt_datetime(get_text($row['call_start']), 'mdhi'); ?></td>
+                    <td class="td_mdhi"><?php echo fmt_datetime(get_text($row['call_end']), 'mdhi'); ?></td>
                     <td><?php echo $call_sec; ?></td>
                     <td><?php echo get_text($row['target_name'] ?: '-'); ?></td>
                     <td><?php echo $bday; ?></td>
                     <td><?php echo $man_age; ?></td>
-                    <td><?php echo $meta_txt; ?></td>
-                    <td><?php echo get_text($hp_fmt); ?></td>             <!-- 전화번호 -->
+                    <td><?php echo cut_str($meta_txt, 12); ?></td>
+                    <td class="td_mini_hp"><?php echo substr(get_text($hp_fmt), 4, 9); ?></td>             <!-- 전화번호 -->
                     <td><?php echo $after_label; ?></td>                  <!-- 2차담당자 -->
                     <td class="status-col status-<?php echo get_text($ac_ui); ?>"><?php echo get_text($ac_label); ?></td>
                     <td class="small_txt"><?php echo $schedule_disp; ?></td>
-                    <td><?php echo $ac_time; ?></td>
-                    <td class="small_txt"><?php echo get_text($row['campaign_name'] ?: '-'); ?></td>
+                    <td class="td_mdhi"><?php echo $ac_time; ?></td>
+                    <td class="small_txt campaign_name"><?php echo get_text($row['campaign_name'] ?: '-'); ?></td>
                     <td class="btn_one">
                         <button type="button"
                                 class="btn btn_02 ac-edit-btn"
@@ -899,20 +911,6 @@ $base = './call_after_list.php?'.http_build_query($qstr);
 
 <script>
 (function(){
-  var $form  = document.getElementById('searchForm');
-  // 그룹/상담원 자동 제출
-  var mbGroup = document.getElementById('mb_group');
-  if (mbGroup) mbGroup.addEventListener('change', function(){
-    var agent = document.getElementById('agent'); if (agent) agent.selectedIndex = 0;
-    $form.submit();
-  });
-  var agentSel = document.getElementById('agent');
-  if (agentSel) agentSel.addEventListener('change', function(){ $form.submit(); });
-
-  // 회사→그룹 비동기(9+만)
-  var companySel = document.getElementById('company_id');
-  <?php if ($mb_level >= 9) { ?> initCompanyGroupSelector(companySel, mbGroup); <?php } ?>
-
   // 모달/단건 조회/저장/타임라인 렌더
   var panel   = document.getElementById('acPanel');
   var overlay = document.getElementById('acOverlay');
@@ -1129,6 +1127,39 @@ $base = './call_after_list.php?'.http_build_query($qstr);
   var btnCancel = document.getElementById('acCancel');
   if (btnCancel) btnCancel.addEventListener('click', function(){ closePanel(); });
 
+})();
+
+(function(){
+    var $form = document.getElementById('searchForm');
+    // ★ 회사 변경 시 그룹/담당자 초기화 후 자동검색
+    var companySel = document.getElementById('company_id');
+    if (companySel) {
+        companySel.addEventListener('change', function(){
+            var g = document.getElementById('mb_group');
+            if (g) g.selectedIndex = 0;
+            var a = document.getElementById('agent');
+            if (a) a.selectedIndex = 0;
+            $form.submit();
+        });
+    }
+
+    // 그룹 변경 시 담당자 초기화 후 자동검색
+    var mbGroup = document.getElementById('mb_group');
+    if (mbGroup) {
+        mbGroup.addEventListener('change', function(){
+            var agent = document.getElementById('agent');
+            if (agent) agent.selectedIndex = 0;
+            $form.submit();
+        });
+    }
+
+    // 담당자 변경 시 자동검색
+    var agentSel = document.getElementById('agent');
+    if (agentSel) {
+        agentSel.addEventListener('change', function(){
+            $form.submit();
+        });
+    }
 })();
 </script>
 

@@ -257,6 +257,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $set[] = "company_id='".(int)$post_company_id."'";
             $set[] = "company_name=".($post_company_name!=='' ? "'".sql_escape_string($post_company_name)."'" : "''");
             $set[] = "mb_group='0'";
+            $set[] = "is_after_call='1'";
             $set[] = "mb_group_name=".($post_group_name!=='' ? "'".sql_escape_string($post_group_name)."'" : "''");
         } else {
             $set[] = "company_id='".(int)$post_company_id."'";

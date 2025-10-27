@@ -97,7 +97,7 @@ canvas { background:#fff; }
 </div>
 
 <div class="local_sch01 local_sch">
-    <form method="get" action="./call_monitor.php" class="form-row" id="filterForm" autocomplete="off">
+    <form method="get" action="./call_monitor.php" class="form-row" id="searchForm" autocomplete="off">
         <label for="start">기간</label>
         <input type="datetime-local" id="start" name="start" value="<?php echo get_text(_g('start',$default_start));?>" class="frm_input" style="width:210px">
         ~
@@ -311,7 +311,7 @@ canvas { background:#fff; }
         auto:       document.getElementById('autoRefresh'),
         sec:        document.getElementById('refreshSec'),
         btnNow:     document.getElementById('btnRefreshNow'),
-        form:       document.getElementById('filterForm'),
+        form:       document.getElementById('searchForm'),
         start:      document.getElementById('start'),
         end:        document.getElementById('end'),
         status:     document.getElementById('status'),
@@ -499,18 +499,6 @@ canvas { background:#fff; }
     document.getElementById('refreshSec').addEventListener('change', startAuto);
     document.getElementById('btnRefreshNow').addEventListener('click', refreshAll);
 
-    // 그룹/상담사 자동 제출
-    const mbGroup = document.getElementById('mb_group');
-    if (mbGroup) {
-        mbGroup.addEventListener('change', function(){
-            const agent = document.getElementById('agent');
-            if (agent) agent.selectedIndex = 0;
-            document.getElementById('filterForm').submit();
-        });
-    }
-    const agentSel = document.getElementById('agent');
-    if (agentSel) { agentSel.addEventListener('change', function(){ document.getElementById('filterForm').submit(); }); }
-
     // 회사 → 그룹 AJAX (9+만)
     const companySel = document.getElementById('company_id');
     if (companySel) {
@@ -555,6 +543,39 @@ canvas { background:#fff; }
 
     // 최초 로드
     refreshAll().then(startAuto);
+})();
+
+(function(){
+    var $form = document.getElementById('searchForm');
+    // ★ 회사 변경 시 그룹/담당자 초기화 후 자동검색
+    var companySel = document.getElementById('company_id');
+    if (companySel) {
+        companySel.addEventListener('change', function(){
+            var g = document.getElementById('mb_group');
+            if (g) g.selectedIndex = 0;
+            var a = document.getElementById('agent');
+            if (a) a.selectedIndex = 0;
+            $form.submit();
+        });
+    }
+
+    // 그룹 변경 시 담당자 초기화 후 자동검색
+    var mbGroup = document.getElementById('mb_group');
+    if (mbGroup) {
+        mbGroup.addEventListener('change', function(){
+            var agent = document.getElementById('agent');
+            if (agent) agent.selectedIndex = 0;
+            $form.submit();
+        });
+    }
+
+    // 담당자 변경 시 자동검색
+    var agentSel = document.getElementById('agent');
+    if (agentSel) {
+        agentSel.addEventListener('change', function(){
+            $form.submit();
+        });
+    }
 })();
 </script>
 

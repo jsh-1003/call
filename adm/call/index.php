@@ -201,7 +201,7 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
 </div>
 
 <div class="local_sch01 local_sch">
-    <form method="get" action="./index.php" class="form-row" autocomplete="off">
+    <form method="get" action="./index.php" class="form-row" autocomplete="off" id="searchForm">
         <?php if ($mb_level >= 9) { ?>
             <select name="company_id" id="company_id">
                 <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
@@ -414,18 +414,29 @@ echo '</div>';
 ?>
 
 <script>
-// ===============================
-// 비동기 조직(회사→그룹) 셀렉트
-// ===============================
 (function(){
+    var $form = document.getElementById('searchForm');
+    // ★ 회사 변경 시 그룹/담당자 초기화 후 자동검색
     var companySel = document.getElementById('company_id');
-    var groupSel   = document.getElementById('mb_group');
-    if (!groupSel) return;
+    if (companySel) {
+        companySel.addEventListener('change', function(){
+            var g = document.getElementById('mb_group');
+            if (g) g.selectedIndex = 0;
+            var a = document.getElementById('agent');
+            if (a) a.selectedIndex = 0;
+            $form.submit();
+        });
+    }
 
-    // 9+에서만 회사 변경 이벤트 연결
-    <?php if ($mb_level >= 9) { ?>
-    initCompanyGroupSelector(companySel, groupSel);
-    <?php } ?>
+    // 그룹 변경 시 담당자 초기화 후 자동검색
+    var mbGroup = document.getElementById('mb_group');
+    if (mbGroup) {
+        mbGroup.addEventListener('change', function(){
+            var agent = document.getElementById('agent');
+            if (agent) agent.selectedIndex = 0;
+            $form.submit();
+        });
+    }
 })();
 </script>
 

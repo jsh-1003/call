@@ -1,4 +1,5 @@
 <?php
+include_once(G5_LIB_PATH.'/latest.lib.php');
 if (!defined('_GNUBOARD_')) {
     exit;
 }
@@ -109,9 +110,20 @@ if (!empty($_COOKIE['g5_admin_btn_gnb'])) {
     }
 </script>
 <style>
+body, #hd_top, #wrapper {min-width:1100px}
 #hd_top {background:#344a57 !important}
 #logo {background:#212c33 !important;padding:0;padding-left:50px}
 #logo img {height:50px;}
+.top_after_badge {float:right;padding:14px;}
+/* 토글 버튼 */
+.toggle-after {
+    display:inline-flex; align-items:center; justify-content:center;
+    min-width:54px; padding:2px 8px; border-radius:12px; font-size:12px; line-height:1.6;
+    cursor:pointer; border:0; color:#fff;
+}
+.toggle-after.on  { background:#16a34a; } /* green */
+.toggle-after.off { background:#9ca3af; } /* gray */
+.toggle-after[disabled] { opacity:.5; cursor:not-allowed; }
 </style>
 <?php if(empty($is_popup_page)) { ?>
 
@@ -122,7 +134,60 @@ if (!empty($_COOKIE['g5_admin_btn_gnb'])) {
     <div id="hd_top">
         <button type="button" id="btn_gnb" class="btn_gnb_close <?php echo $adm_menu_cookie['btn_gnb']; ?>">메뉴</button>
         <div id="logo"><a href="<?php echo correct_goto_url(G5_ADMIN_URL); ?>"><img src="<?php echo G5_ADMIN_URL ?>/img/admin_logo.png" alt="<?php echo get_text($config['cf_title']); ?> 관리자"></a></div>
+        <?php echo latest('basic', 'notice', 2, 50); ?>
+        <?php
+        if(in_array($member['mb_level'], array(5,7))) {
+            $is_after = (int)$member['is_after_call'] === 1;
+        ?>
+        <div class="top_after_badge">
+            <span style="color:#fff">2차콜할당</span>
+            <button type="button"
+                    class="toggle-after <?php echo $is_after ? 'on':'off'; ?>"
+                    data-mb-no="<?php echo (int)$member['mb_no']; ?>"
+                    data-value="<?php echo $is_after ? 1:0; ?>">
+                <?php echo $is_after ? 'ON':'OFF'; ?>
+            </button>
+        </div>
+        <script>
+        // 2차콜담당 토글
+        document.addEventListener('click', function(e){
+        var btn = e.target.closest('.toggle-after');
+        if (!btn) return;
 
+        if (btn.hasAttribute('disabled')) return;
+
+        var mbNo = parseInt(btn.getAttribute('data-mb-no') || '0', 10) || 0;
+        var cur  = parseInt(btn.getAttribute('data-value') || '0', 10) || 0;
+        var want = cur ? 0 : 1;
+
+        var fd = new FormData();
+        fd.append('ajax','toggle_after');
+        fd.append('mb_no', String(mbNo));
+        fd.append('want', String(want));
+        btn.setAttribute('disabled','disabled');
+
+        fetch('/adm/call/call_member_list.php', { method:'POST', body:fd, credentials:'same-origin' })
+            .then(function(r){ return r.json(); })
+            .then(function(j){
+            if (!j || j.success === false) throw new Error((j && j.message) || '실패');
+            // UI 반영
+            if (typeof j.value !== 'undefined') {
+                var v = parseInt(j.value,10)===1;
+                btn.classList.toggle('on', v);
+                btn.classList.toggle('off', !v);
+                btn.textContent = v ? 'ON':'OFF';
+                btn.setAttribute('data-value', v ? '1':'0');
+            }
+            })
+            .catch(function(err){
+            alert('변경 실패: ' + err.message);
+            })
+            .finally(function(){
+            btn.removeAttribute('disabled');
+            });
+        });            
+        </script>
+        <?php } ?>
         <div id="tnb">
             <ul>
                 <?php if (defined('G5_USE_SHOP') && G5_USE_SHOP) { ?>

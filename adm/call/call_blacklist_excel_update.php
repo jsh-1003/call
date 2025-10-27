@@ -8,10 +8,7 @@ ini_set('memory_limit', '512M');
 
 auth_check_menu($auth, $sub_menu, "w");
 
-if ((int)$member['mb_level'] < 7) alert('접근 권한이 없습니다.');
-if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== ($_SESSION['chk_token'] ?? '')) {
-    alert('유효하지 않은 요청입니다.(CSRF)');
-}
+if ((int)$member['mb_level'] < 5) alert('접근 권한이 없습니다.');
 
 $chk = check_admin_token();
 if(!$chk) {
@@ -33,8 +30,8 @@ if ($company_id <= 0) alert('회사 선택/확인이 필요합니다.');
 if ($mb_level == 8 && $company_id !== $my_company_id) {
     alert('자기 회사에만 업로드할 수 있습니다.');
 }
-// 7레벨: 그룹 고정
-if ($mb_level == 7 && $mb_group !== $my_group) {
+// 7레벨 이하: 그룹 고정
+if ($mb_level <= 7 && $mb_group !== $my_group) {
     alert('자기 그룹에만 업로드할 수 있습니다.');
 }
 

@@ -308,7 +308,7 @@ audio {max-width:260px;max-height:30px;}
             autoSubmit: true, weekStart: 1, thisWeekEndToday: true, thisMonthEndToday: true
           });
         </script>
-        
+
         <span class="pipe">|</span>
 
         <label for="q_type">검색구분</label>
@@ -515,6 +515,7 @@ $base = './call_recordings.php?'.http_build_query($qstr);
 
 <script>
 (function(){
+    var $form = document.getElementById('searchForm');
     // ★ 회사 변경 시 그룹/담당자 초기화 후 자동검색
     var companySel = document.getElementById('company_id');
     if (companySel) {

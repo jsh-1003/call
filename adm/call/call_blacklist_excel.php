@@ -3,7 +3,7 @@
 $sub_menu = '700130';
 require_once './_common.php';
 
-if ((int)$member['mb_level'] < 7) alert('접근 권한이 없습니다.');
+if ((int)$member['mb_level'] < 5) alert('접근 권한이 없습니다.');
 
 $mb_level      = (int)$member['mb_level'];
 $my_group      = (int)($member['mb_group'] ?? 0);

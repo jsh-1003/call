@@ -6,7 +6,7 @@ require_once './_common.php';
 // -------------------------------------------
 // 접근 권한: 7레벨 미만 차단
 // -------------------------------------------
-if ((int)$member['mb_level'] < 7) {
+if ((int)$member['mb_level'] < 5) {
     alert('접근 권한이 없습니다.');
 }
 
@@ -95,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $mode) {
         $ok = sql_query($sql, false);
         if (!$ok) {
             // 유니크 충돌 등 처리
-            if (sql_errno() == 1062) {
+            if (mysqli_errno($g5['connect_db']) == 1062) {
                 alert('이미 회사 블랙리스트에 등록된 번호입니다.');
             }
             alert('등록 중 오류가 발생했습니다.');
@@ -384,10 +384,11 @@ $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체�
         } else {
             sql_data_seek($res, 0);
             while ($row = sql_fetch_array($res)) {
+                $cid    = (int)$row['company_id'];
                 $gid    = (int)$row['mb_group'];
                 // 회사명은 그룹을 통해 얻는 헬퍼가 있다면 사용
                 // 그룹이 0일 수도 있으니 fallback
-                $cname  = $gid > 0 ? get_company_name_from_group_id_cached($gid) : ('회사ID '.$row['company_id']);
+                $cname  = $cid > 0 ? get_company_name_from_cached($cid) : ('회사ID '.$row['company_id']);
                 $gname  = $gid > 0 ? get_group_name_cached($gid) : '-';
                 $hp_fmt = _h(format_korean_phone($row['call_hp']));
                 $creator= get_agent_name_cached((int)$row['created_by']) ?: ('#'.$row['created_by']);
@@ -396,7 +397,7 @@ $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체�
                     <td><?php echo _h($cname); ?></td>
                     <td><?php echo _h($gname); ?></td>
                     <td><?php echo $hp_fmt; ?></td>
-                    <td style="text-align:left"><?php echo _h($row['reason']); ?> <?php if($row['memo']){ echo '<div class="small-muted">'. _h($row['memo']) .'</div>'; } ?></td>
+                    <td style="text-align:left"><?php echo _h($row['reason']); ?> <?php if($row['memo']){ echo ' / <span class="small-muted">'. _h($row['memo']) .'</span>'; } ?></td>
                     <td><?php echo _h($creator); ?></td>
                     <td><?php echo substr(_h($row['created_at']), 2, 17);?></td>
                     <td>
@@ -434,7 +435,7 @@ echo '</div>';
 ?>
 
 <div class="local_sch01 local_sch">
-    <form method="post" action="./call_blacklist_excel_update.php" class="form-row" enctype="multipart/form-data" onsubmit="return confirm('엑셀 업로드로 블랙리스트를 등록하시겠습니까?');">
+    <form method="post" action="./call_blacklist_excel_update.php" class="form-row" enctype="multipart/form-data" onsubmit="return handleSubmit(this);">
         <input type="hidden" name="csrf_token" value="<?php echo _h($csrf_token);?>">
         <?php if ($mb_level >= 9) { ?>
             <select id="xls_company_id" name="company_id" required>
@@ -460,11 +461,24 @@ echo '</div>';
 
         <input type="file" name="excel" accept=".xlsx,.xls,.csv" required style="padding:3px;border:1px solid var(--neutral-300);border-radius:5px;">
         <label><input type="checkbox" name="update_on_dup" value="1"> 중복 시 사유/메모 덮어쓰기</label>
-        <button type="submit" class="btn btn_01">엑셀 업로드</button>
+        <button id="btn_submit" type="submit" class="btn btn_01">엑셀 업로드</button>
         <a href="./call_blacklist_excel.php?mode=template" class="btn btn_02" target="_blank">템플릿 다운로드</a>
     </form>
 </div>
+<script>
+function handleSubmit(form) {
+    if (!confirm('엑셀 업로드로 블랙리스트를 등록하시겠습니까?')) {
+        return false;
+    }
 
+    const btn = form.querySelector('#btn_submit');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '업로드 중...';
+    }
+    return true; // 폼 제출 계속 진행
+}
+</script>
 <?php if ($mb_level >= 9) { ?>
 <script>
 // 회사 변경 시 그룹 셀렉트 갱신 (9레벨만)
