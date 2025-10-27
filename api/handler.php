@@ -108,6 +108,7 @@ function handle_get_call_status_codes(): void {
  * - 인증: Authorization: Bearer <token>
  * 응답: { success, message, call_id, recording_id, s3_key }
  * 참고: call_time은 엔드타임-스타트타임 시간, duration_sec은 녹취파일시간(앱에서주는)으로 기록
+ * - S3 업로드를 최하단으로 보냄 -> 실패해도 DB 레코드는 유지, 레코딩에는 등록 안됨.
  */
 function handle_call_upload(): void {
     // AWS SDK (EC2 IAM Role 사용 권장). 루트/vendor 기준.
@@ -133,7 +134,7 @@ function handle_call_upload(): void {
         $in = array_merge($_POST ?? [], $_GET ?? []);
     }
 
-    // 필수 파라미터: target_id, call_status
+    // 필수 파라미터: target_id, call_status, phoneNumber
     $mode         = isset($in['mode'])        ? trim((string)$in['mode'])        : 'auto';
     $target_id    = isset($in['targetId'])    ? (int)$in['targetId']             : -1;
     $call_status  = isset($in['callStatus'])  ? (int)$in['callStatus']           : 0;
@@ -141,7 +142,7 @@ function handle_call_upload(): void {
     $call_end     = isset($in['callEnd'])     ? trim((string)$in['callEnd'])     : null;
     $memo         = isset($in['memo'])        ? trim((string)$in['memo'])        : null;
     $duration_sec = isset($in['durationSec']) ? (int)$in['durationSec']          : null;
-    $hp = isset($in['phoneNumber']) ? preg_replace('/\D+/', '', (string)$in['phoneNumber'] ?? '') : null;
+    $hp    = isset($in['phoneNumber'])   ? preg_replace('/\D+/', '', (string)$in['phoneNumber'] ?? '')   : null;
     $my_hp = isset($in['myPhoneNumber']) ? preg_replace('/\D+/', '', (string)$in['myPhoneNumber'] ?? '') : null;
 
     if ($target_id < 0 || $call_status === null || $hp === null) {
@@ -150,11 +151,8 @@ function handle_call_upload(): void {
         ], 400);
     }
 
-    if ($mode == 'manual') {
-        send_json([
-            'success'      => true,
-            'message'      => 'ok_no_job'
-        ]);
+    if ($mode === 'manual') {
+        send_json(['success'=>true, 'message'=>'ok_no_job']);
     }
 
     // 2) 대상 검증/조회 (권한: mb_group 일치)
@@ -171,13 +169,12 @@ function handle_call_upload(): void {
     $call_hp       = $t['call_hp'];
     $attempt_count = (int)$t['attempt_count'];
 
-    if($hp != $call_hp && $mb_group != 10) {
+    if ($hp != $call_hp && $mb_group != 10) {
         send_json(['success'=>false,'message'=>'전화번호가 다릅니다.'], 403);
     }
+
     // (정책에 따라 내 배정건만 허용하려면 아래 주석 해제)
-    // if ((int)$t['assigned_mb_no'] !== $mb_no) {
-    //     send_json(['success'=>false,'message'=>'not your assigned target'], 403);
-    // }
+    // if ((int)$t['assigned_mb_no'] !== $mb_no) { send_json(['success'=>false,'message'=>'not your assigned target'], 403); }
 
     // 3) 시간 보정
     $now = date('Y-m-d H:i:s');
@@ -191,29 +188,28 @@ function handle_call_upload(): void {
         $ts_start = strtotime($call_start);
         $ts_end   = strtotime($call_end);
         if ($ts_start !== false && $ts_end !== false) {
-            $call_time = max(0, $ts_end - $ts_start); // 음수 방지
+            $call_time = max(0, $ts_end - $ts_start);
         }
     }
 
-    if($call_status == CALL_STATUS_AUTO_SKIP) {
-        $gid = (int)$mb_group; // 안전하게 정수화
+    // AUTO_SKIP 처리
+    if ($call_status == CALL_STATUS_AUTO_SKIP) {
+        $gid = (int)$mb_group;
         $sql = "SELECT call_status
-            FROM call_status_code
-        WHERE `status` = 1
-            AND is_auto_skip = 1
-            AND mb_group IN (0, {$gid})
-        ORDER BY (mb_group = {$gid}) DESC,  -- 내 그룹(1) 먼저, 없으면 0
-                    sort_order ASC,
-                    call_status ASC
-        LIMIT 1";
+                  FROM call_status_code
+                 WHERE `status` = 1
+                   AND is_auto_skip = 1
+                   AND mb_group IN (0, {$gid})
+              ORDER BY (mb_group = {$gid}) DESC, sort_order ASC, call_status ASC
+                 LIMIT 1";
         $skip_call_status = sql_fetch($sql);
-        if($skip_call_status) {
-            $call_status = $skip_call_status['call_status'];
+        if ($skip_call_status) {
+            $call_status = (int)$skip_call_status['call_status'];
             $memo = '[SYSTEM] AUTO_SKIP'.PHP_EOL.$memo;
         }
     }
 
-    // 4) 트랜잭션 시작
+    // 4) 트랜잭션 시작 (DB 기록만 포함)
     sql_query("START TRANSACTION");
 
     // 5) 통화 로그 적재
@@ -223,7 +219,7 @@ function handle_call_upload(): void {
         INSERT INTO call_log
             (campaign_id, mb_group, target_id, mb_no, call_hp, agent_phone, call_status, call_start, call_end, call_time, memo)
         VALUES
-            ({$campaign_id}, {$mb_group}, {$target_id}, {$mb_no}, '".sql_escape_string($call_hp)."', '".sql_escape_string($my_hp)."', 
+            ({$campaign_id}, {$mb_group}, {$target_id}, {$mb_no}, '".sql_escape_string($call_hp)."', '".sql_escape_string($my_hp)."',
              {$call_status}, '".sql_escape_string($call_start)."', {$call_end_sql}, {$call_time}, {$memo_sql})
     ";
     $ok = sql_query($qlog, true);
@@ -233,7 +229,7 @@ function handle_call_upload(): void {
     }
     $call_id = (int)sql_insert_id();
 
-    // 6) 대상 상태 업데이트 (상태코드 테이블 기반)
+    // 6) 대상 상태 업데이트
     $set = [];
     $set[] = "last_call_at = NOW()";
     $set[] = "last_result  = {$call_status}";
@@ -264,9 +260,9 @@ function handle_call_upload(): void {
 
     $uq = "
         UPDATE call_target
-        SET ".implode(', ', $set)."
-        WHERE target_id = {$target_id} AND mb_group = {$mb_group}
-        LIMIT 1
+           SET ".implode(', ', $set)."
+         WHERE target_id = {$target_id} AND mb_group = {$mb_group}
+         LIMIT 1
     ";
     $ok = sql_query($uq, true);
     if (!$ok) {
@@ -274,105 +270,99 @@ function handle_call_upload(): void {
         send_json(['success'=>false, 'message'=>'failed to update target'], 500);
     }
 
-    // 7) (선택) 파일 처리 — multipart 에서 'file' 이 넘어온 경우만
-    $recording_id = null;
-    $s3_key       = null;
-
-    if (is_multipart() && isset($_FILES['file']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
-        // AWS SDK 확인
-        if (!class_exists(\Aws\S3\S3Client::class)) {
-            sql_query("ROLLBACK");
-            send_json(['success'=>false, 'message'=>'aws sdk not installed (composer require aws/aws-sdk-php)'], 500);
-        }
-
-        $tmp_path  = $_FILES['file']['tmp_name'];
-        $orig_name = $_FILES['file']['name'] ?? 'call_audio';
-        $ctype     = $_FILES['file']['type'] ?? 'application/octet-stream';
-        $fsize     = (int)($_FILES['file']['size'] ?? 0);
-
-        // S3 키 규칙: group/{mb_group}/{YYYY}/{MM}/{DD}/{call_id}.ext
-        $dt  = new DateTime($call_start);
-        $ext = get_file_ext_for_s3($orig_name, $ctype);
-        $key = sprintf(
-            "group/%d/%s/%s/%s/%d%s",
-            $mb_group,
-            $dt->format('Y'),
-            $dt->format('m'),
-            $dt->format('d'),
-            $call_id,
-            $ext
-        );
-
-        try {
-            $s3 = new \Aws\S3\S3Client([
-                'version' => 'latest',
-                'region'  => AWS_REGION,
-            ]);
-            $s3->putObject([
-                'Bucket'      => S3_BUCKET,
-                'Key'         => $key,
-                'SourceFile'  => $tmp_path,
-                'ContentType' => $ctype,
-                'ACL'         => 'private',
-            ]);
-            $s3_key = $key;
-
-            // call_recording 적재
-            $qrec = "
-                INSERT INTO call_recording
-                    (campaign_id, mb_group, call_id, s3_bucket, s3_key, content_type, file_size, duration_sec, created_at)
-                VALUES
-                    ({$campaign_id}, {$mb_group}, {$call_id},
-                     '".sql_escape_string(S3_BUCKET)."', '".sql_escape_string($key)."', '".sql_escape_string($ctype)."',
-                     {$fsize}, ".($duration_sec !== null ? (int)$duration_sec : "NULL").", NOW())
-            ";
-            $ok = sql_query($qrec, true);
-            if (!$ok) {
-                sql_query("ROLLBACK");
-                send_json(['success'=>false, 'message'=>'failed to insert call_recording'], 500);
-            }
-            $recording_id = (int)sql_insert_id();
-        } catch (\Throwable $e) {
-            sql_query("ROLLBACK");
-            send_json(['success'=>false, 'message'=>'s3 upload failed: '.$e->getMessage()], 500);
-        }
-    }
-
-    // 8) 커밋 및 응답
+    // ✅ 7) 커밋 - 여기까지가 DB 트랜잭션 (락 즉시 해제)
     sql_query("COMMIT");
-    
-    // 9) 블랙리스트 인 경우 블랙리스트 등록
+
+    // 8) (선택) 블랙리스트 등록 - 트랜잭션 밖
     if ((int)$meta['is_do_not_call'] === 1) {
         blacklist_register_if_dnc($mb_group, $call_hp, $call_status, $mb_no, [
             'update_on_dup' => true,
         ]);
     }
 
-    // 10) after-call 대상이면 티켓 발행(+배정) 수행
+    // 9) (선택) after-call 대상이면 티켓 발행(+배정) - 트랜잭션 밖
     $ac_result = null;
     try {
         if ((int)$meta['is_after_call'] === 1) {
-            // 초기 2차콜 상태코드 - 1 : 할당 (call_aftercall_state_code)
             $initial_after_state = 1;
-            // 일정/메모는 업로드 페이로드에 없으니 null; 필요 시 규칙 넣어도 됨
             $ac_result = aftercall_issue_and_assign_one(
                 $campaign_id,
                 $mb_group,
                 $target_id,
                 $initial_after_state,
-                $mb_no,          // 조작자 = 업로더
-                null,            // scheduled_at
-                null,            // schedule_note
-                '[SYSTEM] 1차 상담 전환', // memo
-                false            // force_reassign
+                $mb_no,
+                null,
+                null,
+                '[SYSTEM] 1차 상담 전환',
+                false
             );
         }
     } catch (Throwable $e) {
-        // 로깅만 하고 응답은 계속 진행
         error_log('[aftercall] issue/assign failed: '.$e->getMessage());
         $ac_result = ['success'=>false, 'message'=>'aftercall error: '.$e->getMessage()];
     }
 
+    // 10) 파일 업로드(S3) - 트랜잭션 밖, 실패해도 롤백/삭제 없음
+    $recording_id = null;
+    $s3_key       = null;
+
+    if (is_multipart() && isset($_FILES['file']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
+        if (!class_exists(\Aws\S3\S3Client::class)) {
+            // SDK 없으면 업로드 스킵하고 빈값 반환
+            error_log('[s3] aws sdk not installed');
+        } else {
+            $tmp_path  = $_FILES['file']['tmp_name'];
+            $orig_name = $_FILES['file']['name'] ?? 'call_audio';
+            $ctype     = $_FILES['file']['type'] ?? 'application/octet-stream';
+            $fsize     = (int)($_FILES['file']['size'] ?? 0);
+
+            // S3 키 규칙: group/{mb_group}/{YYYY}/{MM}/{DD}/{call_id}.ext
+            $dt  = new DateTime($call_start);
+            $ext = get_file_ext_for_s3($orig_name, $ctype);
+            $key = sprintf(
+                "group/%d/%s/%s/%s/%d%s",
+                $mb_group,
+                $dt->format('Y'),
+                $dt->format('m'),
+                $dt->format('d'),
+                $call_id,
+                $ext
+            );
+
+            try {
+                $s3 = new \Aws\S3\S3Client(['version'=>'latest','region'=>AWS_REGION]);
+                $s3->putObject([
+                    'Bucket'      => S3_BUCKET,
+                    'Key'         => $key,
+                    'SourceFile'  => $tmp_path,
+                    'ContentType' => $ctype,
+                    'ACL'         => 'private',
+                ]);
+                $s3_key = $key;
+
+                // 업로드 성공 시에만 call_recording 적재(업로드 실패시 빈값 반환만)
+                $qrec = "
+                    INSERT INTO call_recording
+                        (campaign_id, mb_group, call_id, s3_bucket, s3_key, content_type, file_size, duration_sec, created_at)
+                    VALUES
+                        ({$campaign_id}, {$mb_group}, {$call_id},
+                         '".sql_escape_string(S3_BUCKET)."', '".sql_escape_string($key)."', '".sql_escape_string($ctype)."',
+                         {$fsize}, ".($duration_sec !== null ? (int)$duration_sec : "NULL").", NOW())
+                ";
+                $ok = sql_query($qrec, true);
+                if ($ok) {
+                    $recording_id = (int)sql_insert_id();
+                } else {
+                    error_log('[s3] call_recording insert failed (but upload ok)');
+                }
+            } catch (\Throwable $e) {
+                // 실패해도 DB 롤백/삭제 없음. 빈값으로 응답.
+                error_log('[s3 upload failed] '.$e->getMessage());
+            }
+        }
+    }
+
+    // 11) 응답 (업로드 실패해도 success=true, 녹취 필드는 null)
     send_json([
         'success'      => true,
         'message'      => 'ok',
@@ -380,7 +370,7 @@ function handle_call_upload(): void {
         'recording_id' => $recording_id,
         's3_key'       => $s3_key,
         'agent_phone'  => $my_hp,
-        // 'ac_result'    => $ac_result,
+        // 'ac_result'  => $ac_result, // 필요시 디버깅용으로 사용
     ]);
 }
 
