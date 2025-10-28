@@ -238,7 +238,6 @@ $sql_list = "
         m.mb_id             AS agent_mb_id,
         m.company_id        AS agent_company_id,
 
-        gg.mv_group_name    AS group_name,
         cc.name             AS campaign_name,
         cc.is_open_number   AS is_open_number
     FROM call_recording r
@@ -248,13 +247,6 @@ $sql_list = "
      AND l.mb_group = r.mb_group
     JOIN call_target t ON t.target_id = l.target_id
     LEFT JOIN {$member_table} m ON m.mb_no = l.mb_no
-    /* 그룹명 파생 */
-    LEFT JOIN (
-        SELECT mb_group, MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_group))) AS mv_group_name
-          FROM {$member_table}
-         WHERE mb_group > 0
-         GROUP BY mb_group
-    ) AS gg ON gg.mb_group = l.mb_group
     /* 통화결과 라벨(공통셋) */
     LEFT JOIN call_status_code sc
       ON sc.call_status = l.call_status AND sc.mb_group = 0
@@ -451,7 +443,7 @@ audio {max-width:260px;max-height:30px;}
                 $talk_sec = is_null($row['duration_sec']) ? '-' : fmt_hms((int)$row['duration_sec']);
                 $call_sec = is_null($row['call_time']) ? '-' : fmt_hms((int)$row['call_time']);
                 $agent    = $row['agent_name'] ? get_text($row['agent_name']) : (string)$row['agent_mb_id'];
-                $gname    = $row['group_name'] ?: ('그룹 '.(int)$row['mb_group']);
+                $gname    = get_group_name_cached($row['mb_group']);
                 $status   = $row['status_label'] ?: ('코드 '.$row['call_status']);
                 $ui       = !empty($status_ui[$row['call_status']]) ? $status_ui[$row['call_status']] : 'secondary';
                 $status_class = 'status-col status-'.get_text($ui);

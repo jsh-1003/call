@@ -22,7 +22,7 @@ $stx  = isset($_GET['stx']) ? trim($_GET['stx']) : '';
 $page = (int)($_GET['page'] ?? 1);
 if ($page < 1) $page = 1;
 
-$include_blocked = (isset($_GET['include_blocked']) && $_GET['include_blocked'] == '1') ? 1 : 0;
+$is_blocked = (isset($_GET['is_blocked']) && $_GET['is_blocked'] == '1') ? 1 : 0;
 
 $my_level        = (int)$member['mb_level'];
 $my_mb_no        = (int)$member['mb_no'];
@@ -176,9 +176,11 @@ if ($my_level >= 8) {
     }
 }
 
-if (!$include_blocked) {
-    $where[] = "IFNULL(m.mb_leave_date,'') = ''";
-    $where[] = "IFNULL(m.mb_intercept_date,'') = ''";
+if (!$is_blocked) {
+    $where[] = "m.mb_leave_date = ''";
+    $where[] = "m.mb_intercept_date = ''";
+} else {
+    $where[] = "(m.mb_leave_date <> '' OR m.mb_intercept_date <> '')";
 }
 
 if ($stx !== '') {
@@ -240,7 +242,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 $colspan = ($my_level >= 8) ? 11 : 10;
 
 $csrf_token = get_token();
-$qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_filter={$role_filter}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}";
+$qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_filter={$role_filter}&is_blocked={$is_blocked}&sfl={$sfl}&stx={$stx}";
 ?>
 <style>
 /* 회사별 구분선 option */
@@ -326,9 +328,9 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
         <input type="hidden" name="role_filter" value="all">
     <?php } ?>
 
-    <label for="include_blocked" style="margin-left:10px;">
-        <input type="checkbox" name="include_blocked" id="include_blocked" value="1" <?php echo $include_blocked?'checked':''; ?>>
-        차단/탈퇴 포함
+    <label for="is_blocked" style="margin-left:10px;">
+        <input type="checkbox" name="is_blocked" id="is_blocked" value="1" <?php echo $is_blocked?'checked':''; ?>>
+        차단/탈퇴
     </label>
 
     <select name="sfl" title="검색대상" style="margin-left:10px;">
@@ -360,6 +362,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                 <th scope="col"><?php echo subject_sort_link('m.mb_today_login', $qstr_member_list); ?>최종접속일</a></th>
                 <th scope="col">수정</th>
                 <th scope="col">차단</th>
+                <th scope="col">삭제</th>
             </tr>
         </thead>
         <tbody>
@@ -420,7 +423,9 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                     <td class="td_datetime"><?php echo $reg_date; ?></td>
                     <td class="td_datetime"><?php echo $last_login; ?></td>
                     <td class="td_mng td_mng_s">
+                        <?php if (empty($row['mb_leave_date'])) { ?>    
                         <a href="./call_member_form.php?w=u&amp;mb_id=<?php echo urlencode($row['mb_id']); ?>" class="btn btn_03">수정</a>
+                        <?php } else echo '-'; ?>
                     </td>
                     <td class="td_mng td_mng_s">
                         <?php if (empty($row['mb_leave_date'])) { ?>
@@ -429,6 +434,13 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                             <?php } else { ?>
                                 <a href="./call_member_block.php?action=unblock&amp;mb_id=<?php echo urlencode($row['mb_id']); ?>&amp;<?php echo http_build_query(['_ret'=>$_SERVER['REQUEST_URI']]); ?>" class="btn btn_02" onclick="return confirm('해당 회원의 차단을 해제하시겠습니까?');" style="background:#d14343 !important;color:#fff !important">해제</a>
                             <?php } ?>
+                        <?php } ?>
+                    </td>
+                    <td class="td_mng td_mng_s">
+                        <?php if (empty($row['mb_leave_date'])) { ?>
+                            <a href="./call_member_block.php?action=delete&amp;mb_id=<?php echo urlencode($row['mb_id']); ?>&amp;<?php echo http_build_query(['_ret'=>$_SERVER['REQUEST_URI']]); ?>" class="btn" style="background:#ef4444;border-color:#ef4444;color:#fff" onclick="return confirm('정말 해당 회원을 삭제하시겠습니까?(복구불가) ');">삭제</a>
+                        <?php } else { ?>
+                            삭제회원
                         <?php } ?>
                     </td>
                 </tr>
@@ -448,7 +460,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
 
 <?php
 // 페이징
-$qstr = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_filter={$role_filter}&include_blocked={$include_blocked}&sfl={$sfl}&stx={$stx}&sod={$sod}";
+$qstr = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_filter={$role_filter}&is_blocked={$is_blocked}&sfl={$sfl}&stx={$stx}&sod={$sod}";
 echo get_paging(G5_IS_MOBILE ? $config['cf_mobile_pages'] : $config['cf_write_pages'], $page, $total_page, "{$_SERVER['SCRIPT_NAME']}?{$qstr}&amp;page=");
 ?>
 

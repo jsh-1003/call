@@ -18,7 +18,8 @@ $my_company_id  = isset($member['company_id']) ? (int)$member['company_id'] : 0;
 
 $now_ts   = time();
 $default_end   = date('Y-m-d\TH:i', $now_ts);
-$default_start = date('Y-m-d\TH:i', $now_ts - 24*3600);
+// $default_start = date('Y-m-d\TH:i', $now_ts - 24*3600);
+$default_start = date('Y-m-d').'T00:00';
 
 $start = _g('start', $default_start); // datetime-local
 $end   = _g('end',   $default_end);

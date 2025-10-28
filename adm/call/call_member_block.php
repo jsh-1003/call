@@ -15,7 +15,7 @@ $action = isset($_GET['action']) ? trim($_GET['action']) : '';
 $mb_id  = isset($_GET['mb_id'])  ? trim($_GET['mb_id'])  : '';
 $ret    = isset($_GET['_ret'])   ? (string)$_GET['_ret'] : './call_member_list.php';
 
-if ($mb_id === '' || !in_array($action, ['block','unblock'], true)) {
+if ($mb_id === '' || !in_array($action, ['block','unblock', 'delete'], true)) {
     alert('잘못된 요청입니다.');
 }
 
@@ -35,7 +35,7 @@ $my_company_id = (int)($member['company_id'] ?? 0);
 
 // 1) 자기 자신
 if ($member['mb_id'] === $target['mb_id']) {
-    alert('로그인 중인 관리자는 차단/해제할 수 없습니다.');
+    alert('로그인 중인 관리자는 차단/삭제 할 수 없습니다.');
 }
 
 // 2) 최고관리자 보호
@@ -45,7 +45,7 @@ if (is_admin($target['mb_id']) === 'super') {
 
 // 3) 권한 레벨 비교(같거나 더 높은 레벨은 불가)
 if ((int)$target['mb_level'] >= $my_level) {
-    alert('자신보다 권한이 높거나 같은 회원은 차단/해제할 수 없습니다.');
+    alert('자신보다 권한이 높거나 같은 회원은 차단/삭제할 수 없습니다.');
 }
 
 // 4) 스코프 제한
@@ -55,14 +55,14 @@ if ((int)$target['mb_level'] >= $my_level) {
 if ($my_level == 8) {
     $t_company_id = (int)($target['company_id'] ?? 0);
     if ($t_company_id !== $my_company_id) {
-        alert('자신의 회사 소속 회원만 차단/해제할 수 있습니다.');
+        alert('자신의 회사 소속 회원만 차단/삭제할 수 있습니다.');
     }
 } elseif ($my_level == 7) {
     // 대상의 소속 그룹이 내 그룹과 동일해야 함
     // (일반 사원은 mb_group=그룹ID, 그룹관리자(레벨7)는 통상 본인의 mb_no가 그룹ID이며 mb_group에도 동일값이 세팅됩니다)
     $t_group = (int)($target['mb_group'] ?? 0);
     if ($t_group !== $my_group) {
-        alert('자신의 소속 그룹 회원만 차단/해제할 수 있습니다.');
+        alert('자신의 소속 그룹 회원만 차단/삭제할 수 있습니다.');
     }
 }
 
@@ -79,7 +79,18 @@ if ($action === 'block') {
     sql_query("UPDATE {$g5['member_table']}
                   SET mb_intercept_date = '".date("Ymd")."'
                 WHERE mb_id = '{$safe_mb_id}'");
+} else if ($action === 'delete') {
+    // 탈퇴
+    sql_query("UPDATE {$g5['member_table']}
+                  SET mb_leave_date = '".date("Ymd")."',
+                    mb_memo = '".date('Ymd', G5_SERVER_TIME)." 탈퇴함\n".sql_real_escape_string($target['mb_memo'])."',
+                    mb_certify = '', mb_adult = 0, mb_dupinfo = ''                  
+                WHERE mb_id = '{$safe_mb_id}'");
 } else {
+    // 탈퇴 회원은 대상 제외
+    if (!empty($target['mb_leave_date'])) {
+        alert('탈퇴 회원은 해제 할 수 없습니다.');
+    }
     // unblock
     sql_query("UPDATE {$g5['member_table']}
                   SET mb_intercept_date = ''

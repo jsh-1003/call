@@ -209,24 +209,44 @@ function handle_call_upload(): void {
         }
     }
 
+    // 멱등성 키 만들기
+    $req_uid = substr(hash('sha256',
+        implode('|', [
+            $mb_group, $mb_no, $target_id, $call_status, (string)$call_start, (string)$call_end, (string)$hp
+        ])
+    ), 0, 36);
+
     // 4) 트랜잭션 시작 (DB 기록만 포함)
     sql_query("START TRANSACTION");
 
     // 5) 통화 로그 적재
     $call_end_sql = $call_end ? ("'".sql_escape_string($call_end)."'") : "NULL";
     $memo_sql     = "'".sql_escape_string((string)$memo)."'";
+    
+    // $qlog = "
+    //     INSERT INTO call_log
+    //         (campaign_id, mb_group, target_id, mb_no, call_hp, agent_phone, call_status, call_start, call_end, call_time, memo)
+    //     VALUES
+    //         ({$campaign_id}, {$mb_group}, {$target_id}, {$mb_no}, '".sql_escape_string($call_hp)."', '".sql_escape_string($my_hp)."',
+    //          {$call_status}, '".sql_escape_string($call_start)."', {$call_end_sql}, {$call_time}, {$memo_sql})
+    // ";
+    // $ok = sql_query($qlog, true);
+    // if (!$ok) {
+    //     sql_query("ROLLBACK");
+    //     send_json(['success'=>false, 'message'=>'failed to insert call_log'], 500);
+    // }
+
     $qlog = "
         INSERT INTO call_log
-            (campaign_id, mb_group, target_id, mb_no, call_hp, agent_phone, call_status, call_start, call_end, call_time, memo)
+            (campaign_id, mb_group, target_id, mb_no, call_hp, agent_phone, call_status, call_start, call_end, call_time, memo, req_uid)
         VALUES
             ({$campaign_id}, {$mb_group}, {$target_id}, {$mb_no}, '".sql_escape_string($call_hp)."', '".sql_escape_string($my_hp)."',
-             {$call_status}, '".sql_escape_string($call_start)."', {$call_end_sql}, {$call_time}, {$memo_sql})
+            {$call_status}, '".sql_escape_string($call_start)."', {$call_end_sql}, {$call_time}, {$memo_sql}, '".sql_escape_string($req_uid)."')
+        ON DUPLICATE KEY UPDATE
+            call_id = LAST_INSERT_ID(call_id)
     ";
     $ok = sql_query($qlog, true);
-    if (!$ok) {
-        sql_query("ROLLBACK");
-        send_json(['success'=>false, 'message'=>'failed to insert call_log'], 500);
-    }
+    if (!$ok) { sql_query("ROLLBACK"); send_json(['success'=>false,'message'=>'failed to upsert call_log'], 500); }
     $call_id = (int)sql_insert_id();
 
     // 6) 대상 상태 업데이트

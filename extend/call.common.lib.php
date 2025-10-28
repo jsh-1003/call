@@ -2,6 +2,55 @@
 if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 
 /**
+ * 회사별 결제 여부 조회
+ * @param int $company_id
+ * @return array ['is_paid' => bool, 'month' => 'YYYY-MM', 'paid_at' => 'Y-m-d H:i:s' or null]
+ */
+function billing_is_company_paid($company_id) {
+    $company_id = (int)$company_id;
+    if ($company_id <= 0) {
+        return ['is_paid' => false, 'month' => null, 'paid_at' => null];
+    }
+
+    // 이번 달
+    $month = (new DateTimeImmutable('first day of this month'))->format('Y-m');
+
+    // 결제 상태 조회
+    $sql = "
+        SELECT payment_status, paid_at
+          FROM billing_company_month
+         WHERE company_id = {$company_id}
+           AND month = '".sql_escape_string($month)."'
+         LIMIT 1
+    ";
+    $row = sql_fetch($sql);
+
+    $is_paid = false;
+    $paid_at = null;
+
+    if ($row && $row['payment_status'] === 'paid') {
+        $paid_at = $row['paid_at'];
+        // paid_at 이 이번달이면 true
+        if ($paid_at) {
+            $ym_paid = substr($paid_at, 0, 7);
+            if ($ym_paid === $month) {
+                $is_paid = true;
+            }
+        } else {
+            // paid_at 없지만 paid 상태면 true
+            $is_paid = true;
+        }
+    }
+
+    return [
+        'is_paid' => $is_paid,
+        'month'   => $month,
+        'paid_at' => $paid_at
+    ];
+}
+
+
+/**
  * 블랙리스트 등록(회사 공통 적용)
  * - 입력: mb_group(등록 그룹), call_hp(전화번호), 옵션배열
  *   옵션: company_id(없으면 그룹→회사 맵핑), reason, memo, created_by(mb_no),

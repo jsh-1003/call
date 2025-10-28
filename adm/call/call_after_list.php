@@ -567,6 +567,7 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
 <style>
 table.call-list-table td {min-width:65px}
 table.call-list-table td.td_mdhi {width:95px}
+table.call-list-table td.td_hi {width:55px}
 table.call-list-table td.small_txt {max-width:200px;}
 table.call-list-table td.td_mini_hp {width:85px}
 td.campaign_name {max-width:120px;}
@@ -739,7 +740,7 @@ td.campaign_name {max-width:120px;}
                 $ac_label = $row['ac_state_label'] ?: '대기';
                 $ac_ui    = $row['ac_state_ui'] ?: '';
 
-                $bday = empty($row['birth_date']) ? '-' : substr(get_text($row['birth_date']), 2, 8);
+                $bday = empty($row['birth_date']) ? '-' : str_replace('-', '', substr(get_text($row['birth_date']), 2, 8));
                 $man_age = is_null($row['man_age']) ? '-' : ((int)$row['man_age']).'세';
 
                 $sex_txt = '';
@@ -773,7 +774,7 @@ td.campaign_name {max-width:120px;}
                     <td><?php echo get_text($agent); ?></td>
                     <!-- <td class="status-col status-<?php echo get_text($ui_call); ?>"><?php echo get_text($status_label); ?></td> -->
                     <td class="td_mdhi"><?php echo fmt_datetime(get_text($row['call_start']), 'mdhi'); ?></td>
-                    <td class="td_mdhi"><?php echo fmt_datetime(get_text($row['call_end']), 'mdhi'); ?></td>
+                    <td class="td_hi"><?php echo fmt_datetime(get_text($row['call_end']), 'hi'); ?></td>
                     <td><?php echo $call_sec; ?></td>
                     <td><?php echo get_text($row['target_name'] ?: '-'); ?></td>
                     <td><?php echo $bday; ?></td>

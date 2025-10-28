@@ -80,6 +80,8 @@ function fmt_datetime($s, $end_type='i') {
         return substr($s, 2, 14);
     else if($end_type == 's')
         return substr($s, 2, 17);
+    else if($end_type == 'hi')
+        return substr($s, 11, 5);
     else
         return substr($s, 5, 11);
 }
