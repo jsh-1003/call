@@ -37,7 +37,7 @@ function call_assign_pick_and_lock($mb_group, $mb_no, $need, $lease_min, $batch_
 
     // ★ 변경: 기본값으로 블랙리스트/내부 DNC(do_not_call) 제외 옵션 추가
     $exclude_blacklist      = array_key_exists('exclude_blacklist', $opts) ? (bool)$opts['exclude_blacklist'] : true;
-    $exclude_dnc_flag       = array_key_exists('exclude_dnc_flag', $opts) ? (bool)$opts['exclude_dnc_flag'] : true;
+    $exclude_dnc_flag       = array_key_exists('exclude_dnc_flag', $opts) ? (bool)$opts['exclude_dnc_flag'] : false;
 
     // 안전 캐스팅
     $mb_group    = (int)$mb_group;
@@ -237,7 +237,7 @@ function call_assign_list_my_queue($mb_group, $mb_no, $limit=5, $campaign_id=0, 
                AND b.call_hp    = t.call_hp
         )";
     }
-    $where_guard .= " AND t.do_not_call = 0";
+    // $where_guard .= " AND t.do_not_call = 0";
 
     $sql = "SELECT t.*
               FROM call_target t
@@ -282,7 +282,7 @@ function call_assign_count_my_queue($mb_group, $mb_no, $campaign_id=0, $assigned
                AND b.call_hp    = t.call_hp
         )";
     }
-    $where_guard .= " AND t.do_not_call = 0";
+    // $where_guard .= " AND t.do_not_call = 0";
 
     $sql = "SELECT COUNT(*) AS cnt
               FROM call_target t

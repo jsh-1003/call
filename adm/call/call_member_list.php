@@ -6,7 +6,7 @@ include_once('./_common.php');
 auth_check_menu($auth, $sub_menu, 'r');
 
 // -------------------------------------------
-// 접근 권한: 레벨 7 미만 차단
+// 접근 권한: 레벨 5 미만 차단
 // -------------------------------------------
 if ((int)$member['mb_level'] < 5) {
     alert('접근 권한이 없습니다.');
@@ -32,7 +32,7 @@ $my_company_name = (string)($member['company_name'] ?? '');
 // 역할 라디오 필터
 $role_filter = isset($_GET['role_filter']) ? trim($_GET['role_filter']) : 'all';
 $allowed_role_filters = ($my_level >= 9)
-    ? ['all','company','leader','member', 'member-after']   // 9+: 회사관리자/그룹리더/상담원
+    ? ['all','company','leader','member', 'member-after']
     : (($my_level >= 8) ? ['all','leader','member', 'member-after'] : ['all']);
 if (!in_array($role_filter, $allowed_role_filters, true)) $role_filter = 'all';
 
@@ -76,13 +76,10 @@ function can_toggle_aftercall($me_level, $me_company_id, $me_mb_no, $target_row)
     if ($me_level >= 9) {
         return true; // 전역
     } elseif ($me_level == 8) {
-        // 같은 회사 소속만
         return ($me_company_id > 0 && $me_company_id === $t_company);
     } elseif ($me_level == 7) {
-        // 내 그룹원(=mb_group==내 mb_no) 또는 본인
         return ($t_group === $me_mb_no) || ($t_mb_no === $me_mb_no);
     } elseif ($me_level == 5) {
-        // 본인
         return ($t_mb_no === $me_mb_no);
     }
     return false;
@@ -102,8 +99,6 @@ $group_options   = $build_org_select_options['group_options'];
 // ===============================
 if (isset($_POST['ajax']) && $_POST['ajax'] === 'toggle_after') {
     header('Content-Type: application/json; charset=utf-8');
-
-//    check_admin_token();
 
     $target_mb_no = (int)($_POST['mb_no'] ?? 0);
     $want         = isset($_POST['want']) ? (int)$_POST['want'] : -1; // 0 or 1
@@ -145,7 +140,7 @@ if (isset($_POST['ajax']) && $_POST['ajax'] === 'toggle_after') {
 }
 
 // -------------------------------------------
-// 검색 조건
+/** 검색 조건 */
 // -------------------------------------------
 $sql_common = " FROM {$g5['member_table']} m ";
 $where = [];
@@ -216,7 +211,7 @@ $total_page  = $rows ? (int)ceil($total_count / $rows) : 1;
 $from_record = ($page - 1) * $rows;
 
 // -------------------------------------------
-// 목록 조회
+// 목록 조회 (+ 최근 발신번호)
 // -------------------------------------------
 $sql = "
   SELECT 
@@ -225,7 +220,20 @@ $sql = "
     m.mb_group,  m.mb_group_name,
     m.mb_datetime, m.mb_today_login,
     m.mb_leave_date, m.mb_intercept_date,
-    IFNULL(m.is_after_call,0) AS is_after_call
+    IFNULL(m.is_after_call,0) AS is_after_call,
+    /* level=3 상담원일 때만 최근 발신번호 조회 */
+    CASE 
+      WHEN m.mb_level = 3 THEN (
+        SELECT cl.agent_phone
+          FROM call_log cl
+         WHERE cl.mb_no = m.mb_no
+           AND cl.agent_phone IS NOT NULL
+           AND cl.agent_phone <> ''
+         ORDER BY cl.call_start DESC
+         LIMIT 1
+      )
+      ELSE NULL
+    END AS recent_agent_phone
   {$sql_common}
   {$sql_search}
   {$sql_order}
@@ -238,8 +246,8 @@ include_once (G5_ADMIN_PATH.'/admin.head.php');
 
 $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목록</a>';
 
-// 컬럼수: 권한(8+만 보임) + 회사 + 조직명 + 이름 + 아이디 + 2차콜담당 + 상태 + 등록일 + 최종접속일 + 수정 + 차단
-$colspan = ($my_level >= 8) ? 11 : 10;
+// 컬럼수: 권한(8+만 보임) + 회사 + 조직명 + 이름 + 아이디 + 2차콜담당 + 최근발신번호 + 상태 + 등록일 + 최종접속일 + 수정 + 차단 + 삭제
+$colspan = ($my_level >= 8) ? 12 : 11;
 
 $csrf_token = get_token();
 $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_filter={$role_filter}&is_blocked={$is_blocked}&sfl={$sfl}&stx={$stx}";
@@ -250,11 +258,11 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
 
 /* 권한 배지 */
 .badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; line-height:1.6; color:#fff; }
-.badge-company { background:#2563eb; } /* 파랑: 회사관리자 */
-.badge-leader  { background:#059669; } /* 초록: 그룹리더 */
-.badge-member  { background:#6b7280; } /* 회색: 상담원 */
-.badge-member-after  { background:#df612a; } /* 주황: 2차상담원 */
-.badge-admin   { background:#7c3aed; } /* 보라: 플랫폼관리자(참고) */
+.badge-company { background:#2563eb; }
+.badge-leader  { background:#059669; }
+.badge-member  { background:#6b7280; }
+.badge-member-after  { background:#df612a; }
+.badge-admin   { background:#7c3aed; }
 
 /* 상태 라벨 */
 .mb_leave_msg { color:#d14343; font-weight:600; }
@@ -357,6 +365,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                 <th scope="col"><?php echo subject_sort_link('m.mb_name', $qstr_member_list); ?>이름</a></th>
                 <th scope="col"><?php echo subject_sort_link('m.mb_id', $qstr_member_list); ?>아이디</a></th>
                 <th scope="col">2차콜온오프</th><!-- NEW -->
+                <th scope="col">최근발신번호</th><!-- NEW -->
                 <th scope="col">상태</th>
                 <th scope="col"><?php echo subject_sort_link('m.mb_datetime', $qstr_member_list); ?>등록일</a></th>
                 <th scope="col"><?php echo subject_sort_link('m.mb_today_login', $qstr_member_list); ?>최종접속일</a></th>
@@ -394,6 +403,8 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                 $is_toggle_target = in_array((int)$row['mb_level'], [5,7], true);
                 $can_toggle = $is_toggle_target && can_toggle_aftercall($my_level, $my_company_id, $my_mb_no, $row);
 
+                // 최근 발신번호 표시(상담원=3 인 경우만 값 존재)
+                $recent_phone = ($row['mb_level'] == 3 && !empty($row['recent_agent_phone'])) ? format_korean_phone($row['recent_agent_phone']) : '-';
                 ?>
                 <tr class="<?php echo $bg; ?>">
                     <?php if($my_level >= 8) { ?>
@@ -418,6 +429,9 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                             -
                         <?php } ?>
                     </td>
+
+                    <!-- NEW: 최근 발신번호 -->
+                    <td class="td_center"><?php echo get_text($recent_phone); ?></td>
 
                     <td class="td_mbstat"><?php echo $status_label; ?></td>
                     <td class="td_datetime"><?php echo $reg_date; ?></td>

@@ -1,4 +1,4 @@
-<?php
+<?php 
 // /adm/call/call_monitor.php
 $sub_menu = '700110';
 require_once './_common.php';
@@ -16,9 +16,8 @@ $mb_level       = (int)($member['mb_level'] ?? 0);
 $my_group       = isset($member['mb_group']) ? (int)$member['mb_group'] : 0;
 $my_company_id  = isset($member['company_id']) ? (int)$member['company_id'] : 0;
 
-$now_ts   = time();
+$now_ts        = time();
 $default_end   = date('Y-m-d\TH:i', $now_ts);
-// $default_start = date('Y-m-d\TH:i', $now_ts - 24*3600);
 $default_start = date('Y-m-d').'T00:00';
 
 $start = _g('start', $default_start); // datetime-local
@@ -57,7 +56,6 @@ while ($r = sql_fetch_array($rc)) $codes[] = $r;
 
 $g5['title'] = '콜 모니터링';
 include_once(G5_ADMIN_PATH.'/admin.head.php');
-
 
 /**
  * ========================
@@ -199,6 +197,8 @@ canvas { background:#fff; }
     <div class="card"><div>실패</div><div class="big" id="kpiFail">-</div></div>
     <div class="card"><div>성공률</div><div class="big" id="kpiRate">-</div></div>
     <div class="card"><div>평균 통화(초)</div><div class="big" id="kpiAvg">-</div></div>
+    <div class="card"><div>총 통화시간</div><div class="big" id="kpiCallTime">-</div></div>   <!-- ★ 추가 -->
+    <div class="card"><div>총 상담시간</div><div class="big" id="kpiTalkTime">-</div></div>   <!-- ★ 추가 -->
     <div class="card"><div>블랙고객 발생</div><div class="big" id="kpiDnc">-</div></div>
     <div class="card"><div>활성 상담원 수</div><div class="big" id="kpiAgents">-</div></div>
     <div class="card"><div>활성 그룹 수</div><div class="big" id="kpiGroups">-</div></div>
@@ -231,10 +231,13 @@ canvas { background:#fff; }
                 <th style="width:100px;">실패</th>
                 <th style="width:110px;">성공률</th>
                 <th style="width:140px;">평균 통화(초)</th>
+                <th style="width:140px;">총 통화시간</th>   <!-- ★ -->
+                <th style="width:140px;">총 상담시간</th>   <!-- ★ -->
+                <th style="width:140px;">평균 상담(초)</th> <!-- ★ -->
             </tr>
         </thead>
         <tbody>
-            <tr><td colspan="6" class="empty_table">로딩 중...</td></tr>
+            <tr><td colspan="9" class="empty_table">로딩 중...</td></tr>
         </tbody>
     </table>
 </div>
@@ -250,10 +253,13 @@ canvas { background:#fff; }
                 <th style="width:100px;">실패</th>
                 <th style="width:110px;">성공률</th>
                 <th style="width:140px;">평균 통화(초)</th>
+                <th style="width:140px;">총 통화시간</th>   <!-- ★ -->
+                <th style="width:140px;">총 상담시간</th>   <!-- ★ -->
+                <th style="width:140px;">평균 상담(초)</th> <!-- ★ -->
             </tr>
         </thead>
         <tbody>
-            <tr><td colspan="6" class="empty_table">로딩 중...</td></tr>
+            <tr><td colspan="9" class="empty_table">로딩 중...</td></tr>
         </tbody>
     </table>
 </div>
@@ -286,7 +292,7 @@ canvas { background:#fff; }
                 </tr>
             </thead>
             <tbody>
-                <tr><td colspan="14" class="empty_table">로딩 중...</td></tr>
+                <tr><td colspan="15" class="empty_table">로딩 중...</td></tr> <!-- ★ 15로 수정 -->
             </tbody>
         </table>
     </div>
@@ -303,6 +309,8 @@ canvas { background:#fff; }
         kpiFail:    document.getElementById('kpiFail'),
         kpiRate:    document.getElementById('kpiRate'),
         kpiAvg:     document.getElementById('kpiAvg'),
+        kpiCallTime:document.getElementById('kpiCallTime'), // ★
+        kpiTalkTime:document.getElementById('kpiTalkTime'), // ★
         kpiDnc:     document.getElementById('kpiDnc'),
         kpiAgents:  document.getElementById('kpiAgents'),
         kpiGroups:  document.getElementById('kpiGroups'),
@@ -344,6 +352,17 @@ canvas { background:#fff; }
         return res.json();
     }
 
+    // 초 → H:MM:SS (1시간 미만이면 M:SS)
+    function secToHms(sec){
+        if (sec == null || isNaN(sec)) return '-';
+        sec = Math.max(0, parseInt(sec,10));
+        const h = Math.floor(sec/3600);
+        const m = Math.floor((sec%3600)/60);
+        const s = sec%60;
+        const z = n => (n<10?'0':'')+n;
+        return (h>0? (h+':'+z(m)+':'+z(s)) : (m+':'+z(s)));
+    }
+
     async function loadKPI(){
         const r = await fetchJson('kpi'); if (!r.ok) return;
         el.kpiRemainDb.textContent = (r.remainDb ?? 0).toLocaleString();
@@ -352,6 +371,8 @@ canvas { background:#fff; }
         el.kpiFail.textContent    = r.fail.toLocaleString();
         el.kpiRate.textContent    = (r.successRate ?? 0)+'%';
         el.kpiAvg.textContent     = r.avgSecs ?? '-';
+        el.kpiCallTime.textContent= secToHms(r.sumCallSecs);  // ★ 총 통화시간
+        el.kpiTalkTime.textContent= secToHms(r.sumTalkSecs);  // ★ 총 상담시간
         el.kpiDnc.textContent     = r.dnc.toLocaleString();
         el.kpiAgents.textContent  = r.agents.toLocaleString();
         el.kpiGroups.textContent  = r.groups.toLocaleString();
@@ -420,7 +441,7 @@ canvas { background:#fff; }
         const r = await fetchJson('groups_table'); if (!r.ok) return;
         const tb = el.tableGroups;
         tb.innerHTML = '';
-        if (!r.rows || !r.rows.length) { tb.innerHTML = '<tr><td colspan="6" class="empty_table">데이터가 없습니다.</td></tr>'; return; }
+        if (!r.rows || !r.rows.length) { tb.innerHTML = '<tr><td colspan="9" class="empty_table">데이터가 없습니다.</td></tr>'; return; }
         r.rows.forEach(row=>{
             const tr = document.createElement('tr');
             tr.innerHTML =
@@ -429,7 +450,10 @@ canvas { background:#fff; }
                 td((row.success_cnt||0).toLocaleString()) +
                 td((row.fail_cnt||0).toLocaleString()) +
                 td((row.success_rate||0)+'%') +
-                td(row.avg_secs ?? '-');
+                td(row.avg_secs ?? '-') +
+                td(row.sum_call_hms ?? '-') +
+                td(row.sum_talk_hms ?? '-') +
+                td(row.avg_talk_secs ?? '-');
             tb.appendChild(tr);
         });
     }
@@ -438,7 +462,7 @@ canvas { background:#fff; }
         const r = await fetchJson('agents'); if (!r.ok) return;
         const tb = el.tableAgents;
         tb.innerHTML = '';
-        if (!r.rows || !r.rows.length) { tb.innerHTML = '<tr><td colspan="6" class="empty_table">데이터가 없습니다.</td></tr>'; return; }
+        if (!r.rows || !r.rows.length) { tb.innerHTML = '<tr><td colspan="9" class="empty_table">데이터가 없습니다.</td></tr>'; return; }
         r.rows.forEach(row=>{
             const name = (row.mb_name ? `${row.mb_name} (${row.mb_no})` : row.mb_no);
             const tr = document.createElement('tr');
@@ -448,7 +472,10 @@ canvas { background:#fff; }
                 td((row.success_cnt||0).toLocaleString()) +
                 td(((row.call_cnt||0)-(row.success_cnt||0)).toLocaleString()) +
                 td((row.success_rate||0)+'%') +
-                td(row.avg_secs ?? '-');
+                td(row.avg_secs ?? '-') +
+                td(row.sum_call_hms ?? '-') +
+                td(row.sum_talk_hms ?? '-') +
+                td(row.avg_talk_secs ?? '-');
             tb.appendChild(tr);
         });
     }
@@ -457,7 +484,7 @@ canvas { background:#fff; }
         const r = await fetchJson('recent_detail'); if (!r.ok) return;
         const tb = el.tableRecentD;
         tb.innerHTML = '';
-        if (!r.rows || !r.rows.length) { tb.innerHTML = '<tr><td colspan="14" class="empty_table">데이터가 없습니다.</td></tr>'; return; }
+        if (!r.rows || !r.rows.length) { tb.innerHTML = '<tr><td colspan="15" class="empty_table">데이터가 없습니다.</td></tr>'; return; }
         r.rows.forEach(row=>{
             const tr = document.createElement('tr');
             tr.innerHTML =
