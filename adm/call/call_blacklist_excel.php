@@ -86,7 +86,7 @@ $exl = new PHPExcel();
 $sh  = $exl->setActiveSheetIndex(0);
 $sh->setTitle('blacklist');
 
-$cols = ['회사','그룹','전화번호','사유','메모','등록자','등록일'];
+$cols = ['회사','지점','전화번호','사유','메모','등록자','등록일'];
 for ($i=0; $i<count($cols); $i++) $sh->setCellValueByColumnAndRow($i, 1, $cols[$i]);
 
 $r = 2;

@@ -47,7 +47,7 @@ try {
         FROM {$g5['member_table']} m
         {$where}
         ORDER BY m.company_id ASC,
-                 COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹-', m.mb_no)) ASC,
+                 COALESCE(NULLIF(m.mb_group_name,''), CONCAT('지점-', m.mb_no)) ASC,
                  m.mb_no ASC
     ";
     $res = sql_query($sql);

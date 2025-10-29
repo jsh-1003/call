@@ -66,7 +66,7 @@ function cm_cache_key($suffix='') {
 /* ==========================
    WHERE 빌더
    ========================== */
-// 활성 캠페인/타깃 기준 그룹(+회사) 필터 (날짜와 무관, cc 별칭 기준)
+// 활성 캠페인/타깃 기준 지점(+회사) 필터 (날짜와 무관, cc 별칭 기준)
 function build_campaign_group_where($mb_level, $my_group, $sel_mb_group, $sel_company_id) {
     global $g5, $my_company_id;
     $w = [];
@@ -181,7 +181,7 @@ if ($type === 'kpi') {
     ";
     $r = sql_fetch($sql);
 
-    // 잔여DB (캠페인+그룹 동등조인, 조직 스코프 cc.mb_group)
+    // 잔여DB (캠페인+지점 동등조인, 조직 스코프 cc.mb_group)
     $pending_where = build_campaign_group_where($mb_level, $my_group, $sel_mb_group, $sel_company_id);
     $sql_pending = "
         SELECT COUNT(*) AS remain_cnt
@@ -332,7 +332,7 @@ elseif ($type === 'groups_table') {
     $sql = "
         SELECT
             l.mb_group,
-            COALESCE(g.mv_group_name, CONCAT('그룹 ', l.mb_group)) AS group_name,
+            COALESCE(g.mv_group_name, CONCAT('지점 ', l.mb_group)) AS group_name,
             COUNT(*) AS call_cnt,
             SUM(CASE WHEN COALESCE(sc.result_group, CASE WHEN l.call_status BETWEEN 200 AND 299 THEN 1 ELSE 0 END)=1 THEN 1 ELSE 0 END) AS success_cnt,
             AVG(l.call_time) AS avg_secs,
@@ -344,7 +344,7 @@ elseif ($type === 'groups_table') {
                ON sc.call_status = l.call_status AND sc.mb_group = 0
         LEFT JOIN (
             SELECT mb_no AS mb_group,
-                   MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_no))) AS mv_group_name
+                   MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('지점 ', mb_no))) AS mv_group_name
             FROM {$member_table}
             WHERE mb_level = 7
             GROUP BY mb_no
@@ -390,7 +390,7 @@ elseif ($type === 'recent_detail') {
         SELECT
             l.call_id, 
             l.mb_group,
-            COALESCE(g.mv_group_name, CONCAT('그룹 ', l.mb_group))   AS group_name,
+            COALESCE(g.mv_group_name, CONCAT('지점 ', l.mb_group))   AS group_name,
             l.mb_no                                                AS agent_id,
             m.mb_name                                              AS agent_name,
             m.mb_id                                                AS agent_mb_id,
@@ -419,7 +419,7 @@ elseif ($type === 'recent_detail') {
         LEFT JOIN {$member_table} m 
           ON m.mb_no = l.mb_no
         LEFT JOIN (
-            SELECT mb_group, MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_group))) AS mv_group_name
+            SELECT mb_group, MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('지점 ', mb_group))) AS mv_group_name
               FROM {$member_table}
              WHERE mb_group > 0
              GROUP BY mb_group
@@ -476,7 +476,7 @@ elseif ($type === 'recent_detail') {
         $class_name = 'status-col status-'.get_text($ui);
 
         $rows[] = [
-            'group_name'   => get_text($r['group_name'] ?: ('그룹 '.(int)$r['mb_group'])),
+            'group_name'   => get_text($r['group_name'] ?: ('지점 '.(int)$r['mb_group'])),
             'agent_mb_id'  => get_text($r['agent_mb_id']),
             'agent_name'   => get_text($r['agent_name'] ?: (string)$r['agent_mb_id']),
             'agent_phone'  => $agent_phone,

@@ -137,7 +137,7 @@ $sql_base = "
     JOIN call_campaign c ON c.campaign_id = t.campaign_id
     LEFT JOIN (
         SELECT mb_group,
-               MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_group))) AS mv_group_name,
+               MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('지점 ', mb_group))) AS mv_group_name,
                MAX(company_id) AS company_id
           FROM {$member_table}
          WHERE mb_group > 0
@@ -167,7 +167,7 @@ $sheet->setTitle('DB리스트');
 
 // ✅ 헤더: 이름/만나이 분리 + 생년월일 추가
 $headers = [
-    '회사','그룹','캠페인','전화번호',
+    '회사','지점','캠페인','전화번호',
     '이름','만나이','생년월일',
     '추가정보','배정상태','담당자','DNC','통화결과','업데이트'
 ];
@@ -261,7 +261,7 @@ while ($row = sql_fetch_array($res)) {
     // ----- 셀 입력 (모두 명시 타입) -----
     $c = 0; $r = $rownum;
     $sheet->setCellValueExplicitByColumnAndRow($c++, $r, $company,  PHPExcel_Cell_DataType::TYPE_STRING); // 회사
-    $sheet->setCellValueExplicitByColumnAndRow($c++, $r, $group,    PHPExcel_Cell_DataType::TYPE_STRING); // 그룹
+    $sheet->setCellValueExplicitByColumnAndRow($c++, $r, $group,    PHPExcel_Cell_DataType::TYPE_STRING); // 지점
     $sheet->setCellValueExplicitByColumnAndRow($c++, $r, $camp_name,PHPExcel_Cell_DataType::TYPE_STRING); // 캠페인
     $sheet->setCellValueExplicitByColumnAndRow($c++, $r, $phone,    PHPExcel_Cell_DataType::TYPE_STRING); // 전화번호
     $sheet->setCellValueExplicitByColumnAndRow($c++, $r, $name,     PHPExcel_Cell_DataType::TYPE_STRING); // 이름

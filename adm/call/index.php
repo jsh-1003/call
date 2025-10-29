@@ -32,7 +32,7 @@ $page    = max(1, (int)_g('page','1'));
 $rows    = max(10, min(200, (int)_g('rows','50')));
 $offset  = ($page-1) * $rows;
 
-// 조직 필터 (회사/그룹)
+// 조직 필터 (회사/지점)
 if ($mb_level >= 9) {
     $sel_company_id = (int)_g('company_id', 0); // 0=전체
     $sel_mb_group   = (int)_g('mb_group', 0);   // 0=전체
@@ -71,7 +71,7 @@ if ($mb_level >= 8) {
             while ($rr = sql_fetch_array($gr)) $grp_ids[] = (int)$rr['mb_no'];
             $where[] = $grp_ids ? "t.mb_group IN (".implode(',', $grp_ids).")" : "1=0";
         }
-        // ★ 여기 추가: 레벨 8이 전체 그룹일 때 자기 회사 범위 강제
+        // ★ 여기 추가: 레벨 8이 전체 지점일 때 자기 회사 범위 강제
         elseif ($mb_level == 8) {
             $grp_ids = [];
             $gr = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$my_company_id."'");
@@ -115,7 +115,7 @@ $where[] = "c.status <> 9";
 $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
 
 // ----------------------------------------------------------------------------------
-// 회사/그룹명 매핑에 필요한 group_ids 수집을 위해 먼저 count 후 목록 조회
+// 회사/지점명 매핑에 필요한 group_ids 수집을 위해 먼저 count 후 목록 조회
 // ----------------------------------------------------------------------------------
 $sql_cnt = "
     SELECT COUNT(*) AS cnt
@@ -154,17 +154,17 @@ $__q['mode'] = 'all';       $href_xls_all       = './index_excel.php?'.http_buil
 
 /**
  * ========================
- * 회사/그룹/담당자 드롭다운 옵션
+ * 회사/지점/담당자 드롭다운 옵션
  * ========================
  */
 $build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
 // 회사 옵션(9+)
 $company_options = $build_org_select_options['company_options'];
-// 그룹 옵션(8+)
+// 지점 옵션(8+)
 $group_options = $build_org_select_options['group_options'];
 /**
  * ========================
- * // 회사/그룹/담당자 드롭다운 옵션
+ * // 회사/지점/담당자 드롭다운 옵션
  * ========================
  */
 
@@ -207,7 +207,7 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
                 <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
                 <?php foreach ($company_options as $c) { ?>
                     <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
-                        <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
+                        <?php echo get_text($c['company_name']); ?> (지점 <?php echo (int)$c['group_count']; ?>)
                     </option>
                 <?php } ?>
             </select>
@@ -217,7 +217,7 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
 
         <?php if ($mb_level >= 8) { ?>
             <select name="mb_group" id="mb_group">
-                <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
+                <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 지점</option>
                 <?php
                 if ($group_options) {
                     if ($mb_level >= 9 && $sel_company_id == 0) {
@@ -278,7 +278,7 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
         <?php
             if ($mb_level >= 9) echo '전사 조회(최고관리자)';
             elseif ($mb_level >= 8) echo '회사 조회';
-            elseif ($mb_level == 7) echo '그룹 제한';
+            elseif ($mb_level == 7) echo '지점 제한';
             else echo '개인 제한';
         ?>
         </span>
@@ -290,7 +290,7 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
         <thead>
             <tr>
                 <th style="width:90px">회사</th>
-                <th style="width:90px">그룹</th>
+                <th style="width:90px">지점</th>
                 <th style="width:220px">캠페인</th>
                 <th style="width:140px">전화번호</th>
                 <th style="width:140px">이름/나이</th>
@@ -416,7 +416,7 @@ echo '</div>';
 <script>
 (function(){
     var $form = document.getElementById('searchForm');
-    // ★ 회사 변경 시 그룹/담당자 초기화 후 자동검색
+    // ★ 회사 변경 시 지점/담당자 초기화 후 자동검색
     var companySel = document.getElementById('company_id');
     if (companySel) {
         companySel.addEventListener('change', function(){
@@ -428,7 +428,7 @@ echo '</div>';
         });
     }
 
-    // 그룹 변경 시 담당자 초기화 후 자동검색
+    // 지점 변경 시 담당자 초기화 후 자동검색
     var mbGroup = document.getElementById('mb_group');
     if (mbGroup) {
         mbGroup.addEventListener('change', function(){

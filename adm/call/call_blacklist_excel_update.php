@@ -30,9 +30,9 @@ if ($company_id <= 0) alert('회사 선택/확인이 필요합니다.');
 if ($mb_level == 8 && $company_id !== $my_company_id) {
     alert('자기 회사에만 업로드할 수 있습니다.');
 }
-// 7레벨 이하: 그룹 고정
+// 7레벨 이하: 지점 고정
 if ($mb_level <= 7 && $mb_group !== $my_group) {
-    alert('자기 그룹에만 업로드할 수 있습니다.');
+    alert('자기 지점에만 업로드할 수 있습니다.');
 }
 
 if (!isset($_FILES['excel']) || !is_uploaded_file($_FILES['excel']['tmp_name'])) {

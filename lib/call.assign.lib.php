@@ -383,9 +383,9 @@ function aftercall_pick_next_agent($mb_group){
 }
 
 /**
- * 티켓 발행(+업데이트) & 2차상담원 배정(가능 시)
+ * 티켓 발행(+업데이트) & 2차팀장 배정(가능 시)
  * - 티켓이 없으면 INSERT, 있으면 UPDATE
- * - 가용 2차상담원이 없으면 티켓만 만들고 assigned_after_mb_no는 비워 둔다.
+ * - 가용 2차팀장이 없으면 티켓만 만들고 assigned_after_mb_no는 비워 둔다.
  * @return array {success, ticket_id, assigned_mb_no, message}
  */
 function aftercall_issue_and_assign_one(
@@ -404,7 +404,7 @@ function aftercall_issue_and_assign_one(
     $note_esc = ($schedule_note!==null && $schedule_note!=='') ? "'".sql_escape_string($schedule_note)."'" : "NULL";
     $memo_esc = ($memo!==null && $memo!=='') ? "'".sql_escape_string($memo)."'" : "NULL";
 
-    // 그룹 잠금 (동시 발행/배정 충돌 방지)
+    // 지점 잠금 (동시 발행/배정 충돌 방지)
     $row = sql_fetch("SELECT GET_LOCK(CONCAT('after_issue_assign:',{$mb_group},':',{$campaign_id},':',{$target_id}), 10) got");
     if ((int)$row['got'] !== 1) {
         return ['success'=>false,'ticket_id'=>0,'assigned_mb_no'=>0,'message'=>'락 획득 실패'];

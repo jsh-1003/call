@@ -26,7 +26,7 @@ $default_end   = $today;
 $start_date = _g('start', $default_start);
 $end_date   = _g('end',   $default_end);
 
-// ★ 권한 스코프에 따른 회사/그룹/담당자 선택값
+// ★ 권한 스코프에 따른 회사/지점/담당자 선택값
 if ($mb_level >= 9) {
     $sel_company_id = (int)($_GET['company_id'] ?? 0); // 0=전체 회사
 } else {
@@ -113,7 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['mode'] ?? '') === 'convert
             }
         } else { // 7
             if ((int)$row['mb_group'] !== $my_group) {
-                echo json_encode(['ok'=>false,'message'=>'그룹 범위 밖 데이터입니다.']); exit;
+                echo json_encode(['ok'=>false,'message'=>'지점 범위 밖 데이터입니다.']); exit;
             }
         }
     }
@@ -362,7 +362,7 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         }
     }
 
-    // 그룹 미선택 시: 그룹별 담당자
+    // 지점 미선택 시: 지점별 담당자
     if ($sel_mb_group === 0) {
         $sql_ga = "
             SELECT l.mb_group AS gid, l.mb_no AS agent_id, l.call_status, COUNT(*) AS cnt
@@ -483,7 +483,7 @@ $sql_list = "
 $res_list = sql_query($sql_list);
 
 // --------------------------------------------------
-// 통계 계산 (상단/피벗/그룹별담당자)
+// 통계 계산 (상단/피벗/지점별담당자)
 // --------------------------------------------------
 $stats = build_stats($where_sql, $member_table, $code_list_status, $mb_level, $sel_mb_group);
 $top_sum_by_status = $stats['top_sum_by_status'];
@@ -504,7 +504,7 @@ $agent_labels        = $stats['agent_labels'];
 
 /**
  * ========================
- * 회사/그룹/담당자 드롭다운 옵션
+ * 회사/지점/담당자 드롭다운 옵션
  * ========================
  */
 $build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
@@ -585,7 +585,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                 <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
                 <?php foreach ($company_options as $c) { ?>
                     <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
-                        <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
+                        <?php echo get_text($c['company_name']); ?> (지점 <?php echo (int)$c['group_count']; ?>)
                     </option>
                 <?php } ?>
             </select>
@@ -595,7 +595,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 
         <?php if ($mb_level >= 8) { ?>
             <select name="mb_group" id="mb_group" style="width:120px">
-                <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
+                <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 지점</option>
                 <?php
                 if ($group_options) {
                     if ($mb_level >= 9 && $sel_company_id == 0) {
@@ -617,7 +617,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
             </select>
         <?php } else { ?>
             <input type="hidden" name="mb_group" value="<?php echo $sel_mb_group; ?>">
-            <span class="small-muted">그룹: <?php echo get_text(get_group_name_cached($sel_mb_group)); ?></span>
+            <span class="small-muted">지점: <?php echo get_text(get_group_name_cached($sel_mb_group)); ?></span>
         <?php } ?>
 
         <select name="agent" id="agent" style="width:120px">
@@ -660,7 +660,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
         <caption><?php echo $g5['title']; ?></caption>
         <thead>
         <tr>
-            <th scope="col"><?php echo ($dim_mode==='group'?'그룹':'담당자'); ?></th>
+            <th scope="col"><?php echo ($dim_mode==='group'?'지점':'담당자'); ?></th>
             <th scope="col">총합</th>
             <?php foreach ($code_list as $c) echo '<th scope="col">'.get_text($c['name']).'</th>'; ?>
         </tr>
@@ -684,7 +684,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
         } else {
             ksort($matrix, SORT_NUMERIC);
             foreach ($matrix as $did => $rowset) {
-                $label = $dim_labels[$did] ?? (($dim_mode==='group')?('그룹 '.$did):('담당자 '.$did));
+                $label = $dim_labels[$did] ?? (($dim_mode==='group')?('지점 '.$did):('담당자 '.$did));
                 $row_total = (int)($dim_totals[$did] ?? 0);
                 echo '<tr>';
                 echo '<td>'.get_text($label).'</td>';
@@ -702,9 +702,9 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
     </table>
 </div>
 
-<!-- 그룹 미선택 시: 그룹별 담당자 통계 -->
+<!-- 지점 미선택 시: 지점별 담당자 통계 -->
 <?php if ($sel_mb_group === 0) { ?>
-    <h3 style="margin-top:18px;">그룹별 담당자 통계</h3>
+    <h3 style="margin-top:18px;">지점별 담당자 통계</h3>
 
     <?php if (empty($group_agent_matrix)) { ?>
         <div class="tbl_head01 tbl_wrap" style="margin-top:8px;">
@@ -714,7 +714,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
         <?php foreach ($group_agent_matrix as $gid => $agents) { ?>
         <div class="tbl_head01 tbl_wrap" style="margin-top:10px;">
             <table style="table-layout:fixed">
-                <caption><?php echo get_text($group_labels[$gid] ?? ('그룹 '.$gid)); ?></caption>
+                <caption><?php echo get_text($group_labels[$gid] ?? ('지점 '.$gid)); ?></caption>
                 <thead>
                     <tr>
                         <th scope="col">담당자</th>
@@ -724,7 +724,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                 </thead>
                 <tbody>
                     <tr style="background:#fafafa;font-weight:bold;">
-                        <td><?php echo get_text($group_labels[$gid] ?? ('그룹 '.$gid)); ?> 합계</td>
+                        <td><?php echo get_text($group_labels[$gid] ?? ('지점 '.$gid)); ?> 합계</td>
                         <td><?php echo number_format((int)($group_totals[$gid] ?? 0)); ?></td>
                         <?php
                         $status_sum = [];
@@ -770,7 +770,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
     <table class="table-fixed">
         <thead>
             <tr>
-                <th>그룹명</th>
+                <th>지점명</th>
                 <th>아이디</th>
                 <th>상담원명</th>
                 <th>발신번호</th>
@@ -896,7 +896,7 @@ $base = './call_stats.php?'.http_build_query($qstr);
 
 <script>
 // ===============================
-// 비동기 조직(회사→그룹) 셀렉트
+// 비동기 조직(회사→지점) 셀렉트
 // ===============================
 (function(){
     var companySel = document.getElementById('company_id');

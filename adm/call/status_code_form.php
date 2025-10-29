@@ -118,7 +118,7 @@ include_once(G5_ADMIN_PATH.'/admin.head.php');
             </tr>
 
             <tr>
-                <th scope="row">결과 그룹</th>
+                <th scope="row">결과 지점</th>
                 <td>
                     <label><input type="radio" name="result_group" value="1" <?php echo (($row['result_group'] ?? 0)==1?'checked':''); ?>> 통화성공</label>
                     &nbsp;&nbsp;

@@ -36,7 +36,7 @@ $page      = max(1, (int)_g('page','1'));
 $rows      = max(10, min(200, (int)_g('rows','50')));
 $offset    = ($page-1) * $rows;
 
-// 조직 필터 (회사/그룹)
+// 조직 필터 (회사/지점)
 if ($mb_level >= 9) {
     $sel_company_id = (int)_g('company_id', 0); // 0=전체
     $sel_mb_group   = (int)_g('mb_group', 0);   // 0=전체
@@ -44,7 +44,7 @@ if ($mb_level >= 9) {
     $sel_company_id = $my_company_id;           // 고정
     $sel_mb_group   = (int)_g('mb_group', 0);   // 0=회사 내 전체
 } else {
-    // 7레벨: 자기 그룹만
+    // 7레벨: 자기 지점만
     $sel_company_id = $my_company_id;
     $sel_mb_group   = $my_group;
 }
@@ -74,15 +74,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $mode) {
         if ($in_company <= 0) {
             alert('회사 정보가 올바르지 않습니다.');
         }
-        // 7레벨 사용자는 자기 그룹 외 등록 금지
+        // 7레벨 사용자는 자기 지점 외 등록 금지
         if ($mb_level == 7 && $in_group !== $my_group) {
-            alert('자기 그룹만 등록할 수 있습니다.');
+            alert('자기 지점만 등록할 수 있습니다.');
         }
-        // 8레벨 사용자는 자사 소속 그룹만 허용
+        // 8레벨 사용자는 자사 소속 지점만 허용
         if ($mb_level == 8 && $in_group > 0) {
-            // 그룹이 자사 소속인지 검증
+            // 지점이 자사 소속인지 검증
             $gr = sql_fetch("SELECT COUNT(*) AS cnt FROM {$g5['member_table']} m WHERE m.mb_no=".(int)$in_group." AND m.mb_level=7 AND m.company_id=".(int)$my_company_id);
-            if ((int)($gr['cnt'] ?? 0) === 0) alert('해당 그룹은 귀사의 소속이 아닙니다.');
+            if ((int)($gr['cnt'] ?? 0) === 0) alert('해당 지점은 귀사의 소속이 아닙니다.');
         }
 
         // INSERT
@@ -114,7 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $mode) {
         $bid = (int)($_POST['blacklist_id'] ?? 0);
         if ($bid <= 0) alert('삭제 대상이 올바르지 않습니다.');
 
-        // 소유/권한 확인: 9레벨은 무조건 가능 / 8레벨은 자사 / 7레벨은 자신의 그룹 등록건만
+        // 소유/권한 확인: 9레벨은 무조건 가능 / 8레벨은 자사 / 7레벨은 자신의 지점 등록건만
         $row = sql_fetch("SELECT blacklist_id, company_id, mb_group FROM call_blacklist WHERE blacklist_id=".(int)$bid);
         if (!$row) alert('대상을 찾을 수 없습니다.');
         $target_company = (int)$row['company_id'];
@@ -211,7 +211,7 @@ $sql_list = "
 $res = sql_query($sql_list);
 
 // -------------------------------------------
-// 드롭다운 옵션 (회사/그룹)
+// 드롭다운 옵션 (회사/지점)
 // -------------------------------------------
 $build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
 $company_options = $build_org_select_options['company_options'];
@@ -250,7 +250,7 @@ $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체�
                 <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
                 <?php foreach ($company_options as $c) { ?>
                     <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
-                        <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
+                        <?php echo get_text($c['company_name']); ?> (지점 <?php echo (int)$c['group_count']; ?>)
                     </option>
                 <?php } ?>
             </select>
@@ -260,7 +260,7 @@ $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체�
 
         <?php if ($mb_level >= 8) { ?>
             <select name="mb_group" id="mb_group">
-                <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
+                <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 지점</option>
                 <?php
                 if ($group_options) {
                     if ($mb_level >= 9 && $sel_company_id == 0) {
@@ -306,7 +306,7 @@ $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체�
         <?php
             if     ($mb_level >= 9) echo '전사 조회/관리(최고관리자)';
             elseif ($mb_level >= 8) echo '회사 조회/관리';
-            else                    echo '그룹 제한(등록/삭제는 자기 그룹)';
+            else                    echo '지점 제한(등록/삭제는 자기 지점)';
         ?>
         </span>
     </form>
@@ -332,7 +332,7 @@ $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체�
 
         <?php if ($mb_level >= 8) { ?>
             <select id="w_mb_group" name="mb_group">
-                <option value="0">등록 그룹 선택(선택)</option>
+                <option value="0">등록 지점 선택(선택)</option>
                 <?php
                 if ($group_options) {
                     if ($mb_level >= 9 && $sel_company_id == 0) {
@@ -369,7 +369,7 @@ $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체�
         <thead>
             <tr>
                 <th style="width:100px">회사</th>
-                <th style="width:120px">그룹</th>
+                <th style="width:120px">지점</th>
                 <th style="width:160px">전화번호</th>
                 <th>사유</th>
                 <th style="width:100px">등록자</th>
@@ -386,8 +386,8 @@ $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체�
             while ($row = sql_fetch_array($res)) {
                 $cid    = (int)$row['company_id'];
                 $gid    = (int)$row['mb_group'];
-                // 회사명은 그룹을 통해 얻는 헬퍼가 있다면 사용
-                // 그룹이 0일 수도 있으니 fallback
+                // 회사명은 지점을 통해 얻는 헬퍼가 있다면 사용
+                // 지점이 0일 수도 있으니 fallback
                 $cname  = $cid > 0 ? get_company_name_from_cached($cid) : ('회사ID '.$row['company_id']);
                 $gname  = $gid > 0 ? get_group_name_cached($gid) : '-';
                 $hp_fmt = _h(format_korean_phone($row['call_hp']));
@@ -450,7 +450,7 @@ echo '</div>';
 
         <?php if ($mb_level >= 8) { ?>
             <select id="xls_mb_group" name="mb_group">
-                <option value="0">등록 그룹 선택(선택)</option>
+                <option value="0">등록 지점 선택(선택)</option>
                 <?php foreach ($group_options as $g) { ?>
                     <option value="<?php echo (int)$g['mb_group']; ?>"><?php echo get_text($g['mb_group_name']); ?></option>
                 <?php } ?>
@@ -481,7 +481,7 @@ function handleSubmit(form) {
 </script>
 <?php if ($mb_level >= 9) { ?>
 <script>
-// 회사 변경 시 그룹 셀렉트 갱신 (9레벨만)
+// 회사 변경 시 지점 셀렉트 갱신 (9레벨만)
 (function(){
     var companySel = document.getElementById('company_id');
     var groupSel   = document.getElementById('mb_group');

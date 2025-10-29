@@ -52,8 +52,8 @@ function billing_is_company_paid($company_id) {
 
 /**
  * 블랙리스트 등록(회사 공통 적용)
- * - 입력: mb_group(등록 그룹), call_hp(전화번호), 옵션배열
- *   옵션: company_id(없으면 그룹→회사 맵핑), reason, memo, created_by(mb_no),
+ * - 입력: mb_group(등록 지점), call_hp(전화번호), 옵션배열
+ *   옵션: company_id(없으면 지점→회사 맵핑), reason, memo, created_by(mb_no),
  *        update_on_dup(bool, 기본 false) — true면 reason/memo 갱신
  *
  * @return array [ ok, action(insert|update|skip), blacklist_id, company_id, error ]
@@ -74,7 +74,7 @@ function blacklist_register(int $mb_group, string $call_hp, array $opt = []): ar
     // 2) company_id 결정
     $company_id = isset($opt['company_id']) ? (int)$opt['company_id'] : 0;
     if ($company_id <= 0) {
-        // 그룹장(mb_level=7) 레코드에서 company_id 가져오기
+        // 지점장(mb_level=7) 레코드에서 company_id 가져오기
         $sql = "SELECT company_id FROM {$g5['member_table']} 
                 WHERE mb_no=".(int)$mb_group." AND mb_level=7 LIMIT 1";
         $row = sql_fetch($sql);
@@ -145,7 +145,7 @@ function blacklist_register(int $mb_group, string $call_hp, array $opt = []): ar
 /**
  * 상태코드 기반 자동 블랙리스트 등록
  * - call_status_code에서 is_do_not_call=1 이면 등록
- * - 그룹 커스터마이징(동일 status) 우선: (mb_group=요청그룹) → (mb_group=0 공통)
+ * - 지점 커스터마이징(동일 status) 우선: (mb_group=요청지점) → (mb_group=0 공통)
  *
  * @return array [ triggered(bool), register(array|null), status_row(array|null) ]
  */
@@ -153,7 +153,7 @@ function blacklist_register_if_dnc(int $mb_group, string $call_hp, int $call_sta
 {
     $out = ['triggered'=>false, 'register'=>null, 'status_row'=>null];
 
-    // 상태코드 조회 (그룹우선 → 공통)
+    // 상태코드 조회 (지점우선 → 공통)
     $q = "SELECT call_status, mb_group, name_ko, is_do_not_call
           FROM call_status_code
           WHERE call_status=".(int)$call_status." 
@@ -208,7 +208,7 @@ function get_company_name_from_cached(int $company_id) {
 
 }
 
-// 그룹ID로 회사명 가져오기
+// 지점ID로 회사명 가져오기
 function get_company_name_from_group_id_cached(int $group_id) {
     static $company_name = [];
     if(!empty($company_name[$group_id])) return $company_name[$group_id];
@@ -222,7 +222,7 @@ function get_company_name_from_group_id_cached(int $group_id) {
     return $company_name[$group_id];
 }
 
-// 그룹ID로 회사ID 가져오기
+// 지점ID로 회사ID 가져오기
 function get_company_id_from_group_id_cached(int $group_id) {
     static $company_id = [];
     if(!empty($company_id[$group_id])) return $company_id[$group_id];
@@ -236,7 +236,7 @@ function get_company_id_from_group_id_cached(int $group_id) {
     return $company_id[$group_id];
 }
 
-// 에이전트 드롭다운용 HTML 조각 준비 (그룹 구분 포함)
+// 에이전트 드롭다운용 HTML 조각 준비 (지점 구분 포함)
 function render_agent_options($agent_options, $sel_agent_no){
     if (empty($agent_options)) return '<option value="" disabled>담당자가 없습니다</option>';
     $html = '';
@@ -316,12 +316,12 @@ function get_group_name_cached($group_id) {
 
     global $g5;
     $row = sql_fetch("
-        SELECT COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹-', mb_no)) AS nm
+        SELECT COALESCE(NULLIF(mb_group_name,''), CONCAT('지점-', mb_no)) AS nm
         FROM {$g5['member_table']}
         WHERE mb_no = '{$gid}' AND mb_level = 7
         LIMIT 1
     ");
-    $cache[$gid] = $row && $row['nm'] ? $row['nm'] : '그룹-'.$gid;
+    $cache[$gid] = $row && $row['nm'] ? $row['nm'] : '지점-'.$gid;
     return $cache[$gid];
 }
 // 회사명 캐시 조회
@@ -342,7 +342,7 @@ function get_agent_name_cached($mb_no){
     return $cache[$cid];
 }
 
-// 회사별 그룹 수(레벨7 수)
+// 회사별 지점 수(레벨7 수)
 function count_groups_by_company_cached($company_id) {
     static $cache = [];
     $cid = (int)$company_id;
@@ -359,7 +359,7 @@ function count_groups_by_company_cached($company_id) {
     return $cache[$cid];
 }
 
-// 그룹별 상담원 수(레벨3, 차단/탈퇴 제외)
+// 지점별 상담원 수(레벨3, 차단/탈퇴 제외)
 function count_members_by_group_cached($group_id) {
     static $cache = [];
     $gid = (int)$group_id;
@@ -380,14 +380,14 @@ function count_members_by_group_cached($group_id) {
 }
 
 /**
- * 조직 셀렉트 옵션(회사/그룹/상담사) 생성
+ * 조직 셀렉트 옵션(회사/지점/상담사) 생성
  * - mb_level 은 global $member['mb_level'] 사용
  * - 반환: ['company_options'=>[], 'group_options'=>[], 'agent_options'=>[]]
  *
  * @param int      $sel_company_id 선택한 회사ID (9+만 의미, 나머지는 회사 고정)
- * @param int      $sel_mb_group   선택한 그룹ID (0=전체)
+ * @param int      $sel_mb_group   선택한 지점ID (0=전체)
  * @param int      $my_company_id  내 회사ID (8 이하 권한에서 고정 범위)
- * @param int      $my_group       내 그룹ID (7 권한에서 고정 범위)
+ * @param int      $my_group       내 지점ID (7 권한에서 고정 범위)
  * @param null|str $member_table   g5 member 테이블명 (null이면 $g5['member_table'])
  * @return array{company_options: array<int, array>, group_options: array<int, array>, agent_options: array<int, array>}
  */
@@ -425,7 +425,7 @@ function build_org_select_options($sel_company_id=0, $sel_mb_group=0) {
     }
 
     /* --------------------------
-       그룹 옵션(8+)
+       지점 옵션(8+)
        -------------------------- */
     $group_options = [];
     if ($mb_level >= 8) {
@@ -438,7 +438,7 @@ function build_org_select_options($sel_company_id=0, $sel_mb_group=0) {
         }
         $res = sql_query("SELECT m.mb_no AS mb_group, m.company_id FROM {$member_table} m {$where_g}
              ORDER BY m.company_id ASC,
-                      COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹-', m.mb_no)) ASC,
+                      COALESCE(NULLIF(m.mb_group_name,''), CONCAT('지점-', m.mb_no)) ASC,
                       m.mb_no ASC
         ");
         while ($r = sql_fetch_array($res)) {
@@ -458,7 +458,7 @@ function build_org_select_options($sel_company_id=0, $sel_mb_group=0) {
     }
 
     /* --------------------------
-       상담사 옵션(회사/그룹 필터 반영) — 상담원 레벨(3)만
+       상담사 옵션(회사/지점 필터 반영) — 상담원 레벨(3)만
        -------------------------- */
     $agent_options = [];
     $aw = [];
@@ -507,9 +507,9 @@ function build_org_select_options($sel_company_id=0, $sel_mb_group=0) {
 
 // --------------------------------------------------------
 // 상태코드 헤더 구성
-// - mb_group가 선택된 경우: 해당 그룹 우선, 없으면 0(공통)
+// - mb_group가 선택된 경우: 해당 지점 우선, 없으면 0(공통)
 // - mb_group 미선택(0)인 경우: 0(공통)만 사용
-// - 각 그룹 내부 sort_order ASC, 출력 순서는 "그룹(>0) 먼저, 그다음 0"
+// - 각 지점 내부 sort_order ASC, 출력 순서는 "지점(>0) 먼저, 그다음 0"
 // --------------------------------------------------------
 function get_code_list($sel_mb_group=0) {
     $code_map = [];
@@ -523,7 +523,7 @@ function get_code_list($sel_mb_group=0) {
         ORDER BY (c.mb_group='{$sel_mb_group}') DESC, c.sort_order ASC, c.call_status ASC
         ";
     } else {
-        // 그룹 선택이 없으면 공통(0)만
+        // 지점 선택이 없으면 공통(0)만
         $sql = "
         SELECT c.call_status, c.mb_group, c.name_ko, c.sort_order, c.ui_type
         FROM call_status_code c
@@ -547,7 +547,7 @@ function get_code_list($sel_mb_group=0) {
         $code_list[] = ['call_status'=>$cs,'name'=>$info['name'],'mb_group'=>$info['mb_group'],'sort_order'=>$info['sort_order'],'ui_type'=>$info['ui_type']];
     }
     usort($code_list, function($a,$b){
-        if ($a['mb_group'] !== $b['mb_group']) return ($a['mb_group'] === 0) ? 1 : -1; // 그룹>0 먼저
+        if ($a['mb_group'] !== $b['mb_group']) return ($a['mb_group'] === 0) ? 1 : -1; // 지점>0 먼저
         if ($a['sort_order'] === $b['sort_order']) return $a['call_status'] <=> $b['call_status'];
         return $a['sort_order'] <=> $b['sort_order'];
     });

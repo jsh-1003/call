@@ -71,7 +71,7 @@ if ($my_level >= 9) {
 }
 
 // -------------------------------------------
-// 초기 그룹 옵션(첫 렌더용, 이후 변경은 AJAX)
+// 초기 지점 옵션(첫 렌더용, 이후 변경은 AJAX)
 // -------------------------------------------
 $group_options = [];
 if ($my_level >= 8) {
@@ -89,7 +89,7 @@ if ($my_level >= 8) {
         FROM {$g5['member_table']} m
         {$where}
         ORDER BY m.company_id ASC,
-                 COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹-', m.mb_no)) ASC,
+                 COALESCE(NULLIF(m.mb_group_name,''), CONCAT('지점-', m.mb_no)) ASC,
                  m.mb_no ASC
     ";
     $res = sql_query($sql_groups);
@@ -146,11 +146,11 @@ select[disabled]{background:#f7f7f7;color:#999}
                                 <option value="0"<?php echo get_selected($sel_company_id, 0); ?>>-- 전체 회사 --</option>
                                 <?php foreach ($company_options as $c) { ?>
                                     <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
-                                        <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
+                                        <?php echo get_text($c['company_name']); ?> (지점 <?php echo (int)$c['group_count']; ?>)
                                     </option>
                                 <?php } ?>
                             </select>
-                            <span class="frm_info">회사 변경 시 아래 그룹 목록이 갱신됩니다.</span>
+                            <span class="frm_info">회사 변경 시 아래 지점 목록이 갱신됩니다.</span>
                         </td>
                     </tr>
                 <?php } else { ?>
@@ -159,10 +159,10 @@ select[disabled]{background:#f7f7f7;color:#999}
 
                 <?php if ($my_level >= 8) { ?>
                     <tr>
-                        <th scope="row">그룹 선택</th>
+                        <th scope="row">지점 선택</th>
                         <td>
-                            <select name="mb_group" id="mb_group" title="그룹선택" class="required" required>
-                                <option value="0"<?php echo get_selected($sel_mb_group, 0); ?>>-- 전체 그룹 --</option>
+                            <select name="mb_group" id="mb_group" title="지점선택" class="required" required>
+                                <option value="0"<?php echo get_selected($sel_mb_group, 0); ?>>-- 전체 지점 --</option>
                                 <?php
                                 if ($my_level >= 9) {
                                     $last_cid = null;
@@ -183,7 +183,7 @@ select[disabled]{background:#f7f7f7;color:#999}
                                 ?>
                             </select>
                             <?php if ($my_level == 8) { ?>
-                                <span class="frm_info">기본값은 회사 내 전체 그룹입니다.</span>
+                                <span class="frm_info">기본값은 회사 내 전체 지점입니다.</span>
                             <?php } ?>
                         </td>
                     </tr>
@@ -262,7 +262,7 @@ select[disabled]{background:#f7f7f7;color:#999}
             // 옵션 렌더링
             var opts = [];
             // 항상 맨 위에 전체 옵션
-            opts.push(new Option('-- 전체 그룹 --', 0));
+            opts.push(new Option('-- 전체 지점 --', 0));
 
             // separator/option 혼합 렌더
             json.items.forEach(function(item){
@@ -286,8 +286,8 @@ select[disabled]{background:#f7f7f7;color:#999}
             groupSel.value = '0';
         })
         .catch(function(err){
-            alert('그룹 목록을 불러오지 못했습니다: ' + err.message);
-            groupSel.innerHTML = '<option value="0">-- 전체 그룹 --</option>';
+            alert('지점 목록을 불러오지 못했습니다: ' + err.message);
+            groupSel.innerHTML = '<option value="0">-- 전체 지점 --</option>';
         });
     });
 })();

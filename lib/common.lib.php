@@ -831,7 +831,7 @@ function get_next_num($table)
 }
 
 
-// 그룹 설정 테이블에서 하나의 행을 읽음
+// 지점 설정 테이블에서 하나의 행을 읽음
 function get_group($gr_id, $is_cache=false)
 {
     global $g5;
@@ -1012,7 +1012,7 @@ function get_category_option($bo_table='', $ca_name='')
 }
 
 
-// 게시판 그룹을 SELECT 형식으로 얻음
+// 게시판 지점을 SELECT 형식으로 얻음
 function get_group_select($name, $selected='', $event='')
 {
     global $g5, $is_admin, $member;
@@ -3524,7 +3524,7 @@ function member_delete($mb_id)
     // 포인트 테이블에서 삭제
     sql_query(" delete from {$g5['point_table']} where mb_id = '$mb_id' ");
 
-    // 그룹접근가능 삭제
+    // 지점접근가능 삭제
     sql_query(" delete from {$g5['group_member_table']} where mb_id = '$mb_id' ");
 
     // 쪽지 삭제
@@ -3536,7 +3536,7 @@ function member_delete($mb_id)
     // 관리권한 삭제
     sql_query(" delete from {$g5['auth_table']} where mb_id = '$mb_id' ");
 
-    // 그룹관리자인 경우 그룹관리자를 공백으로
+    // 지점관리자인 경우 지점관리자를 공백으로
     sql_query(" update {$g5['group_table']} set gr_admin = '' where gr_admin = '$mb_id' ");
 
     // 게시판관리자인 경우 게시판관리자를 공백으로

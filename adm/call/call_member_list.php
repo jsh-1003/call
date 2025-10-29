@@ -47,9 +47,9 @@ if ($my_level >= 9) {
 }
 
 if ($my_level >= 8) {
-    $sel_mb_group = (int)($_GET['mb_group'] ?? 0); // 0=전체 그룹
+    $sel_mb_group = (int)($_GET['mb_group'] ?? 0); // 0=전체 지점
 } else {
-    $sel_mb_group = $my_mb_no; // 7은 자기 그룹(본인 mb_no)
+    $sel_mb_group = $my_mb_no; // 7은 자기 지점(본인 mb_no)
 }
 
 // -------------------------------------------
@@ -57,9 +57,9 @@ if ($my_level >= 8) {
 // -------------------------------------------
 function role_label_and_class($lv){
     if ($lv >= 10) return ['플랫폼관리자','badge-admin'];
-    if ($lv >= 8)  return ['회사관리자','badge-company'];
-    if ($lv == 7)  return ['그룹리더','badge-leader'];
-    if ($lv == 5)  return ['2차상담원','badge-member-after'];
+    if ($lv >= 8)  return ['대표이사','badge-company'];
+    if ($lv == 7)  return ['지점장','badge-leader'];
+    if ($lv == 5)  return ['2차팀장','badge-member-after'];
     return ['상담원','badge-member'];
 }
 
@@ -87,7 +87,7 @@ function can_toggle_aftercall($me_level, $me_company_id, $me_mb_no, $target_row)
 
 /**
  * ========================
- * 회사/그룹 드롭다운 옵션
+ * 회사/지점 드롭다운 옵션
  * ========================
  */
 $build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
@@ -215,7 +215,7 @@ $from_record = ($page - 1) * $rows;
 // -------------------------------------------
 $sql = "
   SELECT 
-    m.mb_no, m.mb_id, m.mb_name, m.mb_level,
+    m.mb_no, m.mb_id, m.mb_name, m.mb_level, m.mb_hp,
     m.company_id, m.company_name,
     m.mb_group,  m.mb_group_name,
     m.mb_datetime, m.mb_today_login,
@@ -286,7 +286,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
             <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
             <?php foreach ($company_options as $c) { ?>
                 <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
-                    <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
+                    <?php echo get_text($c['company_name']); ?> (지점 <?php echo (int)$c['group_count']; ?>)
                 </option>
             <?php } ?>
         </select>
@@ -295,9 +295,9 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
     <?php } ?>
 
     <?php if ($my_level >= 8) { ?>
-        <label for="mb_group">그룹선택</label>
+        <label for="mb_group">지점선택</label>
         <select name="mb_group" id="mb_group">
-            <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
+            <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 지점</option>
             <?php
             if ($group_options) {
                 if ($my_level >= 9 && $sel_company_id == 0) {
@@ -326,10 +326,10 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
         <span class="role-radio" style="margin-left:10px;">
             <label><input type="radio" name="role_filter" value="all" <?php echo $role_filter==='all'?'checked':''; ?>> 전체</label>
             <?php if ($my_level >= 9) { ?>
-                <label><input type="radio" name="role_filter" value="company" <?php echo $role_filter==='company'?'checked':''; ?>> 회사관리자</label>
+                <label><input type="radio" name="role_filter" value="company" <?php echo $role_filter==='company'?'checked':''; ?>> 대표이사</label>
             <?php } ?>
-            <label><input type="radio" name="role_filter" value="leader" <?php echo $role_filter==='leader'?'checked':''; ?>> 그룹리더</label>
-            <label><input type="radio" name="role_filter" value="member-after" <?php echo $role_filter==='member-after'?'checked':''; ?>> 2차상담원</label>
+            <label><input type="radio" name="role_filter" value="leader" <?php echo $role_filter==='leader'?'checked':''; ?>> 지점장</label>
+            <label><input type="radio" name="role_filter" value="member-after" <?php echo $role_filter==='member-after'?'checked':''; ?>> 2차팀장</label>
             <label><input type="radio" name="role_filter" value="member" <?php echo $role_filter==='member'?'checked':''; ?>> 상담원</label>
         </span>
     <?php } else { ?>
@@ -359,9 +359,10 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
             <tr>
                 <?php if($my_level >= 8) { ?>
                 <th scope="col">권한</th>
+                <th scope="col">대표연락처</th>
                 <?php } ?>
                 <th scope="col"><?php echo subject_sort_link('m.company_name', $qstr_member_list); ?>회사</a></th>
-                <th scope="col">조직명</th>
+                <th scope="col">지점명</th>
                 <th scope="col"><?php echo subject_sort_link('m.mb_name', $qstr_member_list); ?>이름</a></th>
                 <th scope="col"><?php echo subject_sort_link('m.mb_id', $qstr_member_list); ?>아이디</a></th>
                 <th scope="col">2차콜온오프</th><!-- NEW -->
@@ -390,7 +391,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                 // 권한 배지
                 list($role_name, $role_class) = role_label_and_class((int)$row['mb_level']);
 
-                // 표시용 회사/그룹 이름
+                // 표시용 회사/지점 이름
                 $disp_company = get_company_name_cached((int)$row['company_id']);
                 $disp_group   = get_group_name_cached((int)$row['mb_group']);
 
@@ -408,7 +409,10 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                 ?>
                 <tr class="<?php echo $bg; ?>">
                     <?php if($my_level >= 8) { ?>
-                    <td class=""><span class="badge <?php echo $role_class; ?>"><?php echo $role_name; ?></span></td>
+                    <td class="">
+                        <span class="badge <?php echo $role_class; ?>"><?php echo $role_name; ?></span>
+                    </td>
+                    <td><?php echo format_korean_phone($row['mb_hp']) ?></td>
                     <?php } ?>
                     <td class="td_left"><?php echo get_text($disp_company); ?></td>
                     <td class="td_left"><?php echo get_text($disp_group); ?></td>
@@ -481,7 +485,7 @@ echo get_paging(G5_IS_MOBILE ? $config['cf_mobile_pages'] : $config['cf_write_pa
 <script>
 (function(){
     var $form = document.getElementById('searchForm');
-    // ★ 회사 변경 시 그룹/담당자 초기화 후 자동검색
+    // ★ 회사 변경 시 지점/담당자 초기화 후 자동검색
     var companySel = document.getElementById('company_id');
     if (companySel) {
         companySel.addEventListener('change', function(){
@@ -493,7 +497,7 @@ echo get_paging(G5_IS_MOBILE ? $config['cf_mobile_pages'] : $config['cf_write_pa
         });
     }
 
-    // 그룹 변경 시 담당자 초기화 후 자동검색
+    // 지점 변경 시 담당자 초기화 후 자동검색
     var mbGroup = document.getElementById('mb_group');
     if (mbGroup) {
         mbGroup.addEventListener('change', function(){

@@ -59,19 +59,19 @@ include_once(G5_ADMIN_PATH.'/admin.head.php');
 
 /**
  * ========================
- * 회사/그룹/담당자 드롭다운 옵션
+ * 회사/지점/담당자 드롭다운 옵션
  * ========================
  */
 $build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
 // 회사 옵션(9+)
 $company_options = $build_org_select_options['company_options'];
-// 그룹 옵션(8+)
+// 지점 옵션(8+)
 $group_options = $build_org_select_options['group_options'];
-// 상담사 옵션(회사/그룹 필터 반영) — 상담원 레벨(3)만
+// 상담사 옵션(회사/지점 필터 반영) — 상담원 레벨(3)만
 $agent_options = $build_org_select_options['agent_options'];
 /**
  * ========================
- * // 회사/그룹/담당자 드롭다운 옵션
+ * // 회사/지점/담당자 드롭다운 옵션
  * ========================
  */
 ?>
@@ -111,14 +111,14 @@ canvas { background:#fff; }
             <?php } ?>
         </select>
 
-        <!-- 2단: 회사 → 그룹 → 상담사 -->
+        <!-- 2단: 회사 → 지점 → 상담사 -->
         <?php if ($mb_level >= 9) { ?>
             <label for="company_id">회사</label>
             <select name="company_id" id="company_id" style="width:120px">
                 <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
                 <?php foreach ($company_options as $c) { ?>
                     <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
-                        <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
+                        <?php echo get_text($c['company_name']); ?> (지점 <?php echo (int)$c['group_count']; ?>)
                     </option>
                 <?php } ?>
             </select>
@@ -128,7 +128,7 @@ canvas { background:#fff; }
 
         <?php if ($mb_level >= 8) { ?>
             <select name="mb_group" id="mb_group" style="width:120px">
-                <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
+                <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 지점</option>
                 <?php
                 if ($group_options) {
                     if ($mb_level >= 9 && $sel_company_id == 0) {
@@ -150,7 +150,7 @@ canvas { background:#fff; }
             </select>
         <?php } else { ?>
             <input type="hidden" name="mb_group" value="<?php echo $sel_mb_group; ?>">
-            <span class="small-muted">그룹: <?php echo get_text(get_group_name_cached($sel_mb_group)); ?></span>
+            <span class="small-muted">지점: <?php echo get_text(get_group_name_cached($sel_mb_group)); ?></span>
         <?php } ?>
 
         <select name="agent" id="agent" style="width:120px">
@@ -201,7 +201,7 @@ canvas { background:#fff; }
     <div class="card"><div>총 상담시간</div><div class="big" id="kpiTalkTime">-</div></div>   <!-- ★ 추가 -->
     <div class="card"><div>블랙고객 발생</div><div class="big" id="kpiDnc">-</div></div>
     <div class="card"><div>활성 상담원 수</div><div class="big" id="kpiAgents">-</div></div>
-    <div class="card"><div>활성 그룹 수</div><div class="big" id="kpiGroups">-</div></div>
+    <div class="card"><div>활성 지점 수</div><div class="big" id="kpiGroups">-</div></div>
 </div>
 
 <!-- 시계열 & 분포/랭킹 -->
@@ -219,13 +219,13 @@ canvas { background:#fff; }
     </div>
 </div>
 
-<!-- 그룹/상담사 표 -->
+<!-- 지점/상담사 표 -->
 <div class="tbl_head01 tbl_wrap section" style="margin-top:12px;">
-    <h3 style="margin:0 0 10px 0;">그룹 통계</h3>
+    <h3 style="margin:0 0 10px 0;">지점 통계</h3>
     <table class="table-fixed" id="groupsTable">
         <thead class="sticky-head">
             <tr>
-                <th style="width:120px;">그룹</th>
+                <th style="width:120px;">지점</th>
                 <th style="width:100px;">총 통화</th>
                 <th style="width:100px;">성공</th>
                 <th style="width:100px;">실패</th>
@@ -274,7 +274,7 @@ canvas { background:#fff; }
         <table class="table-fixed" id="recentDetailTable" style="min-width:1200px;">
             <thead class="sticky-head">
                 <tr>
-                    <th>그룹명</th>
+                    <th>지점명</th>
                     <th>아이디</th>
                     <th>상담원명</th>
                     <th>발신번호</th>
@@ -527,7 +527,7 @@ canvas { background:#fff; }
     document.getElementById('refreshSec').addEventListener('change', startAuto);
     document.getElementById('btnRefreshNow').addEventListener('click', refreshAll);
 
-    // 회사 → 그룹 AJAX (9+만)
+    // 회사 → 지점 AJAX (9+만)
     const companySel = document.getElementById('company_id');
     if (companySel) {
         companySel.addEventListener('change', function(){
@@ -546,7 +546,7 @@ canvas { background:#fff; }
             .then(json => {
                 if (!json.success) throw new Error(json.message || '가져오기 실패');
                 const opts = [];
-                opts.push(new Option('전체 그룹', 0));
+                opts.push(new Option('전체 지점', 0));
                 json.items.forEach(function(item){
                     if (item.separator) {
                         const sep = document.createElement('option');
@@ -563,8 +563,8 @@ canvas { background:#fff; }
                 groupSel.value = '0';
             })
             .catch(err=>{
-                alert('그룹 목록을 불러오지 못했습니다: ' + err.message);
-                groupSel.innerHTML = '<option value="0">전체 그룹</option>';
+                alert('지점 목록을 불러오지 못했습니다: ' + err.message);
+                groupSel.innerHTML = '<option value="0">전체 지점</option>';
             });
         });
     }
@@ -575,7 +575,7 @@ canvas { background:#fff; }
 
 (function(){
     var $form = document.getElementById('searchForm');
-    // ★ 회사 변경 시 그룹/담당자 초기화 후 자동검색
+    // ★ 회사 변경 시 지점/담당자 초기화 후 자동검색
     var companySel = document.getElementById('company_id');
     if (companySel) {
         companySel.addEventListener('change', function(){
@@ -587,7 +587,7 @@ canvas { background:#fff; }
         });
     }
 
-    // 그룹 변경 시 담당자 초기화 후 자동검색
+    // 지점 변경 시 담당자 초기화 후 자동검색
     var mbGroup = document.getElementById('mb_group');
     if (mbGroup) {
         mbGroup.addEventListener('change', function(){

@@ -30,7 +30,7 @@ $start_date = _g('start', $default_start);
 $end_date   = _g('end',   $default_end);
 
 //
-// ★ 변경된 권한 스코프에 따른 "회사/그룹" 선택 값
+// ★ 변경된 권한 스코프에 따른 "회사/지점" 선택 값
 //
 if ($mb_level >= 9) {
     $sel_company_id = (int)($_GET['company_id'] ?? 0); // 0=전체 회사
@@ -38,7 +38,7 @@ if ($mb_level >= 9) {
     $sel_company_id = $my_company_id; // 8/7은 자기 회사 고정
 }
 
-$sel_mb_group = ($mb_level >= 8) ? (int)($_GET['mb_group'] ?? 0) : $my_group; // 8+=전체/특정그룹, 7=본인그룹
+$sel_mb_group = ($mb_level >= 8) ? (int)($_GET['mb_group'] ?? 0) : $my_group; // 8+=전체/특정지점, 7=본인지점
 $sel_agent_no = (int)($_GET['agent'] ?? 0); // 상담원 선택(선택사항)
 
 // 검색/필터
@@ -104,12 +104,12 @@ if ($q !== '' && $q_type !== '') {
 }
 
 //
-// ★ 권한/선택 필터 (회사/그룹 스코프 적용)
+// ★ 권한/선택 필터 (회사/지점 스코프 적용)
 // - 회사 스코프는 agent 조인(m) 의 company_id 기준
 //
 if ($mb_level == 7) {
     $where[] = "l.mb_group = {$my_group}";
-    // 회사 스코프는 자연스럽게 그룹에 종속되어 생략
+    // 회사 스코프는 자연스럽게 지점에 종속되어 생략
 } elseif ($mb_level < 7) {
     $where[] = "l.mb_no = {$mb_no}";
 } else {
@@ -121,7 +121,7 @@ if ($mb_level == 7) {
             $where[] = "m.company_id = {$sel_company_id}";
         }
     }
-    // 그룹 선택
+    // 지점 선택
     if ($sel_mb_group > 0) {
         $where[] = "l.mb_group = {$sel_mb_group}";
     }
@@ -164,19 +164,19 @@ while ($v = sql_fetch_array($rcl)) {
 
 /**
  * ========================
- * 회사/그룹/담당자 드롭다운 옵션
+ * 회사/지점/담당자 드롭다운 옵션
  * ========================
  */
 $build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
 // 회사 옵션(9+)
 $company_options = $build_org_select_options['company_options'];
-// 그룹 옵션(8+)
+// 지점 옵션(8+)
 $group_options = $build_org_select_options['group_options'];
-// 상담사 옵션(회사/그룹 필터 반영) — 상담원 레벨(3)만
+// 상담사 옵션(회사/지점 필터 반영) — 상담원 레벨(3)만
 $agent_options = $build_org_select_options['agent_options'];
 /**
  * ========================
- * // 회사/그룹/담당자 드롭다운 옵션
+ * // 회사/지점/담당자 드롭다운 옵션
  * ========================
  */
 
@@ -338,13 +338,13 @@ audio {max-width:260px;max-height:30px;}
 
         <span class="row-split"></span>
 
-        <!-- 2줄차: 회사/그룹/담당자 (권한별) -->
+        <!-- 2줄차: 회사/지점/담당자 (권한별) -->
         <?php if ($mb_level >= 9) { ?>
             <select name="company_id" id="company_id" style="width:120px">
                 <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
                 <?php foreach ($company_options as $c) { ?>
                     <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
-                        <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
+                        <?php echo get_text($c['company_name']); ?> (지점 <?php echo (int)$c['group_count']; ?>)
                     </option>
                 <?php } ?>
             </select>
@@ -354,7 +354,7 @@ audio {max-width:260px;max-height:30px;}
 
         <?php if ($mb_level >= 8) { ?>
             <select name="mb_group" id="mb_group" style="width:120px">
-                <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
+                <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 지점</option>
                 <?php
                 if ($group_options) {
                     if ($mb_level >= 9 && $sel_company_id == 0) {
@@ -376,7 +376,7 @@ audio {max-width:260px;max-height:30px;}
             </select>
         <?php } else { ?>
             <input type="hidden" name="mb_group" value="<?php echo $sel_mb_group; ?>">
-            <span class="small-muted">그룹: <?php echo get_text(get_group_name_cached($sel_mb_group)); ?></span>
+            <span class="small-muted">지점: <?php echo get_text(get_group_name_cached($sel_mb_group)); ?></span>
         <?php } ?>
 
         <select name="agent" id="agent" style="width:120px">
@@ -410,7 +410,7 @@ audio {max-width:260px;max-height:30px;}
     <table class="table-fixed">
         <thead>
             <tr>
-                <th>그룹명</th>
+                <th>지점명</th>
                 <!-- <th>아이디</th> -->
                 <th>상담원명</th>
                 <th>통화결과</th>
@@ -508,7 +508,7 @@ $base = './call_recordings.php?'.http_build_query($qstr);
 <script>
 (function(){
     var $form = document.getElementById('searchForm');
-    // ★ 회사 변경 시 그룹/담당자 초기화 후 자동검색
+    // ★ 회사 변경 시 지점/담당자 초기화 후 자동검색
     var companySel = document.getElementById('company_id');
     if (companySel) {
         companySel.addEventListener('change', function(){
@@ -520,7 +520,7 @@ $base = './call_recordings.php?'.http_build_query($qstr);
         });
     }
 
-    // 그룹 변경 시 담당자 초기화 후 자동검색
+    // 지점 변경 시 담당자 초기화 후 자동검색
     var mbGroup = document.getElementById('mb_group');
     if (mbGroup) {
         mbGroup.addEventListener('change', function(){

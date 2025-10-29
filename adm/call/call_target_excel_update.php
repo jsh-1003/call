@@ -23,9 +23,9 @@ if(!$chk) {
 $my_level = (int)$member['mb_level'];
 $my_group = isset($member['mb_group']) ? (int)$member['mb_group'] : 0;
 $mb_group = ($my_level >= 8) ? (int)($_POST['mb_group'] ?? 0) : $my_group;
-if (!$mb_group) alert_close('그룹이 선택되지 않았습니다.');
+if (!$mb_group) alert_close('지점이 선택되지 않았습니다.');
 
-// 회사 ID (그룹→회사 캐시 헬퍼 사용)
+// 회사 ID (지점→회사 캐시 헬퍼 사용)
 $company_id = (int)get_company_id_from_group_id_cached($mb_group);
 
 // ===== is_open_number 결정(캠페인 플래그) =====

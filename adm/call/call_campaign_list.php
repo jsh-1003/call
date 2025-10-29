@@ -23,7 +23,7 @@ if ($page < 1) $page = 1;
 $status_filter = isset($_GET['status']) ? strtolower(trim($_GET['status'])) : 'all';
 if (!in_array($status_filter, ['all','active','inactive'], true)) $status_filter = 'all';
 
-// 조직 선택값: 9+는 회사/그룹 선택 가능, 8은 회사 고정+그룹 선택, 7은 그룹 고정
+// 조직 선택값: 9+는 회사/지점 선택 가능, 8은 회사 고정+지점 선택, 7은 지점 고정
 if ($my_level >= 9) {
     $sel_company_id = (int)($_GET['company_id'] ?? 0);  // 0=전체
     $sel_mb_group   = (int)($_GET['mb_group'] ?? 0);    // 0=전체
@@ -37,17 +37,17 @@ if ($my_level >= 9) {
 
 /**
  * ========================
- * 회사/그룹/담당자 드롭다운 옵션
+ * 회사/지점/담당자 드롭다운 옵션
  * ========================
  */
 $build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
 // 회사 옵션(9+)
 $company_options = $build_org_select_options['company_options'];
-// 그룹 옵션(8+)
+// 지점 옵션(8+)
 $group_options = $build_org_select_options['group_options'];
 /**
  * ========================
- * // 회사/그룹/담당자 드롭다운 옵션
+ * // 회사/지점/담당자 드롭다운 옵션
  * ========================
  */
 
@@ -61,7 +61,7 @@ $code_list = get_code_list($sel_mb_group);
 //  - status
 //  - 권한별 조직 범위
 //  - 검색어
-//  - 회사/그룹 필터(회사만 선택된 경우: 그 회사에 속한 모든 그룹)
+//  - 회사/지점 필터(회사만 선택된 경우: 그 회사에 속한 모든 지점)
 // --------------------------------------------------------
 if     ($status_filter === 'active')   $status_cond = " c.status=1 ";
 elseif ($status_filter === 'inactive') $status_cond = " c.status=0 ";
@@ -69,7 +69,7 @@ else                                   $status_cond = " c.status IN (0,1) ";
 
 $sql_search = " WHERE {$status_cond} ";
 
-// 회사/그룹 필터 SQL (c.mb_group 기준)
+// 회사/지점 필터 SQL (c.mb_group 기준)
 $group_filter_sql = '';
 if ($my_level < 8) {
     $group_filter_sql = " AND c.mb_group='".(int)$my_group."' ";
@@ -83,7 +83,7 @@ if ($my_level < 8) {
             while ($rr = sql_fetch_array($gr)) $grp_ids[] = (int)$rr['mb_no'];
             $group_filter_sql = $grp_ids ? " AND c.mb_group IN (".implode(',', $grp_ids).") " : " AND 1=0 ";
         }
-        // ★ 레벨 8: 그룹=0이면 '내 회사 전체 그룹'으로 강제 제한
+        // ★ 레벨 8: 지점=0이면 '내 회사 전체 지점'으로 강제 제한
         elseif ($my_level == 8) {
             $grp_ids = [];
             $gr = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$my_company_id."'");
@@ -135,8 +135,8 @@ $result = sql_query("
 ");
 
 // --------------------------------------------------------
-// 회사/그룹 이름 매핑 (현재 페이지에 보이는 캠페인만)
-//  - 그룹 ID -> (그룹명, 회사ID)
+// 회사/지점 이름 매핑 (현재 페이지에 보이는 캠페인만)
+//  - 지점 ID -> (지점명, 회사ID)
 //  - 회사ID   -> 회사명
 // --------------------------------------------------------
 $campaign_rows = [];
@@ -168,7 +168,7 @@ if ($group_ids) {
 $stats_by_campaign = [];
 if ($campaign_ids) {
     $ids_csv = implode(',', array_map('intval',$campaign_ids));
-    // 그룹 필터링: 상단에서 이미 c.mb_group로 필터했으므로 여기선 선택 그룹이 있다면 동일하게 제한
+    // 지점 필터링: 상단에서 이미 c.mb_group로 필터했으므로 여기선 선택 지점이 있다면 동일하게 제한
     $mb_cond = '';
     if ($sel_mb_group > 0) {
         $mb_cond = " AND t.mb_group='".(int)$sel_mb_group."' ";
@@ -176,7 +176,7 @@ if ($campaign_ids) {
         if ($my_level >= 9 && $sel_company_id > 0) {
             $mb_cond = " AND t.mb_group IN (SELECT mb_no FROM {$g5['member_table']} WHERE mb_level=7 AND company_id='".(int)$sel_company_id."') ";
         }
-        // ★ 레벨 8: 그룹=0이면 자기 회사 전체 그룹으로 제한
+        // ★ 레벨 8: 지점=0이면 자기 회사 전체 지점으로 제한
         elseif ($my_level == 8) {
             $mb_cond = " AND t.mb_group IN (SELECT mb_no FROM {$g5['member_table']} WHERE mb_level=7 AND company_id='".(int)$my_company_id."') ";
         }
@@ -220,7 +220,7 @@ include_once (G5_ADMIN_PATH.'/admin.head.php');
 $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체목록</a>';
 
 // 테이블 컬럼 구성 업데이트
-// [체크, 파일명, 회사/그룹, 메모, 잔여율, 총합, 잔여] = 7개 (기존 6개에서 회사/그룹 1개 추가)
+// [체크, 파일명, 회사/지점, 메모, 잔여율, 총합, 잔여] = 7개 (기존 6개에서 회사/지점 1개 추가)
 $base_cols = 7;
 $dyn_cols  = 1 + count($code_list) + 1;  // 배정전 + 상태코드 수 + 행별 액션
 $colspan   = $base_cols + $dyn_cols;
@@ -281,7 +281,7 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
             <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
             <?php foreach ($company_options as $c) { ?>
                 <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
-                    <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
+                    <?php echo get_text($c['company_name']); ?> (지점 <?php echo (int)$c['group_count']; ?>)
                 </option>
             <?php } ?>
         </select>
@@ -291,7 +291,7 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
 
     <?php if ($my_level >= 8) { ?>
         <select name="mb_group" id="mb_group">
-            <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
+            <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 지점</option>
             <?php
             if ($group_options) {
                 if ($my_level >= 9 && $sel_company_id == 0) {
@@ -348,7 +348,7 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
             <label for="chkall" class="sound_only">전체</label>
             <input type="checkbox" id="chkall" onclick="check_all(this.form)">
         </th>
-        <th scope="col">회사 / 그룹</th>
+        <th scope="col">회사 / 지점</th>
         <th scope="col">메모</th>
         <th scope="col"><?php echo subject_sort_link('name', "company_id={$sel_company_id}&mb_group={$sel_mb_group}&sfl={$sfl}&stx={$stx}&status={$status_filter}"); ?>파일명</a></th>
         <th scope="col">잔여율</th>
@@ -381,7 +381,7 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
             else                  $color = 'var(--remain-full)';
             $bg_rate = "linear-gradient(to right, {$color} {$rate}%, #ffffff {$rate}%)";
 
-            // 회사/그룹명
+            // 회사/지점명
             $gid = (int)$r['mb_group'];
             $ginfo = $group_map[$gid] ?? ['group_name'=>'-', 'company_id'=>0];
             $cname = ($ginfo['company_id']>0) ? get_company_name_cached((int)$ginfo['company_id']) : '-';
@@ -522,7 +522,7 @@ function open_upload_popup() {
 }
 
 // ===============================
-// 비동기 조직(회사→그룹) 셀렉트
+// 비동기 조직(회사→지점) 셀렉트
 // ===============================
 (function(){
     var companySel = document.getElementById('company_id');
@@ -555,7 +555,7 @@ function open_upload_popup() {
                 if (!json.success) throw new Error(json.message || '가져오기 실패');
 
                 var opts = [];
-                opts.push(new Option('-- 전체 그룹 --', 0));
+                opts.push(new Option('-- 전체 지점 --', 0));
 
                 json.items.forEach(function(item){
                     if (item.separator) {
@@ -571,11 +571,11 @@ function open_upload_popup() {
 
                 groupSel.innerHTML = '';
                 opts.forEach(function(o){ groupSel.appendChild(o); });
-                groupSel.value = '0'; // 회사 변경 시 기본 전체그룹 선택
+                groupSel.value = '0'; // 회사 변경 시 기본 전체지점 선택
             })
             .catch(function(err){
-                alert('그룹 목록을 불러오지 못했습니다: ' + err.message);
-                groupSel.innerHTML = '<option value="0">-- 전체 그룹 --</option>';
+                alert('지점 목록을 불러오지 못했습니다: ' + err.message);
+                groupSel.innerHTML = '<option value="0">-- 전체 지점 --</option>';
             });
         });
     }

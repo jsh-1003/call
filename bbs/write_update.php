@@ -335,10 +335,10 @@ if ($w == '' || $w == 'r') {
 
     if ($is_admin == 'super') // 최고관리자 통과
         ;
-    else if ($is_admin == 'group') { // 그룹관리자
+    else if ($is_admin == 'group') { // 지점관리자
         $mb = get_member($write['mb_id']);
-        if ($member['mb_id'] != $group['gr_admin']) // 자신이 관리하는 그룹인가?
-            alert('자신이 관리하는 그룹의 게시판이 아니므로 수정할 수 없습니다.', $return_url);
+        if ($member['mb_id'] != $group['gr_admin']) // 자신이 관리하는 지점인가?
+            alert('자신이 관리하는 지점의 게시판이 아니므로 수정할 수 없습니다.', $return_url);
         else if ($member['mb_level'] < $mb['mb_level']) // 자신의 레벨이 크거나 같다면 통과
             alert('자신의 권한보다 높은 권한의 회원이 작성한 글은 수정할 수 없습니다.', $return_url);
     } else if ($is_admin == 'board') { // 게시판관리자이면
@@ -448,7 +448,7 @@ if ($w == '' || $w == 'r') {
     $write = get_write( $write_table, $wr['wr_id'], false);
 }
 
-// 게시판그룹접근사용을 하지 않아야 하고 비회원 글읽기가 가능해야 하며 비밀글이 아니어야 합니다.
+// 게시판지점접근사용을 하지 않아야 하고 비회원 글읽기가 가능해야 하며 비밀글이 아니어야 합니다.
 if (!$group['gr_use_access'] && $board['bo_read_level'] < 2 && !$secret) {
     naver_syndi_ping($bo_table, $wr_id);
 }
@@ -730,7 +730,7 @@ if (!($w == 'u' || $w == 'cu') && $config['cf_email_use'] && $board['bo_use_emai
     $array_email = array();
     // 게시판관리자에게 보내는 메일
     if ($config['cf_email_wr_board_admin']) $array_email[] = $board_admin['mb_email'];
-    // 게시판그룹관리자에게 보내는 메일
+    // 게시판지점관리자에게 보내는 메일
     if ($config['cf_email_wr_group_admin']) $array_email[] = $group_admin['mb_email'];
     // 최고관리자에게 보내는 메일
     if ($config['cf_email_wr_super_admin']) $array_email[] = $super_admin['mb_email'];

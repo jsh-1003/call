@@ -214,9 +214,9 @@ function get_ajax_token()
 }
 
 /**
- * 회사 선택 시 그룹 목록을 로드하는 함수
+ * 회사 선택 시 지점 목록을 로드하는 함수
  * @param {HTMLSelectElement} companySel - 회사 선택 셀렉트박스
- * @param {HTMLSelectElement} groupSel - 그룹 선택 셀렉트박스
+ * @param {HTMLSelectElement} groupSel - 지점 선택 셀렉트박스
  * @param {string} [csrfToken] - (선택) CSRF 토큰, 필요 시 전달
  */
 function initCompanyGroupSelector(companySel, groupSel, csrfToken = null) {
@@ -245,7 +245,7 @@ function initCompanyGroupSelector(companySel, groupSel, csrfToken = null) {
             if (!json.success) throw new Error(json.message || '가져오기 실패');
 
             const opts = [];
-            opts.push(new Option('-- 전체 그룹 --', 0));
+            opts.push(new Option('-- 전체 지점 --', 0));
 
             json.items.forEach(item => {
                 if (item.separator) {
@@ -263,8 +263,8 @@ function initCompanyGroupSelector(companySel, groupSel, csrfToken = null) {
             opts.forEach(o => groupSel.appendChild(o));
             groupSel.value = '0';
         } catch (err) {
-            alert('그룹 목록을 불러오지 못했습니다: ' + err.message);
-            groupSel.innerHTML = '<option value="0">-- 전체 그룹 --</option>';
+            alert('지점 목록을 불러오지 못했습니다: ' + err.message);
+            groupSel.innerHTML = '<option value="0">-- 전체 지점 --</option>';
         }
     });
 }

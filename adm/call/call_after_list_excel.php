@@ -158,7 +158,7 @@ $sql_base = "
     b.call_id, b.mb_group, b.campaign_id, b.target_id, b.mb_no AS agent_id,
     b.call_status, b.call_start, b.call_end, b.call_time, b.call_hp,
 
-    COALESCE(g.mv_group_name, CONCAT('그룹 ', b.mb_group))     AS group_name,
+    COALESCE(g.mv_group_name, CONCAT('지점 ', b.mb_group))     AS group_name,
     m.mb_name AS agent_name, m.mb_id AS agent_mb_id,
     COALESCE(NULLIF(m.mb_name,''), m.mb_id) AS agent_sort,
     sc.name_ko AS status_label,
@@ -194,7 +194,7 @@ $sql_base = "
   JOIN call_status_code sc ON sc.call_status=b.call_status AND sc.mb_group=0
   LEFT JOIN {$member_table} m ON m.mb_no = b.mb_no
   LEFT JOIN (
-      SELECT mb_group, MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_group))) AS mv_group_name
+      SELECT mb_group, MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('지점 ', mb_group))) AS mv_group_name
         FROM {$member_table} WHERE mb_group>0 GROUP BY mb_group
   ) g ON g.mb_group = b.mb_group
   JOIN call_campaign cc ON cc.campaign_id=b.campaign_id AND cc.mb_group=b.mb_group
@@ -221,7 +221,7 @@ $sheet->setTitle('접수관리');
 
 // 헤더(셀별 명시 입력: 전부 문자열로)
 $headers = [
-  '그룹명','아이디','상담원명','통화결과','통화시작','통화종료','통화시간(초)',
+  '지점명','아이디','상담원명','통화결과','통화시작','통화종료','통화시간(초)',
   '고객명','생년월일','만나이','추가정보','전화번호',
   '처리상태','일정','최근처리시간','캠페인명'
 ];

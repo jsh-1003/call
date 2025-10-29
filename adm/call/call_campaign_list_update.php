@@ -21,12 +21,12 @@ $action     = (string)($_POST['action'] ?? '');
 $qstr       = isset($_POST['qstr']) ? preg_replace('#[^a-z0-9_=&\-%]#i','', $_POST['qstr']) : '';
 
 /**
- * 권한 스코프용 그룹 조건 생성
+ * 권한 스코프용 지점 조건 생성
  *  - 9+: 제한 없음
- *  - 8 : 본인 회사의 모든 그룹(mb_level=7, company_id = my_company_id)
- *  - 7 : 본인 그룹만
+ *  - 8 : 본인 회사의 모든 지점(mb_level=7, company_id = my_company_id)
+ *  - 7 : 본인 지점만
  * 반환: " AND {alias}.mb_group IN (...)" 또는 " AND {alias}.mb_group = N" 또는 "" (9+)
- *      그룹이 전혀 없으면 " AND 1=0"
+ *      지점이 전혀 없으면 " AND 1=0"
  */
 function build_scope_group_cond($alias='c') {
     global $g5, $my_level, $my_group, $my_company_id;
@@ -35,14 +35,14 @@ function build_scope_group_cond($alias='c') {
         return ''; // 전사
     }
     if ($my_level == 8) {
-        // 내 회사 소속 그룹(레벨7 계정들)을 집합으로 제한
+        // 내 회사 소속 지점(레벨7 계정들)을 집합으로 제한
         $grp_ids = [];
         $res = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$my_company_id."'");
         while ($r = sql_fetch_array($res)) $grp_ids[] = (int)$r['mb_no'];
         if (!$grp_ids) return " AND 1=0 ";
         return " AND {$alias}.mb_group IN (".implode(',', $grp_ids).") ";
     }
-    // 레벨 7: 자기 그룹
+    // 레벨 7: 자기 지점
     return " AND {$alias}.mb_group='".(int)$my_group."' ";
 }
 

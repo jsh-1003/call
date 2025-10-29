@@ -3,12 +3,12 @@ if (!defined('_GNUBOARD_')) exit;
 
 /**
  * 통화 상태 코드 목록 내려주기 (간단 쿼리 + PHP 후처리)
- * - 토큰 있으면: mb_group IN (0, 내 그룹) → 같은 code면 조직 코드가 기본(0) 덮어씀
+ * - 토큰 있으면: mb_group IN (0, 내 지점) → 같은 code면 조직 코드가 기본(0) 덮어씀
  * - 토큰 없으면: mb_group = 0
  * - 정렬: sort_order ASC
  */
 function handle_get_call_status_codes(): void {
-    // 1) 토큰/그룹 결정
+    // 1) 토큰/지점 결정
     $token  = get_bearer_token_from_headers();
     $groups = [0];
     if ($token) {
@@ -117,7 +117,7 @@ function handle_call_upload(): void {
         require_once $vendor;
     }
 
-    // 0) 인증 → 그룹/사용자
+    // 0) 인증 → 지점/사용자
     $token = get_bearer_token_from_headers();
     $info  = get_group_info($token);
     $mb_group = (int)$info['mb_group'];

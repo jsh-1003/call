@@ -96,7 +96,7 @@ tr.inactive { background-color:#f8f9fa; color:#999; opacity:0.7; }
                     <th>정렬</th>
                     <th>코드</th>
                     <th>표시 이름</th>
-                    <th>그룹</th>
+                    <th>지점</th>
                     <th>2차콜대상</th>
                     <th>블랙등록</th>
                     <th>버튼 스타일</th>

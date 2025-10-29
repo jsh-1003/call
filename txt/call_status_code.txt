@@ -107,12 +107,12 @@ CALL_STATUS_CODES.sortBy { it.sortOrder }
 5. 예시 UI (권장 스타일)
 ------------------------------------------
 
-[성공 그룹]
+[성공 지점]
 ✅ 접수 (초록 success)
 🟦 관심 (파랑 primary)
 ⬜ 단순변심 (회색 secondary)
 
-[실패 그룹]
+[실패 지점]
 ⬜ 부재 (회색 secondary)
 🟥 결번 (빨강 danger / DNC 표시)
 🟧 거부 (주황 warning)

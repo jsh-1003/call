@@ -16,14 +16,14 @@ require_once G5_ADMIN_PATH.'/admin.head.php';
 // 내 권한/조직
 // -----------------------------
 $mb_level      = (int)($member['mb_level'] ?? 0);
-$my_group      = (int)($member['mb_group'] ?? 0);     // 그룹ID(=그룹장 mb_no)
+$my_group      = (int)($member['mb_group'] ?? 0);     // 지점ID(=지점장 mb_no)
 $my_company_id = (int)($member['company_id'] ?? 0);
 
 // -----------------------------
-// 회사/그룹 선택 (변경된 권한 구조 적용)
-//   - 9+: 회사/그룹 자유 선택 (회사 0=전체, 그룹 0=미선택)
-//   - 8 : 회사 고정(본인 회사), 그룹 선택(0=회사 내 미선택)
-//   - 7 : 회사 고정(본인 회사), 그룹 고정(본인 그룹)
+// 회사/지점 선택 (변경된 권한 구조 적용)
+//   - 9+: 회사/지점 자유 선택 (회사 0=전체, 지점 0=미선택)
+//   - 8 : 회사 고정(본인 회사), 지점 선택(0=회사 내 미선택)
+//   - 7 : 회사 고정(본인 회사), 지점 고정(본인 지점)
 // -----------------------------
 if ($mb_level >= 9) {
     $sel_company_id = (int)($_REQUEST['company_id'] ?? 0);  // 0=전체 (리스트/표시용)
@@ -58,9 +58,9 @@ if ($mb_level >= 9) {
 }
 
 // -----------------------------
-// 그룹(그룹장=레벨7) 목록
-//   - 9+: 선택된 회사가 있으면 해당 회사 그룹만, 없으면 전체
-//   - 8 : 내 회사 그룹만
+// 지점(지점장=레벨7) 목록
+//   - 9+: 선택된 회사가 있으면 해당 회사 지점만, 없으면 전체
+//   - 8 : 내 회사 지점만
 //   - 7 : 셀렉트 미노출(고정)
 // -----------------------------
 $leaders = [];
@@ -73,7 +73,7 @@ if ($mb_level >= 8) {
     }
     $res = sql_query("
         SELECT m.mb_no AS mb_group,
-               COALESCE(NULLIF(m.mb_group_name,''), CONCAT('그룹-', m.mb_no)) AS org_name,
+               COALESCE(NULLIF(m.mb_group_name,''), CONCAT('지점-', m.mb_no)) AS org_name,
                m.mb_id, m.mb_name, m.company_id
           FROM {$g5['member_table']} m
         {$where_g}
@@ -124,23 +124,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 공통 권한
     if ($mb_level < 7) alert('접근 권한이 없습니다.');
 
-    // 회사/그룹 존재 검증 및 스코프 확인
+    // 회사/지점 존재 검증 및 스코프 확인
     if ($mb_level >= 9) {
         // 회사 유효성
         if ($post_company_id <= 0) alert('회사를 선택하세요.');
         $comp = sql_fetch("SELECT 1 FROM {$g5['member_table']} WHERE mb_level=8 AND mb_no='{$post_company_id}' LIMIT 1");
         if (!$comp) alert('유효한 회사가 아닙니다.');
 
-        // 그룹 유효성: 해당 회사 소속 레벨7인지
-        if ($post_mb_group <= 0) alert('그룹을 선택하세요.');
+        // 지점 유효성: 해당 회사 소속 레벨7인지
+        if ($post_mb_group <= 0) alert('지점을 선택하세요.');
         $chk = sql_fetch("SELECT 1 FROM {$g5['member_table']} WHERE mb_level=7 AND mb_no='{$post_mb_group}' AND company_id='{$post_company_id}' LIMIT 1");
-        if (!$chk) alert('선택한 회사에 속한 유효한 그룹이 아닙니다.');
+        if (!$chk) alert('선택한 회사에 속한 유효한 지점이 아닙니다.');
     } elseif ($mb_level >= 8) {
         // 회사 고정
         $post_company_id = $my_company_id;
-        if ($post_mb_group <= 0) alert('그룹을 선택하세요.');
+        if ($post_mb_group <= 0) alert('지점을 선택하세요.');
         $chk = sql_fetch("SELECT 1 FROM {$g5['member_table']} WHERE mb_level=7 AND mb_no='{$post_mb_group}' AND company_id='{$post_company_id}' LIMIT 1");
-        if (!$chk) alert('자신의 회사 소속 그룹만 설정할 수 있습니다.');
+        if (!$chk) alert('자신의 회사 소속 지점만 설정할 수 있습니다.');
     } else { // 7
         $post_company_id = $my_company_id;
         $post_mb_group   = $my_group;
@@ -201,11 +201,11 @@ $disp_group   = $view_mb_group   > 0 ? _group_name_cached($view_mb_group)     : 
                             <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>-- 전체 회사 --</option>
                             <?php foreach ($company_options as $c) { ?>
                                 <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
-                                    <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
+                                    <?php echo get_text($c['company_name']); ?> (지점 <?php echo (int)$c['group_count']; ?>)
                                 </option>
                             <?php } ?>
                         </select>
-                        <div class="help">회사를 선택하면 그룹 목록이 해당 회사 기준으로 표시됩니다.</div>
+                        <div class="help">회사를 선택하면 지점 목록이 해당 회사 기준으로 표시됩니다.</div>
                     </td>
                 </tr>
             <?php } else { ?>
@@ -214,10 +214,10 @@ $disp_group   = $view_mb_group   > 0 ? _group_name_cached($view_mb_group)     : 
 
             <?php if ($mb_level >= 8) { ?>
                 <tr>
-                    <th scope="row">그룹</th>
+                    <th scope="row">지점</th>
                     <td>
                         <select name="mb_group" id="mb_group" onchange="this.form.submit();">
-                            <option value="0">-- 그룹 선택 --</option>
+                            <option value="0">-- 지점 선택 --</option>
                             <?php foreach ($leaders as $g): ?>
                                 <option value="<?php echo (int)$g['mb_group']; ?>" <?php echo ($view_mb_group==(int)$g['mb_group'])?'selected':''; ?>>
                                     <?php
@@ -228,7 +228,7 @@ $disp_group   = $view_mb_group   > 0 ? _group_name_cached($view_mb_group)     : 
                                 </option>
                             <?php endforeach; ?>
                         </select>
-                        <div class="help">그룹을 선택하면 해당 그룹의 콜 설정을 편집할 수 있습니다.</div>
+                        <div class="help">지점을 선택하면 해당 지점의 콜 설정을 편집할 수 있습니다.</div>
                     </td>
                 </tr>
             <?php } else { // 7레벨 고정 ?>
@@ -237,7 +237,7 @@ $disp_group   = $view_mb_group   > 0 ? _group_name_cached($view_mb_group)     : 
                     <th scope="row">대상 조직</th>
                     <td>
                         <b><?php echo get_text($disp_company); ?></b> / <?php echo get_text($disp_group); ?>
-                        <div class="help">7레벨 관리자는 자신의 그룹만 설정할 수 있습니다.</div>
+                        <div class="help">7레벨 관리자는 자신의 지점만 설정할 수 있습니다.</div>
                     </td>
                 </tr>
             <?php } ?>
@@ -267,7 +267,7 @@ $disp_group   = $view_mb_group   > 0 ? _group_name_cached($view_mb_group)     : 
                             echo '<span style="color:#999">조직을 먼저 선택하세요.</span>';
                         } else {
                             $org = sql_fetch("
-                                SELECT COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹-', mb_no)) AS org_name, mb_name, company_id
+                                SELECT COALESCE(NULLIF(mb_group_name,''), CONCAT('지점-', mb_no)) AS org_name, mb_name, company_id
                                   FROM {$g5['member_table']}
                                  WHERE mb_no='{$view_mb_group}' AND mb_level=7
                                  LIMIT 1

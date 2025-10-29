@@ -42,7 +42,7 @@ $seven_ago  = date('Y-m-d', strtotime('-7 days'));
 $start_date = _g('start', $seven_ago);
 $end_date   = _g('end',   $today);
 
-// ===== 조직 선택 파라미터 (회사/그룹/상담원) =====
+// ===== 조직 선택 파라미터 (회사/지점/상담원) =====
 if ($mb_level >= 9) {
     $sel_company_id = (int)(_g('company_id', 0));
     $sel_mb_group   = (int)(_g('mb_group', 0));
@@ -149,13 +149,13 @@ if (isset($_GET['ajax']) && $_GET['ajax']==='get') {
 }
 
 /* ==========================
-   AJAX: 2차담당자 후보 목록 (해당 그룹만)
+   AJAX: 2차담당자 후보 목록 (해당 지점만)
    ========================== */
 if (isset($_GET['ajax']) && $_GET['ajax']==='agents') {
     header('Content-Type: application/json; charset=utf-8');
     $q_grp = (int)($_GET['mb_group'] ?? 0);
 
-    // 그룹은 필수. 없으면 빈목록.
+    // 지점은 필수. 없으면 빈목록.
     if ($q_grp <= 0) { echo json_encode(['success'=>true,'rows'=>[]]); exit; }
 
     // 권한 범위 체크
@@ -165,7 +165,7 @@ if (isset($_GET['ajax']) && $_GET['ajax']==='agents') {
         if (!$own_grp) { echo json_encode(['success'=>false,'message'=>'denied']); exit; }
     }
 
-    // 해당 '그룹'의 레벨5/7만
+    // 해당 '지점'의 레벨5/7만
     $sql = "SELECT m.mb_no, m.mb_id, m.mb_name, COALESCE(m.is_after_call,0) AS is_after_call
               FROM {$member_table} m
              WHERE m.mb_group = {$q_grp}
@@ -195,7 +195,7 @@ if (isset($_POST['ajax']) && $_POST['ajax']==='save') {
     if ($mb_level < 7) {
         $assigned_after_mb_no = null; // 업데이트/인서트 시 그대로 유지
     } else {
-        // 같은 그룹 + 레벨(5,7)만 유효
+        // 같은 지점 + 레벨(5,7)만 유효
         $valid = ($assigned_after_mb_no===0) ? true :
             sql_fetch("SELECT 1 FROM {$member_table} m WHERE m.mb_no={$assigned_after_mb_no} AND m.mb_level IN (5,7) AND m.mb_group={$mb_group} LIMIT 1");
         if (!$valid) $assigned_after_mb_no = 0; // 범위 벗어나면 미지정
@@ -359,7 +359,7 @@ if (isset($_POST['ajax']) && $_POST['ajax']==='save') {
 }
 
 /* ==========================
-   WHERE (리스트) + 회사/그룹/상담원 필터
+   WHERE (리스트) + 회사/지점/상담원 필터
    ========================== */
 $where = [];
 $start_esc = sql_escape_string($start_date.' 00:00:00');
@@ -448,7 +448,7 @@ while ($v = sql_fetch_array($rui)) $status_ui[(int)$v['call_status']] = ($v['ui_
 
 /**
  * ========================
- * 회사/그룹/담당자 드롭다운 옵션
+ * 회사/지점/담당자 드롭다운 옵션
  * ========================
  */
 $build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
@@ -457,7 +457,7 @@ $group_options   = $build_org_select_options['group_options'];   // 8+
 $agent_options   = $build_org_select_options['agent_options'];   // 레벨3 상담원
 /**
  * ========================
- * // 회사/그룹/담당자 드롭다운 옵션
+ * // 회사/지점/담당자 드롭다운 옵션
  * ========================
  */
 
@@ -530,7 +530,7 @@ $sql_list = "SELECT
   JOIN call_status_code sc ON sc.call_status=b.call_status AND sc.mb_group=0
   LEFT JOIN {$member_table} m  ON m.mb_no  = b.mb_no
   LEFT JOIN (
-      SELECT mb_group, MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('그룹 ', mb_group))) AS mv_group_name
+      SELECT mb_group, MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('지점 ', mb_group))) AS mv_group_name
         FROM {$member_table} WHERE mb_group>0 GROUP BY mb_group
   ) g ON g.mb_group = b.mb_group
   JOIN call_campaign cc ON cc.campaign_id=b.campaign_id AND cc.mb_group=b.mb_group
@@ -633,7 +633,7 @@ td.campaign_name {max-width:120px;}
                 <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
                 <?php foreach ($company_options as $c) { ?>
                     <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
-                        <?php echo get_text($c['company_name']); ?> (그룹 <?php echo (int)$c['group_count']; ?>)
+                        <?php echo get_text($c['company_name']); ?> (지점 <?php echo (int)$c['group_count']; ?>)
                     </option>
                 <?php } ?>
             </select>
@@ -643,7 +643,7 @@ td.campaign_name {max-width:120px;}
 
         <?php if ($mb_level >= 8) { ?>
             <select name="mb_group" id="mb_group">
-                <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 그룹</option>
+                <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 지점</option>
                 <?php
                 if ($group_options) {
                     if ($mb_level >= 9 && $sel_company_id == 0) {
@@ -678,7 +678,7 @@ td.campaign_name {max-width:120px;}
         <select name="ac_agent" id="ac_agent">
             <option value="0">전체 2차담당자</option>
             <?php
-            // 화면 필터: 조직 범위 기준 (레벨7=내 그룹 / 8=내 회사 / 9+=선택회사/그룹)
+            // 화면 필터: 조직 범위 기준 (레벨7=내 지점 / 8=내 회사 / 9+=선택회사/지점)
             $cond = [];
             if ($mb_level == 7)               $cond[] = "m.mb_group = ".(int)$my_group;
             elseif ($sel_mb_group > 0)        $cond[] = "m.mb_group = ".(int)$sel_mb_group;
@@ -704,7 +704,7 @@ td.campaign_name {max-width:120px;}
     <table class="table-fixed call-list-table">
         <thead>
             <tr>
-                <th>그룹명</th>
+                <th>지점명</th>
                 <th>아이디</th>
                 <th><?php echo sort_th('agent_name','상담원명'); ?></th>
                 <!-- <th>통화결과</th> -->
@@ -1020,7 +1020,7 @@ $base = './call_after_list.php?'.http_build_query($qstr);
       document.getElementById('f_schedule_clear').value = '0';
       renderTimeline([],[]);
 
-      // 담당자 불러오기 (해당 그룹만)
+      // 담당자 불러오기 (해당 지점만)
       const urlAg = new URL('./call_after_list.php', location.href);
       urlAg.searchParams.set('ajax','agents');
       urlAg.searchParams.set('mb_group', mb_group);
@@ -1132,7 +1132,7 @@ $base = './call_after_list.php?'.http_build_query($qstr);
 
 (function(){
     var $form = document.getElementById('searchForm');
-    // ★ 회사 변경 시 그룹/담당자 초기화 후 자동검색
+    // ★ 회사 변경 시 지점/담당자 초기화 후 자동검색
     var companySel = document.getElementById('company_id');
     if (companySel) {
         companySel.addEventListener('change', function(){
@@ -1144,7 +1144,7 @@ $base = './call_after_list.php?'.http_build_query($qstr);
         });
     }
 
-    // 그룹 변경 시 담당자 초기화 후 자동검색
+    // 지점 변경 시 담당자 초기화 후 자동검색
     var mbGroup = document.getElementById('mb_group');
     if (mbGroup) {
         mbGroup.addEventListener('change', function(){

@@ -79,13 +79,13 @@ if (!auth_check_menu($auth, '200100', 'r', true)) {
                         <th scope="col">공개</th>
                         <th scope="col">인증</th>
                         <th scope="col">차단</th>
-                        <th scope="col">그룹</th>
+                        <th scope="col">지점</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php
                     for ($i = 0; $row = sql_fetch_array($result); $i++) {
-                        // 접근가능한 그룹수
+                        // 접근가능한 지점수
                         $sql2 = " SELECT count(*) as cnt from {$g5['group_member_table']} where mb_id = '{$row['mb_id']}' ";
                         $row2 = sql_fetch($sql2);
                         $group = "";
@@ -100,7 +100,7 @@ if (!auth_check_menu($auth, '200100', 'r', true)) {
                             $s_mod = '<a href="./member_form.php?$qstr&amp;w=u&amp;mb_id=' . $row['mb_id'] . '">수정</a>';
                             $s_del = '<a href="./member_delete.php?' . $qstr . '&amp;w=d&amp;mb_id=' . $row['mb_id'] . '&amp;url=' . $_SERVER['SCRIPT_NAME'] . '" onclick="return delete_confirm(this);">삭제</a>';
                         }
-                        $s_grp = '<a href="./boardgroupmember_form.php?mb_id=' . $row['mb_id'] . '">그룹</a>';
+                        $s_grp = '<a href="./boardgroupmember_form.php?mb_id=' . $row['mb_id'] . '">지점</a>';
 
                         $leave_date = $row['mb_leave_date'] ? $row['mb_leave_date'] : date("Ymd", G5_SERVER_TIME);
                         $intercept_date = $row['mb_intercept_date'] ? $row['mb_intercept_date'] : date("Ymd", G5_SERVER_TIME);
@@ -172,7 +172,7 @@ if (!auth_check_menu($auth, '300100', 'r', true)) {
                 <caption>최근게시물</caption>
                 <thead>
                     <tr>
-                        <th scope="col">그룹</th>
+                        <th scope="col">지점</th>
                         <th scope="col">게시판</th>
                         <th scope="col">제목</th>
                         <th scope="col">이름</th>

@@ -30,7 +30,7 @@ if (!(isset($target['mb_id']) && $target['mb_id'])) {
 // -----------------------------
 $my_level      = (int)($member['mb_level'] ?? 0);
 $my_mb_no      = (int)($member['mb_no'] ?? 0);
-$my_group      = (int)($member['mb_group'] ?? 0);      // 레벨7 관리자는 일반적으로 자신의 mb_no와 동일(그룹ID)
+$my_group      = (int)($member['mb_group'] ?? 0);      // 레벨7 관리자는 일반적으로 자신의 mb_no와 동일(지점ID)
 $my_company_id = (int)($member['company_id'] ?? 0);
 
 // 1) 자기 자신
@@ -49,20 +49,20 @@ if ((int)$target['mb_level'] >= $my_level) {
 }
 
 // 4) 스코프 제한
-//   - 레벨 9+: 전사(회사/그룹 제한 없음)
+//   - 레벨 9+: 전사(회사/지점 제한 없음)
 //   - 레벨 8 : 본인 회사(company_id) 소속 회원만
-//   - 레벨 7 : 본인 그룹(mb_group = 내 그룹ID) 회원만
+//   - 레벨 7 : 본인 지점(mb_group = 내 지점ID) 회원만
 if ($my_level == 8) {
     $t_company_id = (int)($target['company_id'] ?? 0);
     if ($t_company_id !== $my_company_id) {
         alert('자신의 회사 소속 회원만 차단/삭제할 수 있습니다.');
     }
 } elseif ($my_level == 7) {
-    // 대상의 소속 그룹이 내 그룹과 동일해야 함
-    // (일반 사원은 mb_group=그룹ID, 그룹관리자(레벨7)는 통상 본인의 mb_no가 그룹ID이며 mb_group에도 동일값이 세팅됩니다)
+    // 대상의 소속 지점이 내 지점과 동일해야 함
+    // (일반 사원은 mb_group=지점ID, 지점관리자(레벨7)는 통상 본인의 mb_no가 지점ID이며 mb_group에도 동일값이 세팅됩니다)
     $t_group = (int)($target['mb_group'] ?? 0);
     if ($t_group !== $my_group) {
-        alert('자신의 소속 그룹 회원만 차단/삭제할 수 있습니다.');
+        alert('자신의 소속 지점 회원만 차단/삭제할 수 있습니다.');
     }
 }
 
