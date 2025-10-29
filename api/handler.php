@@ -411,7 +411,8 @@ function handle_get_user_info_list($token = null): void {
     $mb_group       = (int)$info['mb_group'];
     $call_api_count = max(1, (int)$info['call_api_count']);
     $call_lease_min = (int)$info['call_lease_min'];
-    $campaign_id    = (int)($info['campaign_id'] ?? 0); // 기본 0
+    // $campaign_id    = (int)($info['campaign_id'] ?? 0); // 기본 0
+    $campaign_id    = 0;
 
     // 0-1) 토큰 소유자 유효성(차단/탈퇴) 재검증
     $mb = sql_fetch("SELECT mb_no, mb_id, mb_intercept_date, mb_leave_date
@@ -454,14 +455,38 @@ function handle_get_user_info_list($token = null): void {
                 'assigned_status_to'     => 1,
                 'assigned_status_filter' => 0,
                 'order'                  => 'target_id',
-                'where_extra'            => 'AND do_not_call = 0'
+                // 'where_extra'            => 'AND do_not_call = 0',
+                // 'exclude_blacklist'      => true,
+                // 'exclude_dnc_flag'       => true, // 내부 DNC 플래그도 제외
             ],
             $campaign_id
         );
-        if (!$result['ok'] && $need === $call_api_count) {
+
+        // ✅ 1차: ok=true여도 picked=0이면 재시도
+        if ($result['ok'] && (int)$result['picked'] === 0) {
+            // 1-1) 재시도: (캠페인 필터 해제 OR 재시도 큐 허용) 중 선택 - 정책에 맞게 하나씩 풀자.
+            $fallback = call_assign_pick_and_lock(
+                $mb_group,
+                $mb_no,
+                $need,
+                $call_lease_min,
+                get_uniqid(),
+                [
+                    'use_skip_locked'        => true,
+                    'assigned_status_to'     => 1,
+                    'assigned_status_filter' => 0,
+                    'order'                  => 'target_id',
+                ],
+                $campaign_id
+            );
+            $result = $fallback;
+        }
+
+        // ✅ 2차까지도 못 뽑았고, 이번 콜에서 처음부터 다 필요했던 경우 → 실패 응답(앱이 재요청하게)
+        if ((!$result['ok'] || (int)$result['picked'] === 0) && $need === $call_api_count) {
             send_json([
-                'success' => false,
-                'message' => '배정실패',
+                'success' => true,
+                'message' => 'assign_empty', // 앱이 재호출/재로그인 트리거할 수 있게 명시 코드
                 'data'    => [],
             ]);
         }

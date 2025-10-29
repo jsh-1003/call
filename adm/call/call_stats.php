@@ -273,21 +273,36 @@ foreach($code_list as $v) {
 // --------------------------------------------------
 // (공통) 통계 계산 함수
 // --------------------------------------------------
-function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $sel_mb_group) {
+// --------------------------------------------------
+// (공통) 통계 계산 함수  ← ★ after_status 파라미터 추가
+// --------------------------------------------------
+function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $sel_mb_group, $after_status) {
     $result = [
         'top_sum_by_status' => [],
         'success_total' => 0,
         'fail_total' => 0,
         'grand_total' => 0,
+
+        // ★ 추가 집계: 접수(후처리) 합계
+        'after_total' => 0,
+
         'dim_mode' => 'group',
         'matrix' => [],
         'dim_totals' => [],
         'dim_labels' => [],
+
+        // ★ 추가 집계: 차원별 접수(후처리) 합계
+        'dim_after_totals' => [],
+
         'group_agent_matrix' => [],
         'group_agent_totals' => [],
         'group_totals' => [],
         'group_labels' => [],
         'agent_labels' => [],
+
+        // ★ 지점 미선택 섹션용: 지점/상담자별 접수(후처리) 합계
+        'group_after_totals' => [],
+        'group_agent_after_totals' => [],
     ];
 
     // 상단 총합
@@ -314,6 +329,11 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         ");
         $rg = isset($row['rg']) ? (int)$row['rg'] : (($st>=200 && $st<300)?1:0);
         if ($rg === 1) $result['success_total'] += $c; else $result['fail_total'] += $c;
+
+        // ★ 접수(후처리) 총합
+        if ($st === (int)$after_status) {
+            $result['after_total'] += $c;
+        }
     }
 
     // 피벗
@@ -340,6 +360,12 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         $result['matrix'][$did][$st] = $cnt;
         if (!isset($result['dim_totals'][$did])) $result['dim_totals'][$did] = 0;
         $result['dim_totals'][$did] += $cnt;
+
+        // ★ 차원(지점/담당자)별 접수(후처리) 합계
+        if ($st === (int)$after_status) {
+            if (!isset($result['dim_after_totals'][$did])) $result['dim_after_totals'][$did] = 0;
+            $result['dim_after_totals'][$did] += $cnt;
+        }
     }
 
     // 라벨
@@ -379,6 +405,7 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
             $aid  = (int)$r['agent_id'];
             $st   = (int)$r['call_status'];
             $cnt  = (int)$r['cnt'];
+
             if (!isset($result['group_agent_matrix'][$gid])) $result['group_agent_matrix'][$gid] = [];
             if (!isset($result['group_agent_matrix'][$gid][$aid])) $result['group_agent_matrix'][$gid][$aid] = [];
             $result['group_agent_matrix'][$gid][$aid][$st] = $cnt;
@@ -389,6 +416,16 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
 
             if (!isset($result['group_totals'][$gid])) $result['group_totals'][$gid] = 0;
             $result['group_totals'][$gid] += $cnt;
+
+            // ★ 지점/상담자별 접수(후처리) 합계
+            if ($st === (int)$after_status) {
+                if (!isset($result['group_after_totals'][$gid])) $result['group_after_totals'][$gid] = 0;
+                $result['group_after_totals'][$gid] += $cnt;
+
+                if (!isset($result['group_agent_after_totals'][$gid])) $result['group_agent_after_totals'][$gid] = [];
+                if (!isset($result['group_agent_after_totals'][$gid][$aid])) $result['group_agent_after_totals'][$gid][$aid] = 0;
+                $result['group_agent_after_totals'][$gid][$aid] += $cnt;
+            }
         }
 
         // 라벨 벌크
@@ -485,11 +522,14 @@ $res_list = sql_query($sql_list);
 // --------------------------------------------------
 // 통계 계산 (상단/피벗/지점별담당자)
 // --------------------------------------------------
-$stats = build_stats($where_sql, $member_table, $code_list_status, $mb_level, $sel_mb_group);
+$stats = build_stats($where_sql, $member_table, $code_list_status, $mb_level, $sel_mb_group, $AFTER_STATUS);
 $top_sum_by_status = $stats['top_sum_by_status'];
 $success_total = $stats['success_total'];
 $fail_total = $stats['fail_total'];
 $grand_total = $stats['grand_total'];
+
+$after_total = $stats['after_total'];
+$dim_after_totals = $stats['dim_after_totals'];
 
 $dim_mode    = $stats['dim_mode'];
 $matrix      = $stats['matrix'];
@@ -501,6 +541,17 @@ $group_agent_totals  = $stats['group_agent_totals'];
 $group_totals        = $stats['group_totals'];
 $group_labels        = $stats['group_labels'];
 $agent_labels        = $stats['agent_labels'];
+
+// ★ 지점/상담자 섹션용
+$group_after_totals        = $stats['group_after_totals'];
+$group_agent_after_totals  = $stats['group_agent_after_totals'];
+
+// ★ 전환율 포맷터
+$fmt_rate = function($num, $den){
+    $n = (int)$num; $d = (int)$den;
+    if ($d <= 0 || $n <= 0) return '-';
+    return number_format($n * 100 / $d, 1) . '%';
+};
 
 /**
  * ========================
@@ -652,6 +703,8 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
     성공: <span class="badge badge-success"><span id="stat_success_total"><?php echo number_format($success_total);?></span></span>
     &nbsp;/&nbsp;
     실패: <span class="badge badge-fail"><span id="stat_fail_total"><?php echo number_format($fail_total);?></span></span>
+    &nbsp;|&nbsp;
+    접수전환율: <b><?php echo $fmt_rate($after_total, $grand_total); ?></b>
 </p>
 
 <!-- 피벗 요약 테이블 -->
@@ -662,6 +715,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
         <tr>
             <th scope="col"><?php echo ($dim_mode==='group'?'지점':'담당자'); ?></th>
             <th scope="col">총합</th>
+            <th scope="col">접수전환율</th>
             <?php foreach ($code_list as $c) echo '<th scope="col">'.get_text($c['name']).'</th>'; ?>
         </tr>
         </thead>
@@ -669,6 +723,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
         <tr style="background:#fafafa;font-weight:bold;">
             <td>합계</td>
             <td><?php echo number_format($grand_total); ?></td>
+            <td><?php echo $fmt_rate($after_total, $grand_total); ?></td>
             <?php
             foreach ($code_list_status as $k => $item) {
                 $cnt = !empty($top_sum_by_status[$k]) ? number_format($top_sum_by_status[$k]) : '-';
@@ -686,9 +741,11 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
             foreach ($matrix as $did => $rowset) {
                 $label = $dim_labels[$did] ?? (($dim_mode==='group')?('지점 '.$did):('담당자 '.$did));
                 $row_total = (int)($dim_totals[$did] ?? 0);
+                $row_after = (int)($dim_after_totals[$did] ?? 0);
                 echo '<tr>';
                 echo '<td>'.get_text($label).'</td>';
                 echo '<td>'.number_format($row_total).'</td>';
+                echo '<td>'.$fmt_rate($row_after, $row_total).'</td>';
                 foreach ($code_list_status as $k => $item) {
                     $cnt = isset($rowset[$k]) ? number_format($rowset[$k]) : '-';
                     $ui = $item['ui_type'] ?? 'secondary';
@@ -719,13 +776,16 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                     <tr>
                         <th scope="col">담당자</th>
                         <th scope="col">총합</th>
+                        <th scope="col">접수전환율</th>
                         <?php foreach ($code_list as $c) echo '<th scope="col">'.get_text($c['name']).'</th>'; ?>
                     </tr>
                 </thead>
                 <tbody>
                     <tr style="background:#fafafa;font-weight:bold;">
                         <td><?php echo get_text($group_labels[$gid] ?? ('지점 '.$gid)); ?> 합계</td>
-                        <td><?php echo number_format((int)($group_totals[$gid] ?? 0)); ?></td>
+                        <?php $g_total = (int)($group_totals[$gid] ?? 0); ?>
+                        <td><?php echo number_format($g_total); ?></td>
+                        <td><?php echo $fmt_rate((int)($group_after_totals[$gid] ?? 0), $g_total); ?></td>
                         <?php
                         $status_sum = [];
                         foreach ($agents as $aid => $rowset) {
@@ -746,10 +806,12 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                     ksort($agents, SORT_NUMERIC);
                     foreach ($agents as $aid => $rowset) {
                         $row_total = (int)($group_agent_totals[$gid][$aid] ?? 0);
+                        $row_after = (int)($group_agent_after_totals[$gid][$aid] ?? 0);
                         $alabel = $agent_labels[$aid] ?? ('담당자 '.$aid);
                         echo '<tr>';
                         echo '<td>'.get_text($alabel).'</td>';
                         echo '<td>'.number_format($row_total).'</td>';
+                        echo '<td>'.$fmt_rate($row_after, $row_total).'</td>';
                         foreach ($code_list_status as $k => $item) {
                             $cnt = isset($rowset[$k]) ? number_format($rowset[$k]) : '-';
                             $ui = $item['ui_type'] ?? 'secondary';
