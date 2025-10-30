@@ -2,6 +2,9 @@
 include_once('./_common.php');
 require_once G5_LIB_PATH.'/call.assign.lib.php';
 
+echo date("Y-m");
+
+exit;
 $rr = aftercall_assign_bulk_unassigned(10, 10, 1);
 var_dump($arr);
 exit;

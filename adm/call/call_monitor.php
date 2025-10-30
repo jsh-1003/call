@@ -17,8 +17,9 @@ $my_group       = isset($member['mb_group']) ? (int)$member['mb_group'] : 0;
 $my_company_id  = isset($member['company_id']) ? (int)$member['company_id'] : 0;
 
 $now_ts        = time();
-$default_end   = date('Y-m-d\TH:i', $now_ts);
-$default_start = date('Y-m-d').'T00:00';
+// $default_end   = date('Y-m-d\TH:i', $now_ts);
+$default_end   = date('Y-m-d').'T19:00';
+$default_start = date('Y-m-d').'T08:00';
 
 $start = _g('start', $default_start); // datetime-local
 $end   = _g('end',   $default_end);
@@ -402,9 +403,19 @@ canvas { background:#fff; }
 
     async function loadStatus(){
         const r = await fetchJson('status'); if (!r.ok) return;
-        const labels = r.rows.map(x=> (x.call_status+' '+x.label));
+        const labels = r.rows.map(x=> x.label);
         const data   = r.rows.map(x=> x.cnt);
-        const colors = r.rows.map(x=> x.is_dnc==1 ? '#dc3545' : (x.result_group==1? '#28a745' : '#6c757d'));
+        // const colors = r.rows.map(x=> x.is_dnc==1 ? '#dc3545' : (x.result_group==1? '#28a745' : '#6c757d'));
+        const colors = r.rows.map(x => {
+            // DNC는 무조건 danger 계열(실패 보정 규칙) 적용
+            if (x.is_dnc == 1) {
+                return tintByStatus(baseHex.danger, 0, x.call_status, true);
+            }
+            const hex = baseHex[x.ui_type] || baseHex.secondary;
+            const grp = (x.result_group == null) ? 0 : x.result_group; // null 안전
+            return tintByStatus(hex, grp, x.call_status);
+        });
+
         if (chartStatus) chartStatus.destroy();
         chartStatus = new Chart(document.getElementById('chartStatus'), {
             type:'doughnut',

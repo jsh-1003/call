@@ -90,275 +90,6 @@ $__orders[] = 'b.call_id DESC';
 $order_sql = implode(', ', $__orders);
 
 /* ==========================
-   AJAX: 단건 조회, 저장, 후보목록
-   ========================== */
-if (isset($_GET['ajax']) && $_GET['ajax']==='get') {
-    $target_id   = (int)($_GET['target_id'] ?? 0);
-    $campaign_id = (int)($_GET['campaign_id'] ?? 0);
-    $mb_group    = (int)($_GET['mb_group'] ?? 0);
-    header('Content-Type: application/json; charset=utf-8');
-    if ($target_id<=0 || $campaign_id<=0 || $mb_group<=0) { echo json_encode(['success'=>false,'message'=>'invalid'], JSON_UNESCAPED_UNICODE); exit; }
-    if ($mb_level <= 7 && $mb_group !== $my_group) { echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit; }
-    if ($mb_level == 8) {
-        $own_grp = sql_fetch("SELECT 1 FROM {$member_table} WHERE mb_no={$mb_group} AND mb_level=7 AND company_id='{$my_company_id}' LIMIT 1");
-        if (!$own_grp) { echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit; }
-    }
-    if ($mb_level == 5) {
-        $own = sql_fetch("SELECT 1 FROM call_aftercall_ticket WHERE target_id = {$target_id} and assigned_after_mb_no = {$mb_no} LIMIT 1 ");
-        if (!$own) { echo json_encode(['success'=>false,'message'=>'denied/3']); exit; }
-    } else if ($mb_level < 7) {
-        $own = sql_fetch("SELECT 1 FROM call_log WHERE mb_group={$mb_group} AND campaign_id={$campaign_id} AND target_id={$target_id} AND mb_no={$mb_no} LIMIT 1");
-        if (!$own) { echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit; }
-    }
-    $ticket = sql_fetch("SELECT t.ticket_id, t.state_id, t.scheduled_at, t.schedule_note, t.updated_by, t.updated_at, t.assigned_after_mb_no FROM call_aftercall_ticket t WHERE t.mb_group={$mb_group} AND t.campaign_id={$campaign_id} AND t.target_id={$target_id} LIMIT 1");
-    if (!$ticket) $ticket = ['ticket_id'=>null,'state_id'=>0,'scheduled_at'=>null,'schedule_note'=>null,'updated_by'=>null,'updated_at'=>null,'assigned_after_mb_no'=>0];
-    $hist = [];
-    if (!empty($ticket['ticket_id'])) {
-        $rh = sql_query("
-            SELECT h.prev_state, h.new_state, h.memo, h.changed_by, h.changed_at,
-                   ps.name_ko AS prev_label, ns.name_ko AS new_label,
-                   m.mb_name AS who_name, m.mb_id AS who_id,
-                   h.assigned_after_mb_no,
-                   ma.mb_name AS after_name,
-                   ma.mb_id   AS after_id
-              FROM call_aftercall_history h
-         LEFT JOIN call_aftercall_state_code ps ON ps.state_id=h.prev_state
-         LEFT JOIN call_aftercall_state_code ns ON ns.state_id=h.new_state
-         LEFT JOIN {$member_table} m  ON m.mb_no = h.changed_by
-         LEFT JOIN {$member_table} ma ON ma.mb_no = h.assigned_after_mb_no
-             WHERE h.ticket_id=".(int)$ticket['ticket_id']."
-          ORDER BY h.changed_at DESC, h.hist_id DESC
-             LIMIT 200
-        ");
-        while ($r = sql_fetch_array($rh)) { $r['kind']='state'; $hist[]=$r; }
-    }
-    $notes = [];
-    if (!empty($ticket['ticket_id'])) {
-        $rn = sql_query("
-            SELECT n.note_id, n.note_type, n.note_text, n.scheduled_at, n.created_by, n.created_at,
-                   m.mb_name AS who_name, m.mb_id AS who_id
-              FROM call_aftercall_note n
-         LEFT JOIN {$member_table} m ON m.mb_no = n.created_by
-             WHERE n.ticket_id=".(int)$ticket['ticket_id']."
-          ORDER BY n.created_at DESC, n.note_id DESC
-             LIMIT 200
-        ");
-        while ($r = sql_fetch_array($rn)) $notes[] = $r;
-    }
-    echo json_encode(['success'=>true,'ticket'=>$ticket,'history'=>$hist,'notes'=>$notes], JSON_UNESCAPED_UNICODE); exit;
-}
-
-/* ==========================
-   AJAX: 2차담당자 후보 목록 (해당 지점만)
-   ========================== */
-if (isset($_GET['ajax']) && $_GET['ajax']==='agents') {
-    header('Content-Type: application/json; charset=utf-8');
-    $q_grp = (int)($_GET['mb_group'] ?? 0);
-
-    // 지점은 필수. 없으면 빈목록.
-    if ($q_grp <= 0) { echo json_encode(['success'=>true,'rows'=>[]]); exit; }
-
-    // 권한 범위 체크
-    if ($mb_level == 7 && $q_grp !== $my_group) { echo json_encode(['success'=>false,'message'=>'denied']); exit; }
-    if ($mb_level == 8) {
-        $own_grp = sql_fetch("SELECT 1 FROM {$member_table} WHERE mb_no={$q_grp} AND mb_level=7 AND company_id='{$my_company_id}' LIMIT 1");
-        if (!$own_grp) { echo json_encode(['success'=>false,'message'=>'denied']); exit; }
-    }
-
-    // 해당 '지점'의 레벨5/7만
-    $sql = "SELECT m.mb_no, m.mb_id, m.mb_name, COALESCE(m.is_after_call,0) AS is_after_call
-              FROM {$member_table} m
-             WHERE m.mb_group = {$q_grp}
-               AND m.mb_level IN (5,7)
-             ORDER BY (m.mb_name<>''), m.mb_name, m.mb_id";
-    $rows = [];
-    $rs = sql_query($sql);
-    while($r=sql_fetch_array($rs)) $rows[]=$r;
-    echo json_encode(['success'=>true,'rows'=>$rows], JSON_UNESCAPED_UNICODE); exit;
-}
-
-// 저장
-if (isset($_POST['ajax']) && $_POST['ajax']==='save') {
-    check_admin_token();
-    $campaign_id   = (int)($_POST['campaign_id'] ?? 0);
-    $mb_group      = (int)($_POST['mb_group'] ?? 0);
-    $target_id     = (int)($_POST['target_id'] ?? 0);
-    $new_state_id  = (int)($_POST['state_id'] ?? 0);
-    $memo_input    = trim((string)($_POST['memo'] ?? ''));
-    $schedule_date = trim((string)($_POST['schedule_date'] ?? ''));
-    $schedule_time = trim((string)($_POST['schedule_time'] ?? ''));
-    $schedule_note = trim((string)($_POST['schedule_note'] ?? ''));
-    $schedule_clear= (int)($_POST['schedule_clear'] ?? 0);
-    $assigned_after_mb_no = (int)($_POST['assigned_after_mb_no'] ?? 0);
-
-    // 레벨7 이상만 변경 허용, 5레벨은 입력을 무시
-    if ($mb_level < 7) {
-        $assigned_after_mb_no = null; // 업데이트/인서트 시 그대로 유지
-    } else {
-        // 같은 지점 + 레벨(5,7)만 유효
-        $valid = ($assigned_after_mb_no===0) ? true :
-            sql_fetch("SELECT 1 FROM {$member_table} m WHERE m.mb_no={$assigned_after_mb_no} AND m.mb_level IN (5,7) AND m.mb_group={$mb_group} LIMIT 1");
-        if (!$valid) $assigned_after_mb_no = 0; // 범위 벗어나면 미지정
-    }
-
-    header('Content-Type: application/json; charset=utf-8');
-
-    if ($campaign_id<=0 || $mb_group<=0 || $target_id<=0) { echo json_encode(['success'=>false,'message'=>'invalid']); exit; }
-    if ($mb_level == 7 && $mb_group !== $my_group) { echo json_encode(['success'=>false,'message'=>'denied/1']); exit; }
-    if ($mb_level == 8) {
-        $own_grp = sql_fetch("SELECT 1 FROM {$member_table} WHERE mb_no={$mb_group} AND mb_level=7 AND company_id='{$my_company_id}' LIMIT 1");
-        if (!$own_grp) { echo json_encode(['success'=>false,'message'=>'denied/2']); exit; }
-    }
-    if ($mb_level == 5) {
-        $own = sql_fetch("SELECT 1 FROM call_aftercall_ticket WHERE target_id = {$target_id} and assigned_after_mb_no = {$mb_no} LIMIT 1 ");
-        if (!$own) { echo json_encode(['success'=>false,'message'=>'denied/3']); exit; }
-    } else if ($mb_level < 7) {
-        $own = sql_fetch("SELECT 1 FROM call_log WHERE mb_group={$mb_group} AND target_id={$target_id} AND mb_no={$mb_no} LIMIT 1");
-        if (!$own) { echo json_encode(['success'=>false,'message'=>'denied/4']); exit; }
-    }
-    $last = sql_fetch("SELECT call_id FROM call_log WHERE mb_group={$mb_group} AND target_id={$target_id} ORDER BY call_start DESC, call_id DESC LIMIT 1");
-    $last_call_id = (int)($last['call_id'] ?? 0);
-    $rowPrev = sql_fetch("SELECT ticket_id, state_id, scheduled_at, schedule_note, assigned_after_mb_no FROM call_aftercall_ticket WHERE mb_group={$mb_group} AND campaign_id={$campaign_id} AND target_id={$target_id} LIMIT 1");
-    $prev_state_id = $rowPrev ? (int)$rowPrev['state_id'] : null;
-    $prev_sched_at = $rowPrev ? ($rowPrev['scheduled_at'] ?? null) : null;
-    $prev_sched_nt = $rowPrev ? ($rowPrev['schedule_note'] ?? null) : null;
-
-    $scheduled_at = null;
-    if ($schedule_clear) { $scheduled_at = null; $schedule_note = ''; }
-    else {
-        if ($schedule_date !== '') {
-            if ($schedule_time === '') $schedule_time = '09:00';
-            $scheduled_at = $schedule_date.' '.$schedule_time.':00';
-        } else {
-            $scheduled_at = $prev_sched_at;
-            if ($schedule_note === '' && $prev_sched_nt !== null) $schedule_note = $prev_sched_nt;
-        }
-    }
-
-    $state_changed    = ($prev_state_id === null || $prev_state_id !== $new_state_id);
-    $schedule_changed = ($scheduled_at !== $prev_sched_at) || ($schedule_note !== (string)$prev_sched_nt);
-
-    // 담당자 변경 여부(레벨7 이상만 의미)
-    $assign_changed   = ($mb_level >= 7)
-                        && !is_null($assigned_after_mb_no)
-                        && (int)($rowPrev['assigned_after_mb_no'] ?? 0) !== (int)$assigned_after_mb_no;
-
-    // SET 절 (콤마 처리 주의)
-    $set_after_sql = '';
-    if ($mb_level >= 7) {
-        $set_after_sql = "assigned_after_mb_no = ".(is_null($assigned_after_mb_no) ? "assigned_after_mb_no" : (int)$assigned_after_mb_no);
-    }
-
-    sql_query("START TRANSACTION");
-    if ($rowPrev) {
-        $ticket_id = (int)$rowPrev['ticket_id'];
-        $ok = sql_query("
-            UPDATE call_aftercall_ticket
-               SET state_id={$new_state_id},
-                   scheduled_at=".($scheduled_at ? "'".sql_escape_string($scheduled_at)."'" : "NULL").",
-                   schedule_note=".($schedule_note!=='' ? "'".sql_escape_string($schedule_note)."'" : "NULL").",
-                   last_call_id=".($last_call_id ?: "NULL").",
-                   updated_by={$mb_no},
-                   updated_at=NOW()"
-                   .($set_after_sql ? ", ".$set_after_sql : "")."
-             WHERE ticket_id={$ticket_id}
-             LIMIT 1
-        ", true);
-        if (!$ok) { sql_query("ROLLBACK"); echo json_encode(['success'=>false,'message'=>'update failed']); exit; }
-
-        // 1) 상태 변경 이력
-        if ($state_changed) {
-            sql_query("INSERT INTO call_aftercall_history (ticket_id, prev_state, new_state, memo, scheduled_at, changed_by, changed_at, assigned_after_mb_no)
-                       VALUES ({$ticket_id},".($prev_state_id===null?'NULL':$prev_state_id).",{$new_state_id},NULL,NULL,{$mb_no},NOW(),".
-                       ($mb_level>=7 ? (int)$assigned_after_mb_no : "NULL").")");
-        }
-        // 2) 담당자 변경 이력(상태 변경 여부와 무관하게 별도 기록)
-        if ($assign_changed && $mb_level >= 7) {
-            $cur_state = ($prev_state_id === null) ? $new_state_id : $prev_state_id;
-
-            $prev_after = (int)($rowPrev['assigned_after_mb_no'] ?? 0);
-            $prev_after_name = $prev_after ? (sql_fetch("SELECT COALESCE(NULLIF(mb_name,''), mb_id) AS nm FROM {$member_table} WHERE mb_no={$prev_after} LIMIT 1")['nm'] ?? (string)$prev_after) : '미지정';
-            $new_after_name  = (int)$assigned_after_mb_no ? (sql_fetch("SELECT COALESCE(NULLIF(mb_name,''), mb_id) AS nm FROM {$member_table} WHERE mb_no=".(int)$assigned_after_mb_no." LIMIT 1")['nm'] ?? (string)$assigned_after_mb_no) : '미지정';
-            $memo_txt = "2차담당자 변경: {$prev_after_name} → {$new_after_name}";
-
-            sql_query("INSERT INTO call_aftercall_history (ticket_id, prev_state, new_state, memo, scheduled_at, changed_by, changed_at, assigned_after_mb_no)
-                       VALUES ({$ticket_id}, {$cur_state}, {$cur_state}, '".sql_escape_string($memo_txt)."', NULL, {$mb_no}, NOW(), ".(int)$assigned_after_mb_no.")");
-        }
-    } else {
-        $cols_after = $mb_level>=7 ? ', assigned_after_mb_no' : '';
-        $vals_after = $mb_level>=7 ? ', '.(int)$assigned_after_mb_no : '';
-        $ok = sql_query("
-            INSERT INTO call_aftercall_ticket
-                (campaign_id, mb_group, target_id, last_call_id, state_id, memo, scheduled_at, schedule_note, updated_by, updated_at, created_at{$cols_after})
-            VALUES
-                ({$campaign_id}, {$mb_group}, {$target_id}, ".($last_call_id ?: "NULL").",
-                 {$new_state_id}, NULL,
-                 ".($scheduled_at ? "'".sql_escape_string($scheduled_at)."'" : "NULL").",
-                 ".($schedule_note!=='' ? "'".sql_escape_string($schedule_note)."'" : "NULL").",
-                 {$mb_no}, NOW(), NOW(){$vals_after})
-        ", true);
-        if (!$ok) { sql_query("ROLLBACK"); echo json_encode(['success'=>false,'message'=>'insert failed']); exit; }
-        $ticket_id = (int)sql_insert_id();
-
-        // 1) 최초 상태 생성 이력
-        sql_query("INSERT INTO call_aftercall_history (ticket_id, prev_state, new_state, memo, scheduled_at, changed_by, changed_at, assigned_after_mb_no)
-                   VALUES ({$ticket_id}, NULL, {$new_state_id}, NULL, NULL, {$mb_no}, NOW(), ".
-                   ($mb_level>=7 ? (int)$assigned_after_mb_no : "NULL").")");
-
-        // 2) 최초 생성 시에도 담당자 지정이 있으면 별도 이력 추가
-        if ($mb_level >= 7 && !empty($assigned_after_mb_no)) {
-            $new_after_name  = (sql_fetch("SELECT COALESCE(NULLIF(mb_name,''), mb_id) AS nm FROM {$member_table} WHERE mb_no=".(int)$assigned_after_mb_no." LIMIT 1")['nm'] ?? (string)$assigned_after_mb_no);
-            $memo_txt = "2차담당자 지정: 미지정 → {$new_after_name}";
-            sql_query("INSERT INTO call_aftercall_history (ticket_id, prev_state, new_state, memo, scheduled_at, changed_by, changed_at, assigned_after_mb_no)
-                       VALUES ({$ticket_id}, {$new_state_id}, {$new_state_id}, '".sql_escape_string($memo_txt)."', NULL, {$mb_no}, NOW(), ".(int)$assigned_after_mb_no.")");
-        }
-    }
-
-    if ($schedule_changed) {
-        sql_query("INSERT INTO call_aftercall_note (ticket_id, note_type, note_text, scheduled_at, created_by, created_at)
-                   VALUES ({$ticket_id}, 'schedule', ".($schedule_note!=='' ? "'".sql_escape_string($schedule_note)."'" : "NULL").",
-                           ".($scheduled_at ? "'".sql_escape_string($scheduled_at)."'" : "NULL").",
-                           {$mb_no}, NOW())");
-    }
-    if ($memo_input !== '') {
-        sql_query("INSERT INTO call_aftercall_note (ticket_id, note_type, note_text, scheduled_at, created_by, created_at)
-                   VALUES ({$ticket_id}, 'note', '".sql_escape_string($memo_input)."', NULL, {$mb_no}, NOW())");
-    }
-    sql_query("COMMIT");
-
-    $ticket = sql_fetch("SELECT ticket_id, state_id, scheduled_at, schedule_note, updated_by, updated_at, assigned_after_mb_no FROM call_aftercall_ticket WHERE ticket_id={$ticket_id} LIMIT 1");
-    $hist = [];
-    $rh = sql_query("
-        SELECT h.prev_state, h.new_state, h.memo, h.changed_by, h.changed_at,
-               ps.name_ko AS prev_label, ns.name_ko AS new_label,
-               m.mb_name AS who_name, m.mb_id AS who_id,
-               h.assigned_after_mb_no,
-               ma.mb_name AS after_name, ma.mb_id AS after_id
-          FROM call_aftercall_history h
-     LEFT JOIN call_aftercall_state_code ps ON ps.state_id=h.prev_state
-     LEFT JOIN call_aftercall_state_code ns ON ns.state_id=h.new_state
-     LEFT JOIN {$member_table} m  ON m.mb_no = h.changed_by
-     LEFT JOIN {$member_table} ma ON ma.mb_no = h.assigned_after_mb_no
-         WHERE h.ticket_id={$ticket_id}
-      ORDER BY h.changed_at DESC, h.hist_id DESC
-         LIMIT 200
-    ");
-    while ($r = sql_fetch_array($rh)) { $r['kind']='state'; $hist[]=$r; }
-    $notes = [];
-    $rn = sql_query("
-        SELECT n.note_id, n.note_type, n.note_text, n.scheduled_at, n.created_by, n.created_at,
-               m.mb_name AS who_name, m.mb_id AS who_id
-          FROM call_aftercall_note n
-     LEFT JOIN {$member_table} m ON m.mb_no = n.created_by
-         WHERE n.ticket_id={$ticket_id}
-      ORDER BY n.created_at DESC, n.note_id DESC
-         LIMIT 200
-    ");
-    while ($r = sql_fetch_array($rn)) $notes[] = $r;
-    echo json_encode(['success'=>true,'message'=>'saved','ticket'=>$ticket,'history'=>$hist,'notes'=>$notes], JSON_UNESCAPED_UNICODE); exit;
-}
-
-/* ==========================
    WHERE (리스트) + 회사/지점/상담원 필터
    ========================== */
 $where = [];
@@ -416,9 +147,9 @@ if ($mb_level == 7) {
 // 2차콜 상태 필터
 if ($f_acstate >= 0) {
     if ($f_acstate === 0) {
-        $where[] = "(tk.state_id IS NULL OR tk.state_id = 0)";
+        $where['state_id'] = "tk.state_id = 0";
     } else {
-        $where[] = "tk.state_id = {$f_acstate}";
+        $where['state_id'] = "tk.state_id = {$f_acstate}";
     }
 }
 // 2차콜 담당자 필터
@@ -545,6 +276,49 @@ $sql_list = "SELECT
 $res_list = sql_query($sql_list);
 
 
+/* ==========================
+   2차 상태별 통계 쿼리 (최신 콜 1건 기준)
+   ========================== */
+if(!empty($where['state_id'])) unset($where['state_id']);
+$where_sql_no_state_id = $where ? ('WHERE '.implode(' AND ', $where)) : '';
+$sql_stat = "WITH latest AS (
+  SELECT
+    l.target_id,
+    COALESCE(tk.state_id, 0) AS ac_state_id,
+    ROW_NUMBER() OVER (
+      PARTITION BY l.target_id
+      ORDER BY l.call_start DESC, l.call_id DESC
+    ) AS rn
+  FROM call_log l
+  JOIN call_status_code sc
+    ON sc.call_status = l.call_status
+   AND sc.is_after_call = 1
+  LEFT JOIN call_aftercall_ticket tk
+    ON tk.target_id = l.target_id
+  {$where_sql_no_state_id}  -- 필요 필터(기간/캠페인/그룹 등) 주입
+)
+SELECT
+  b.ac_state_id,
+  COUNT(*)     AS cnt_rows
+FROM latest b
+LEFT JOIN call_aftercall_state_code s
+  ON s.state_id = b.ac_state_id
+WHERE b.rn = 1
+GROUP BY b.ac_state_id, s.name_ko, s.ui_type, s.sort_order
+ORDER BY s.sort_order IS NULL, s.sort_order, b.ac_state_id;
+";
+$res_stat = sql_query($sql_stat);
+$stats_after = array();
+while($row=sql_fetch_array($res_stat)) {
+  $stats_after[$row['ac_state_id']] = $row['cnt_rows'];
+}
+$stats_after_total = array_sum($stats_after);
+$fmt_rate = function($num, $den){
+    $n = (int)$num; $d = (int)$den;
+    if ($d <= 0 || $n <= 0) return '-';
+    return number_format($n * 100 / $d, 1) . '%';
+};
+
 // 현재 GET 그대로를 보존
 $__q_all = $_GET;
 $__q_all['mode'] = 'screen';     $href_screen    = './call_after_list_excel.php?'.http_build_query($__q_all);
@@ -557,8 +331,10 @@ $__q_all['mode'] = 'all';        $href_all       = './call_after_list_excel.php?
 $token = get_token();
 $g5['title'] = '접수관리';
 include_once(G5_ADMIN_PATH.'/admin.head.php');
-// if($aa) echo $sql_list;
-
+// if(!empty($aa)) {
+//   print_r2($stats_after);
+//   print_r2($ac_codes);
+// }
 $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체목록</a>';
 $qparams_for_sort = $_GET;
 unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['page']);
@@ -700,7 +476,34 @@ td.campaign_name {max-width:120px;}
     </form>
 </div>
 
-<div class="tbl_head01 tbl_wrap">
+<!-- 피벗 요약 테이블 -->
+<div class="tbl_head01 tbl_wrap" style="margin-top:20px;">
+    <table style="table-layout:fixed">
+        <caption><?php echo $g5['title']; ?></caption>
+        <thead>
+        <tr>
+            <th scope="col">총합</th>
+            <th scope="col">DB전환율</th>
+            <?php foreach ($ac_codes as $c) echo '<th scope="col">'.get_text($c['name_ko']).'</th>'; ?>
+        </tr>
+        </thead>
+        <tbody>
+        <tr style="background:#fafafa;font-weight:bold;">
+            <td><?php echo number_format($stats_after_total); ?></td>
+            <td><?php echo $fmt_rate(!empty($stats_after['10']) ? $stats_after['10'] : 0, $stats_after_total); ?></td>
+            <?php
+            foreach ($ac_codes as $k => $item) {
+                $cnt = !empty($stats_after[$k]) ? number_format($stats_after[$k]) : '-';
+                $ui = $item['ui_type'] ?? 'secondary';
+                echo '<td class="status-col status-'.get_text($ui).'">'.$cnt.'</td>';
+            }
+            ?>
+        </tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="tbl_head01 tbl_wrap" style="margin-top:20px;">
     <table class="table-fixed call-list-table">
         <thead>
             <tr>
@@ -848,7 +651,7 @@ $base = './call_after_list.php?'.http_build_query($qstr);
       <div>추가정보: <span id="s_meta">-</span></div>
     </div>
 
-    <form id="acForm" method="post" action="./call_after_list.php" autocomplete="off">
+    <form id="acForm" method="post" action="./ajax_call_after_list.php" autocomplete="off">
       <input type="hidden" name="ajax" value="save">
       <input type="hidden" name="token" value="<?php echo get_token();?>">
       <input type="hidden" name="campaign_id" id="f_campaign_id" value="">
@@ -1021,7 +824,7 @@ $base = './call_after_list.php?'.http_build_query($qstr);
       renderTimeline([],[]);
 
       // 담당자 불러오기 (해당 지점만)
-      const urlAg = new URL('./call_after_list.php', location.href);
+      const urlAg = new URL('./ajax_call_after_list.php', location.href);
       urlAg.searchParams.set('ajax','agents');
       urlAg.searchParams.set('mb_group', mb_group);
 
@@ -1050,7 +853,7 @@ $base = './call_after_list.php?'.http_build_query($qstr);
         });
 
       // 티켓/이력/노트 로드
-      var url = new URL('./call_after_list.php', location.href);
+      var url = new URL('./ajax_call_after_list.php', location.href);
       url.searchParams.set('ajax','get');
       url.searchParams.set('campaign_id', campaign_id);
       url.searchParams.set('mb_group', mb_group);
@@ -1112,7 +915,7 @@ $base = './call_after_list.php?'.http_build_query($qstr);
   form.addEventListener('submit', function(e){
     e.preventDefault();
     var fd = new FormData(form);
-    fetch('./call_after_list.php', {method:'POST', body:fd, credentials:'same-origin'})
+    fetch('./ajax_call_after_list.php', {method:'POST', body:fd, credentials:'same-origin'})
       .then(r=>r.json())
       .then(j=>{
         if (j && j.success) {

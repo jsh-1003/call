@@ -155,16 +155,16 @@ if ($is_headerless) {
     $idx_hp = 0;
     $idx_name = 1;
     $idx_birth = 2;
-    $idx_sex = null; // 헤더가 없으므로 없음
+    $idx_sex = 3;
 } else {
     // 정상 헤더 (모두 NFC 정규화됨)
     $start_row = 2;
     $header = $firstRow;
 
-    $name_keys  = ['이름','name','성명'];
-    $hp_keys    = ['전화번호','연락처','휴대폰','핸드폰','phone','hp','call_hp'];
+    $name_keys  = ['이름','name','성명','성함','고객명'];
+    $hp_keys    = ['전화번호','연락처','휴대폰','핸드폰','폰','전화','tel','phone','hp','call_hp'];
     $birth_keys = ['생년월일','생일','주민번호','birth','birth_date','생년','dob'];
-    $sex_keys   = ['성별','sex','gender'];
+    $sex_keys   = ['성별','남녀','sex','gender'];
 
     $idx_name = $idx_hp = $idx_birth = $idx_sex = null;
     $header_lc = array_map('mb_strtolower', $header);

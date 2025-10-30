@@ -269,6 +269,71 @@ function initCompanyGroupSelector(companySel, groupSel, csrfToken = null) {
     });
 }
 
+const baseHex = {
+  success:   '#28a745',
+  primary:   '#007bff',
+  secondary: '#6c757d',
+  warning:   '#ffc107',
+  danger:    '#dc3545',
+};
+function hexToRgb(hex){
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  const r = parseInt(m[1],16), g = parseInt(m[2],16), b = parseInt(m[3],16);
+  return {r,g,b};
+}
+function rgbToHsl(r,g,b){
+  r/=255; g/=255; b/=255;
+  const max=Math.max(r,g,b), min=Math.min(r,g,b);
+  let h,s,l=(max+min)/2;
+  if(max===min){ h=s=0; }
+  else {
+    const d=max-min;
+    s=l>0.5 ? d/(2-max-min) : d/(max+min);
+    switch(max){
+      case r: h=(g-b)/d+(g<b?6:0); break;
+      case g: h=(b-r)/d+2; break;
+      case b: h=(r-g)/d+4; break;
+    }
+    h/=6;
+  }
+  return {h, s, l};
+}
+function hslToCss(h,s,l){
+  return `hsl(${Math.round(h*360)}, ${Math.round(s*100)}%, ${Math.round(l*100)}%)`;
+}
+function clamp01(x){ return Math.max(0, Math.min(1, x)); }
+// 3) 밝기 조정 규칙
+// - 성공(1): 기본 +8% 밝기 + (status%7)*1.5% 추가
+// - 실패(0): 기본 -6% 밝기 - (status%7)*1.0% 추가
+// - DNC: danger 색상으로, 실패 규칙 적용
+function tintByStatus(hex, result_group, call_status, forceDanger=false){
+  const base = hexToRgb(forceDanger ? baseHex.danger : hex);
+  let {h,s,l} = rgbToHsl(base.r, base.g, base.b);
+
+  const mod = (call_status ?? 0) % 7; // 작은 변주
+  if (result_group == 1) {              // 성공군: 더 밝게
+    l = l + 0.08 + mod * 0.015;
+  } else {                               // 실패군: 더 어둡게
+    l = l - 0.06 - mod * 0.010;
+  }
+  l = clamp01(l);
+
+  // 채도도 살짝 보정(밝아지면 -2%, 어두워지면 +2%)
+  s = clamp01(s + (result_group == 1 ? -0.02 : 0.02));
+
+  return hslToCss(h,s,l);
+}
+
+// call_status별 색 변형 (숫자 차이에 따라 밝기 조정)
+function adjustColor([r, g, b], status) {
+  // status값이 0~999 단위라고 가정, modulo로 명도조정
+  const shift = (status % 100) / 100; // 0~1 사이
+  const factor = 0.7 + shift * 0.3;   // 0.7~1.0 정도의 밝기
+  return `rgb(${Math.min(255, r * factor)}, ${Math.min(255, g * factor)}, ${Math.min(255, b * factor)})`;
+}
+
+
+
 // ===============================================
 // 공통 날짜 범위 버튼 유틸
 // - weekStart: 1(월) | 0(일)

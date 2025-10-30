@@ -496,13 +496,11 @@ function handle_get_user_info_list($token = null): void {
     $rows = call_assign_list_my_queue($mb_group, $mb_no, $call_api_count, $campaign_id, '1', true);
     $list = [];
     foreach ($rows as $row) {
-        $sex_txt = '';
         if ((int)$row['sex'] === 1) $sex_txt = '남성';
         elseif ((int)$row['sex'] === 2) $sex_txt = '여성';
 
         $meta_json = safe_json_decode_or_null($row['meta_json']);
         $meta_txt  = '';
-        if ($sex_txt !== '') $meta_txt .= $sex_txt;
         if (is_array($meta_json) && !empty($meta_json)) {
             if ($meta_txt !== '') $meta_txt .= ', ';
             $meta_txt .= implode(', ', $meta_json);
@@ -510,9 +508,12 @@ function handle_get_user_info_list($token = null): void {
         if($mb_group == '10') {
             $row['call_hp'] = '01030949409';
         }
+        $name_birth = $row['name'];
+        if(!empty($row['birth_date'])) $name_birth .= ' / '.$row['birth_date'];
+        if(!empty($sex_txt)) $name_birth .= ' / '.$sex_txt;
         $list[] = [
             'phoneNumber' => $row['call_hp'],
-            'name'        => $row['name'],
+            'name'        => $name_birth,
             'info'        => $meta_txt,
             'targetId'    => (int)$row['target_id'],
             'leaseUntil'  => $row['assign_lease_until'],

@@ -255,6 +255,8 @@ elseif ($type === 'status') {
     $sql = "
         SELECT
             l.call_status,
+            sc.is_after_call,
+            sc.ui_type,
             COALESCE(sc.name_ko, CONCAT('코드 ', l.call_status)) AS label,
             COALESCE(sc.result_group, CASE WHEN l.call_status BETWEEN 200 AND 299 THEN 1 ELSE 0 END) AS result_group,
             COUNT(*) AS cnt,
@@ -274,6 +276,8 @@ elseif ($type === 'status') {
         'result_group'=>(int)$r['result_group'],
         'cnt'=>(int)$r['cnt'],
         'is_dnc'=>(int)$r['is_dnc'],
+        'ui_type'=>$r['ui_type'],
+        'is_after_call'=>$r['is_after_call'],
     ];
     $json = json_encode(['ok'=>true,'rows'=>$rows], JSON_UNESCAPED_UNICODE);
     microcache_set($cacheKey, $json, 8);
