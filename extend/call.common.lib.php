@@ -2,25 +2,34 @@
 if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 
 /**
- * 회사별 결제 여부 조회
- * @param int $company_id
+ * 결제 여부 조회 (회사 + 개인 상담원 단위)
+ *
+ * @param int $company_id 회사 ID
+ * @param int|null $mb_no  회원 번호 (옵션)
  * @return array ['is_paid' => bool, 'month' => 'YYYY-MM', 'paid_at' => 'Y-m-d H:i:s' or null]
+ *
+ * 규칙:
+ *  - 회사 단위로 billing_company_month.payment_status='paid' 인 경우를 기본으로 본다.
+ *  - 단, 특정 회원($mb_no)의 billing_unbilled_month 가 이번 달이면
+ *      → 개인은 로그인 제한 대상 → is_paid=false 로 반환.
  */
-function billing_is_company_paid($company_id) {
+function billing_is_company_paid($company_id, $mb_no = null) {
     $company_id = (int)$company_id;
+    $mb_no      = (int)$mb_no;
+
     if ($company_id <= 0) {
         return ['is_paid' => false, 'month' => null, 'paid_at' => null];
     }
 
-    // 이번 달
-    $month = (new DateTimeImmutable('first day of this month'))->format('Y-m');
+    // 이번 달 (기준: 서버시간)
+    $month = date('Y-m');
 
-    // 결제 상태 조회
+    // 회사 결제 상태 확인
     $sql = "
         SELECT payment_status, paid_at
           FROM billing_company_month
          WHERE company_id = {$company_id}
-           AND month = '".sql_escape_string($month)."'
+           AND month = '" . sql_escape_string($month) . "'
          LIMIT 1
     ";
     $row = sql_fetch($sql);
@@ -30,15 +39,33 @@ function billing_is_company_paid($company_id) {
 
     if ($row && $row['payment_status'] === 'paid') {
         $paid_at = $row['paid_at'];
-        // paid_at 이 이번달이면 true
+        // paid_at이 이번달이면 true
         if ($paid_at) {
             $ym_paid = substr($paid_at, 0, 7);
             if ($ym_paid === $month) {
                 $is_paid = true;
             }
         } else {
-            // paid_at 없지만 paid 상태면 true
+            // paid_at이 없어도 상태가 paid면 true
             $is_paid = true;
+        }
+    }
+
+    // -----------------------------------
+    // 개인 미결제 여부 검사
+    // -----------------------------------
+    if ($is_paid && $mb_no > 0) {
+        $sql_mb = "
+            SELECT billing_unbilled_month
+              FROM g5_member
+             WHERE mb_no = {$mb_no}
+             LIMIT 1
+        ";
+        $m = sql_fetch($sql_mb);
+
+        if (!empty($m['billing_unbilled_month']) && $m['billing_unbilled_month'] === $month) {
+            // 회사는 결제 완료지만 개인은 이번달 미계산 상태
+            $is_paid = false;
         }
     }
 
@@ -295,18 +322,21 @@ function get_call_config(int $mb_no) {
     $cache[$mb_no] = $row;
     return $row;
 }
+function get_member_name_cached(int $mb_no) {
+    static $cache = [];
+    $mb_no = (int)$mb_no;
+    if ($mb_no <= 0) return '-';
+    if (isset($cache[$mb_no])) return $cache[$mb_no];
 
-function get_group_name(int $mb_no): ?string {
-    static $cache = []; // 요청(스크립트) 동안만 유지되는 메모이제이션 캐시
-    // null 도 캐시로 인정하려면 array_key_exists 사용
-    if (array_key_exists($mb_no, $cache)) {
-        return $cache[$mb_no]; // string|null
-    }
-    $rowFirstCol = current(sql_fetch("SELECT mb_group_name FROM g5_member WHERE mb_no = {$mb_no} LIMIT 1"));
-    // current()가 false를 줄 수 있으니 null로 정규화
-    $name = ($rowFirstCol === false) ? null : $rowFirstCol;
-    $cache[$mb_no] = $name; // string|null 캐싱
-    return $name;
+    global $g5;
+    $row = sql_fetch("
+        SELECT mb_name AS nm
+        FROM {$g5['member_table']}
+        WHERE mb_no = '{$mb_no}'
+        LIMIT 1
+    ");
+    $cache[$mb_no] = $row && $row['nm'] ? $row['nm'] : '지점-'.$mb_no;
+    return $cache[$mb_no];
 }
 function get_group_name_cached($group_id) {
     static $cache = [];
