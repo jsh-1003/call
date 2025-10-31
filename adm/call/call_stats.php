@@ -578,6 +578,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 .opt-sep { color:#888; font-style:italic; }
 .status-chip { display:inline-block; padding:2px 6px; border-radius:10px; font-size:12px; vertical-align:middle; }
 .btn-convert-after { padding:4px 8px; font-size:12px; }
+.tbl_call_list td {max-width:200px;}
 </style>
 
 <!-- 검색/필터 -->
@@ -735,7 +736,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 
         <?php
         if (empty($matrix)) {
-            echo '<tr><td colspan="'.(2+count($code_list)).'" class="empty_table">데이터가 없습니다.</td></tr>';
+            echo '<tr><td colspan="'.(3+count($code_list)).'" class="empty_table">데이터가 없습니다.</td></tr>';
         } else {
             ksort($matrix, SORT_NUMERIC);
             foreach ($matrix as $did => $rowset) {
@@ -828,7 +829,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 <?php } ?>
 
 <!-- 상세 목록 : 50건 고정 -->
-<div class="tbl_head01 tbl_wrap" style="margin-top:14px;">
+<div class="tbl_head01 tbl_wrap tbl_call_list" style="margin-top:14px;">
     <table class="table-fixed">
         <thead>
             <tr>
@@ -917,7 +918,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                                 class="btn btn_02 btn-convert-after"
                                 data-call-id="<?php echo (int)$row['call_id'];?>"
                                 data-cur-label="<?php echo get_text($status);?>">
-                                접수로 변경
+                                접수변경
                             </button>
                         <?php } else { ?>
                             <span class="small-muted">-</span>
