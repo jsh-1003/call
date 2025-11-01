@@ -157,7 +157,7 @@ function handle_call_upload(): void {
 
     // 2) 대상 검증/조회 (권한: mb_group 일치)
     $t = sql_fetch("
-        SELECT t.target_id, t.campaign_id, t.mb_group, t.call_hp, t.assigned_mb_no, t.attempt_count
+        SELECT t.target_id, t.campaign_id, t.mb_group, t.call_hp, t.name, t.assigned_mb_no, t.attempt_count
           FROM call_target t
          WHERE t.target_id = {$target_id} AND t.mb_group = {$mb_group}
          LIMIT 1
@@ -336,16 +336,19 @@ function handle_call_upload(): void {
             $ctype     = $_FILES['file']['type'] ?? 'application/octet-stream';
             $fsize     = (int)($_FILES['file']['size'] ?? 0);
 
-            // S3 키 규칙: group/{mb_group}/{YYYY}/{MM}/{DD}/{call_id}.ext
+            // S3 키 규칙: group/{mb_group}/{YYYY}/{MM}/{DD}/{name}_{call_hp}_{call_id}.ext
             $dt  = new DateTime($call_start);
             $ext = get_file_ext_for_s3($orig_name, $ctype);
+            $t_name = !empty($t['name']) ? $t['name'] : 'NONAME';
+            $f_name = $t_name.'_'.$call_hp.'_'.$call_id;
+            $f_name = s3_safe_filename($f_name);
             $key = sprintf(
-                "group/%d/%s/%s/%s/%d%s",
+                "group/%d/%s/%s/%s/%s%s",
                 $mb_group,
                 $dt->format('Y'),
                 $dt->format('m'),
                 $dt->format('d'),
-                $call_id,
+                $f_name,
                 $ext
             );
 
@@ -369,7 +372,7 @@ function handle_call_upload(): void {
                          '".sql_escape_string(S3_BUCKET)."', '".sql_escape_string($key)."', '".sql_escape_string($ctype)."',
                          {$fsize}, ".($duration_sec !== null ? (int)$duration_sec : "NULL").", NOW())
                 ";
-                $ok = sql_query($qrec, true);
+                $ok = sql_query($qrec);
                 if ($ok) {
                     $recording_id = (int)sql_insert_id();
                 } else {

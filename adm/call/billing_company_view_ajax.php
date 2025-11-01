@@ -2,6 +2,9 @@
 // /adm/call/billing_company_view_ajax.php
 $sub_menu = '700950';
 require_once './_common.php';
+if ($member['mb_id'] != 'admin_pay') {
+    die('접근 권한이 없습니다.');
+}
 
 header('Content-Type: application/json; charset=UTF-8');
 

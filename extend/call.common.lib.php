@@ -1,6 +1,21 @@
 <?php
 if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 
+function s3_safe_filename(string $name): string {
+    // 앞뒤 공백 제거, 제어문자 제거
+    $name = trim($name);
+    // 위험문자 제거/치환 (슬래시, 역슬래시 포함)
+    $name = str_replace(['/', '\\', "\0"], ' ', $name);
+    // 윈도우 예약문자:  : * ? " < > |  를 밑줄로 치환
+    $name = preg_replace('/[:\*\?"<>\|]/u', '_', $name);
+    // 공백 정리
+    $name = preg_replace('/\s+/u', '_', $name);
+    // 너무 긴 경우 앞쪽만 사용 (S3 키 전체는 1024B 제한, 여기서는 파일명 180자 제한)
+    if (mb_strlen($name, 'UTF-8') > 180) {
+        $name = mb_substr($name, 0, 180, 'UTF-8');
+    }
+    return $name === '' ? 'NONAME' : $name;
+}
 /**
  * 결제 여부 조회 (회사 + 개인 상담원 단위)
  *

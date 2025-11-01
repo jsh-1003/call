@@ -351,6 +351,7 @@ td.campaign_name {max-width:120px;}
 .th-sort:hover { text-decoration:underline; }
 .ac-badge.on { display:inline-block; padding:1px 6px; border-radius:10px; font-size:11px; background:#16a34a; color:#fff; }
 .ac-badge.off{ display:inline-block; padding:1px 6px; border-radius:10px; font-size:11px; background:#9ca3af; color:#fff; }
+a.ac-edit-btn {font-weight:700;color:#253aaf}
 </style>
 
 <div class="local_ov01 local_ov">
@@ -579,7 +580,20 @@ td.campaign_name {max-width:120px;}
                     <td class="td_mdhi"><?php echo fmt_datetime(get_text($row['call_start']), 'mdhi'); ?></td>
                     <td class="td_hi"><?php echo fmt_datetime(get_text($row['call_end']), 'hi'); ?></td>
                     <td><?php echo $call_sec; ?></td>
-                    <td><?php echo get_text($row['target_name'] ?: '-'); ?></td>
+                    <td>
+                          <a href="#this" class="ac-edit-btn"
+                                data-campaign-id="<?php echo (int)$row['campaign_id'];?>"
+                                data-mb-group="<?php echo (int)$row['mb_group'];?>"
+                                data-target-id="<?php echo (int)$row['target_id'];?>"
+                                data-target-name="<?php echo get_text($row['target_name'] ?: '-');?>"
+                                data-call-hp="<?php echo get_text($hp_fmt);?>"
+                                data-state-id="<?php echo (int)$row['ac_state_id'];?>"
+                                data-birth="<?php echo $bday; ?>"
+                                data-age="<?php echo is_null($row['man_age'])?'':(int)$row['man_age']; ?>"
+                                data-meta="<?php echo $meta_txt; ?>"
+                                data-after-mb-no="<?php echo (int)$row['assigned_after_mb_no'];?>"
+                          ><?php echo get_text($row['target_name'] ?: '-'); ?></a>
+                    </td>
                     <td><?php echo $bday; ?></td>
                     <td><?php echo $man_age; ?></td>
                     <td><?php echo cut_str($meta_txt, 12); ?></td>
