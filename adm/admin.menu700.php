@@ -27,8 +27,5 @@ $menu["menu700"][] = array('700000', '---', '#this', 'line');
 $menu["menu700"][] = array('700950', '공지사항', '' . G5_BBS_URL.'/board.php?bo_table=notice', 'board_notice');
 
 if($member['mb_id'] == 'admin_pay') {
-    $menu["menu700"] = array(
-        array('700950', '결제관리', '' . G5_ADMIN_URL.'/call/billing_company_list.php', 'bill'),
-        array('700950', '결제관리', '' . G5_ADMIN_URL.'/call/billing_company_list.php', 'bill'),
-    );
+    $menu["menu700"][] = array('700990', '결제관리', '' . G5_ADMIN_URL.'/call/billing_company_list.php', 'bill');
 }

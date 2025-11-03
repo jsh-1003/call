@@ -1,6 +1,10 @@
 <?php
 include_once('./_common.php');
 if($is_member && $member['mb_level'] > 2) {
+    if($member['mb_id'] == 'admin_pay') {
+        header('Location: /adm/call/billing_company_list.php');
+        exit;
+    }
     header('Location: /adm/call/');
 } else if($is_member && $member['mb_level'] <= 2) {
     header('Location: /bbs/logout.php');

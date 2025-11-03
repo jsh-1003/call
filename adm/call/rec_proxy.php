@@ -29,17 +29,31 @@ if ($mb_level < 7 && (int)$row['agent_id'] !== (int)$member['mb_no']) { http_res
 
 $force_download = (isset($_GET['dl']) && $_GET['dl']=='1');
 
-// 파일명 추출 유틸
+// 파일명 추출 유틸 (RFC5987 + ASCII fallback)
 function build_disposition_filename($s3_key){
     $base = basename($s3_key ?: 'recording');
-    // ASCII fallback
+    // ASCII fallback (IE/구형 호환)
     $fallback = preg_replace('/[^A-Za-z0-9\.\-\_]/', '_', $base);
-    // RFC 5987 filename*
+    // RFC 5987 filename* (UTF-8 percent-encoding)
+    // rawurlencode는 공백을 %20으로, 비ASCII는 %XX로 인코딩
     $utf8 = rawurlencode($base);
     return ['fallback'=>$fallback, 'utf8'=>$utf8];
 }
 
-$mime = guess_audio_mime($row['s3_key'], $row['content_type']);
+// 간단 MIME 추정 (프로젝트 유틸이 있으면 교체)
+function guess_audio_mime_simple($key, $ct_hint=null){
+    if ($ct_hint) return $ct_hint;
+    $ext = strtolower(pathinfo($key, PATHINFO_EXTENSION));
+    switch ($ext) {
+        case 'mp3': return 'audio/mpeg';
+        case 'm4a': return 'audio/mp4';
+        case 'wav': return 'audio/wav';
+        case 'ogg': return 'audio/ogg';
+        case 'aac': return 'audio/aac';
+        default:    return 'application/octet-stream';
+    }
+}
+$mime = guess_audio_mime_simple($row['s3_key'], $row['content_type'] ?? null);
 
 // ── S3 Presigned URL (EC2 IAM Role)
 $vendor = G5_PATH . '/vendor/autoload.php';
@@ -61,16 +75,29 @@ try {
     ]);
 
     $EXPIRES = 120; // seconds
+
+    // Content-Disposition 구성
+    $fn = build_disposition_filename($row['s3_key']);
+    // dl=1 이면 attachment, 아니면 inline (브라우저에서 바로 재생)
+    $disp_type = $force_download ? 'attachment' : 'inline';
+    // RFC 5987 방식: filename (ASCII fallback) + filename* (UTF-8)
+    $content_disposition = $disp_type
+        . '; filename="' . $fn['fallback'] . '"'
+        . "; filename*=UTF-8''" . $fn['utf8'];
+
     $cmd = $s3->getCommand('GetObject', [
         'Bucket' => $row['s3_bucket'],
         'Key'    => $row['s3_key'],
-        'ResponseContentType' => $mime,
-        // 다운로드 강제하고 싶으면 주석 해제
-        'ResponseContentDisposition' => 'attachment; filename="'.basename($row['s3_key']).'"',
+        'ResponseContentType'        => $mime,
+        'ResponseContentDisposition' => $content_disposition,
+        // (선택) 캐시 제어를 하고 싶다면 아래 주석 해제
+        // 'ResponseCacheControl' => 'private, max-age=120',
     ]);
+
     $request = $s3->createPresignedRequest($cmd, "+{$EXPIRES} seconds");
     header('Location: '.(string)$request->getUri(), true, 302);
     exit;
+
 } catch (\Throwable $e) {
     http_response_code(500);
     echo 'presign failed';

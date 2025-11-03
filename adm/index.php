@@ -1,8 +1,12 @@
 <?php
+require_once './_common.php';
+if($member['mb_id'] == 'admin_pay') {
+    header('Location: /adm/call/billing_company_list.php');
+    exit;
+}
 header('Location: /adm/call/');
 exit;
 $sub_menu = '100000';
-require_once './_common.php';
 
 @require_once './safe_check.php';
 

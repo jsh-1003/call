@@ -1,6 +1,6 @@
 <?php
 // /adm/call/billing_company_view.php
-$sub_menu = '700950';
+$sub_menu = '700990';
 require_once './_common.php';
 
 auth_check_menu($auth, $sub_menu, 'r');

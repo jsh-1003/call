@@ -68,14 +68,13 @@ function get_group_info($token=null) {
     }
 
     $hash = hash('sha256', $token);
-    // api_sessions + (예시) member 테이블 조인
-    // ※ 실제 컬럼명/테이블명에 맞게 수정하세요.
     $row = sql_fetch("
         SELECT 
             s.user_id AS mb_no,
             s.mb_group,
             s.expires_at,
             s.revoked_at,
+            m.company_id,          -- ★ 추가: 회사ID
             m.call_api_count,
             m.call_lease_min
         FROM api_sessions s
@@ -91,24 +90,35 @@ function get_group_info($token=null) {
         send_json(['success'=>false,'message'=>'expired or revoked token'], 401);
     }
 
-    // sliding window 연장(선택): last_seen만 갱신
+    // sliding window (선택)
     sql_query("UPDATE api_sessions SET last_seen = NOW() WHERE token_hash = '{$hash}'");
 
-    // $set_info = sql_fetch("SELECT call_api_count, call_lease_min FROM g5_member WHERE mb_no = '{$row['mb_group']}' LIMIT 1 ");
+    // 조직별 설정
     $set_info = get_call_config($row['mb_group']);
-
-    // 조직별 기본값 폴백(멤버 컬럼이 없으면 상수 사용)
     $call_api_count = isset($set_info['call_api_count']) ? (int)$set_info['call_api_count'] : (int)CALL_API_COUNT;
     $call_lease_min = isset($set_info['call_lease_min']) ? (int)$set_info['call_lease_min'] : (int)CALL_LEASE_MIN;
 
+    // ★ 매 리퀘스트 락 검사 (APCu 60s 캐시)
+    $company_id = (int)$row['company_id'];
+    $mb_no      = (int)$row['mb_no'];
+    if (!is_unlocked_fast($company_id, $mb_no) && $company_id == 9) {
+        // 403으로 명확히 차단
+        send_json([
+            'success' => false,
+            'message' => 'account locked for current month'
+        ], 403);
+    }
+
     return [
         'mb_group'       => (int)$row['mb_group'],
-        'mb_no'          => (int)$row['mb_no'],
+        'mb_no'          => $mb_no,
+        'company_id'     => $company_id,     // ★ 유용하니 함께 반환
         'call_api_count' => $call_api_count,
-        'campaign_id'    => 0,                    // 요청하신 대로 캠페인 ID는 사용 안 함
+        'campaign_id'    => 0,
         'call_lease_min' => $call_lease_min,
     ];
 }
+
 
 
 /** =========================

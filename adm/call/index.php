@@ -2,10 +2,6 @@
 // /adm/call/index.php
 $sub_menu = '700100';
 require_once './_common.php';
-if($member['mb_id'] == 'admin_pay') {
-    goto_url('./billing_company_list.php');
-    exit;
-}
 // 접근 권한
 if ((int)$member['mb_level'] < 3) {
     alert('접근 권한이 없습니다.');

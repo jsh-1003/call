@@ -1,32 +1,72 @@
 <?php
 if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 
-function s3_safe_filename(string $name): string {
-    // 앞뒤 공백 제거, 제어문자 제거
-    $name = trim($name);
-    // 위험문자 제거/치환 (슬래시, 역슬래시 포함)
-    $name = str_replace(['/', '\\', "\0"], ' ', $name);
-    // 윈도우 예약문자:  : * ? " < > |  를 밑줄로 치환
-    $name = preg_replace('/[:\*\?"<>\|]/u', '_', $name);
-    // 공백 정리
-    $name = preg_replace('/\s+/u', '_', $name);
-    // 너무 긴 경우 앞쪽만 사용 (S3 키 전체는 1024B 제한, 여기서는 파일명 180자 제한)
-    if (mb_strlen($name, 'UTF-8') > 180) {
-        $name = mb_substr($name, 0, 180, 'UTF-8');
-    }
-    return $name === '' ? 'NONAME' : $name;
-}
 /**
- * 결제 여부 조회 (회사 + 개인 상담원 단위)
+ * 현재월 기준 회사/개인 잠금 여부 빠른판정 (APCu 60s 캐시)
+ * true  = 사용 허용(언락)
+ * false = 차단(락)
+ */
+function is_unlocked_fast(int $company_id, int $mb_no = 0): bool
+{
+    $month = date('Y-m');
+    $ckey  = "lock:{$company_id}:{$mb_no}:{$month}";
+
+    // 0) 캐시 히트 시 즉시 반환
+    if (function_exists('apcu_fetch')) {
+        $hit = apcu_fetch($ckey, $success);
+        if ($success) return (bool)$hit;
+    }
+
+    // 1) 개인 기준: 스냅샷이 있으면 '무조건' 그 값을 우선 (관리자 강제잠금 포함)
+    if ($mb_no > 0) {
+        $snap = sql_fetch("
+            SELECT locked
+              FROM billing_member_snapshot
+             WHERE company_id = {$company_id}
+               AND month = '" . sql_escape_string($month) . "'
+               AND mb_no = {$mb_no}
+             LIMIT 1
+        ");
+        if ($snap) {
+            $ok = ((int)$snap['locked'] === 1) ? false : true;
+            if (function_exists('apcu_store')) apcu_store($ckey, $ok, 60);
+            return $ok;
+        }
+        // 스냅샷이 없으면 회사 정책으로 폴백
+    }
+
+    // 2) 회사 월 정책: 결제완료 or 임시해제면 허용, 그 외 차단
+    $row = sql_fetch("
+        SELECT payment_status, manual_unlock
+          FROM billing_company_month
+         WHERE company_id = {$company_id}
+           AND month = '" . sql_escape_string($month) . "'
+         LIMIT 1
+    ");
+
+    $ok = false;
+    if ($row && ($row['payment_status'] === 'paid' || (int)$row['manual_unlock'] === 1)) {
+        $ok = true;
+    } else {
+        $ok = false;
+    }
+
+    if (function_exists('apcu_store')) apcu_store($ckey, $ok, 60);
+    return $ok;
+}
+
+/**
+ * 결제/잠금 검증 (회사/개인)
  *
- * @param int $company_id 회사 ID
- * @param int|null $mb_no  회원 번호 (옵션)
- * @return array ['is_paid' => bool, 'month' => 'YYYY-MM', 'paid_at' => 'Y-m-d H:i:s' or null]
+ * @param int      $company_id 회사 ID
+ * @param int|null $mb_no      회원 번호(옵션) - 주면 개인 스냅샷 기준으로 최종 판정
+ * @return array{is_paid:bool, month:?string, paid_at:?string}
  *
- * 규칙:
- *  - 회사 단위로 billing_company_month.payment_status='paid' 인 경우를 기본으로 본다.
- *  - 단, 특정 회원($mb_no)의 billing_unbilled_month 가 이번 달이면
- *      → 개인은 로그인 제한 대상 → is_paid=false 로 반환.
+ * 정책 요약:
+ *  - 회사 단위: billing_company_month.payment_status='paid' 이거나 manual_unlock=1 이면 "사용 허용".
+ *  - 개인 단위: billing_member_snapshot.locked 가 1이면 "차단", 0이면 "허용".
+ *    (개인 스냅샷이 없을 경우 회사 단위 결과를 따른다)
+ *  - 이 함수의 is_paid 는 "해당 월에 사용 가능 여부(unlocked)" 의미로 해석한다.
  */
 function billing_is_company_paid($company_id, $mb_no = null) {
     $company_id = (int)$company_id;
@@ -36,52 +76,47 @@ function billing_is_company_paid($company_id, $mb_no = null) {
         return ['is_paid' => false, 'month' => null, 'paid_at' => null];
     }
 
-    // 이번 달 (기준: 서버시간)
+    // 이번 달 (서버가 KST라 가정)
     $month = date('Y-m');
 
-    // 회사 결제 상태 확인
-    $sql = "
-        SELECT payment_status, paid_at
+    // 회사 월 정책 조회
+    $row = sql_fetch("
+        SELECT payment_status, paid_at, manual_unlock
           FROM billing_company_month
          WHERE company_id = {$company_id}
            AND month = '" . sql_escape_string($month) . "'
          LIMIT 1
-    ";
-    $row = sql_fetch($sql);
+    ");
 
-    $is_paid = false;
-    $paid_at = null;
+    $paid_at = $row['paid_at'] ?? null;
 
-    if ($row && $row['payment_status'] === 'paid') {
-        $paid_at = $row['paid_at'];
-        // paid_at이 이번달이면 true
-        if ($paid_at) {
-            $ym_paid = substr($paid_at, 0, 7);
-            if ($ym_paid === $month) {
-                $is_paid = true;
-            }
-        } else {
-            // paid_at이 없어도 상태가 paid면 true
-            $is_paid = true;
+    // 회사 단위 허용 여부(결제완료 or 임시해제)
+    $company_unlocked = false;
+    if ($row) {
+        if ($row['payment_status'] === 'paid' || (int)$row['manual_unlock'] === 1) {
+            $company_unlocked = true;
         }
     }
 
-    // -----------------------------------
-    // 개인 미결제 여부 검사
-    // -----------------------------------
-    if ($is_paid && $mb_no > 0) {
-        $sql_mb = "
-            SELECT billing_unbilled_month
-              FROM g5_member
-             WHERE mb_no = {$mb_no}
-             LIMIT 1
-        ";
-        $m = sql_fetch($sql_mb);
+    // 기본값: 회사 단위 결과
+    $is_paid = $company_unlocked;
 
-        if (!empty($m['billing_unbilled_month']) && $m['billing_unbilled_month'] === $month) {
-            // 회사는 결제 완료지만 개인은 이번달 미계산 상태
-            $is_paid = false;
+    // 개인 단위 스냅샷 확인 (있으면 개인 스냅샷이 최종 우선)
+    if ($mb_no > 0) {
+        $snap = sql_fetch("
+            SELECT locked
+              FROM billing_member_snapshot
+             WHERE company_id = {$company_id}
+               AND month = '" . sql_escape_string($month) . "'
+               AND mb_no = {$mb_no}
+             LIMIT 1
+        ");
+
+        if ($snap) {
+            // 스냅샷이 있으면 그 값이 최종
+            $is_paid = ((int)$snap['locked'] === 1) ? false : true;
         }
+        // 스냅샷이 없으면 회사 단위 결과를 그대로 사용
     }
 
     return [
