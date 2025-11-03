@@ -19,7 +19,7 @@ $my_group      = (int)($member['mb_group'] ?? 0);
 $my_company_id = (int)($member['company_id'] ?? 0);
 $member_table  = $g5['member_table']; // g5_member
 
-$today      = date('Y-m-d');
+$today         = date('Y-m-d');
 $default_start = $today;
 $default_end   = $today;
 
@@ -44,11 +44,11 @@ $page_rows = 50; // 상세 리스트 50건 고정
 $offset    = ($page - 1) * $page_rows;
 
 // --------------------------------------------------
-// 전역: 상태코드 목록
+// 전역: 상태코드 목록 (1차 콜 상태)
 // --------------------------------------------------
 $codes = [];
 $rc = sql_query("
-    SELECT call_status, name_ko, status
+    SELECT call_status, name_ko, status, ui_type
       FROM call_status_code
      WHERE mb_group=0
      ORDER BY sort_order ASC, call_status ASC
@@ -56,6 +56,7 @@ $rc = sql_query("
 while ($r = sql_fetch_array($rc)) $codes[] = $r;
 
 // ★ 단일 after-call 코드 조회 (is_after_call=1, status=1 우선)
+//   - 기존 '접수전환율' 계산용 (1차 상태코드 중 접수/후처리로 잡아두었던 것)
 $after_code_row = sql_fetch("
     SELECT call_status, name_ko
       FROM call_status_code
@@ -66,8 +67,31 @@ $after_code_row = sql_fetch("
 $AFTER_STATUS = (int)($after_code_row['call_status'] ?? 0);
 $AFTER_LABEL  = $after_code_row['name_ko'] ?? '접수(후처리)';
 
+// --------------------------------------------------
+// 2차콜 상태코드 목록 (대기/접수/예약/보류/취소/기타 포함)
+//   - 여기서 state_id=10 을 DB전환으로 표시할 수 있음(코드 테이블에 등록되어 있지 않아도 집계는 동작)
+// --------------------------------------------------
+$ac_code_list = [];
+$qr_ac = sql_query("
+    SELECT state_id, name_ko, ui_type, status
+      FROM call_aftercall_state_code
+     WHERE status=1
+     ORDER BY sort_order ASC, state_id ASC
+");
+while ($r = sql_fetch_array($qr_ac)) {
+    $ac_code_list[(int)$r['state_id']] = [
+        'state_id' => (int)$r['state_id'],
+        'name_ko'  => $r['name_ko'],
+        'ui_type'  => $r['ui_type'] ?: 'secondary'
+    ];
+}
+// ★ DB전환(10)이 코드테이블에 없으면 컬럼 표시를 위해 동적으로 추가
+if (!isset($ac_code_list[10])) {
+    $ac_code_list[10] = ['state_id'=>10, 'name_ko'=>'DB전환', 'ui_type'=>'success'];
+}
+
 // ===============================
-// AJAX: 접수(후처리)로 변경
+// AJAX: 접수(후처리)로 변경 (기존 기능 유지)
 // ===============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['mode'] ?? '') === 'convert_to_after') {
     header('Content-Type: application/json; charset=utf-8');
@@ -132,37 +156,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['mode'] ?? '') === 'convert
 
         // 이전/이후 상태와 라벨 준비
         $before_status = (int)$row['cur_status'];
-        $before_label  = get_text($row['status_label'] ?? ''); // 현재 라벨
+        $before_label  = get_text($row['status_label'] ?? '');
         $after_status  = $AFTER_STATUS;
         $after_label   = $AFTER_LABEL;
 
-        // SQL 안전 문자열로
         $before_label_esc = sql_escape_string($before_label);
         $after_label_esc  = sql_escape_string($after_label);
 
-        // (선택) 조작자 표기
         $operator_name    = get_text($member['mb_name'] ?? $member['mb_id'] ?? '');
         $operator_name_esc= sql_escape_string($operator_name);
         $operator_no      = (int)$mb_no;
 
-        // 메모 한 줄(타임스탬프 포함)
         $memo_line = "[상태변경 ".date('Y-m-d H:i:s')." by {$operator_no}/{$operator_name}] "
                 . "{$before_status}({$before_label}) → {$after_status}({$after_label})";
 
-        // 업데이트: call_memo에 안전하게 prepend
+        // 업데이트
         sql_query("
         UPDATE call_log
-            SET call_status   = {$after_status},
-                call_updatedat= NOW(),
-                memo     = CONCAT_WS('\n',
-                                    '".sql_escape_string($memo_line)."',
-                                    IFNULL(memo,'')
-                                )
-        WHERE call_id = {$call_id}
+           SET call_status    = {$after_status},
+               call_updatedat = NOW(),
+               memo           = CONCAT_WS('\n','".sql_escape_string($memo_line)."', IFNULL(memo,''))
+         WHERE call_id = {$call_id}
         ");
-        
-        // 상태 변경
-        sql_query("UPDATE call_target SET last_result={$AFTER_STATUS}, updated_at=NOW() WHERE target_id={$target_id} AND mb_group={$mb_group} AND campaign_id={$campaign_id}");
+
+        sql_query("UPDATE call_target
+                      SET last_result={$AFTER_STATUS}, updated_at=NOW()
+                    WHERE target_id={$target_id}
+                      AND mb_group={$mb_group}
+                      AND campaign_id={$campaign_id}");
 
         // aftercall 티켓 발급 + 배정
         $initial_after_state = 1;
@@ -196,21 +217,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['mode'] ?? '') === 'convert
 }
 
 // --------------------------------------------------
-// WHERE 구성 (company/group/agent/기간/검색)
+// WHERE 구성 (company/group/agent/기간/검색) - 콜 리스트/콜 집계 용
 // --------------------------------------------------
 $where = [];
-
-// 기간 (통계는 call_start 기준)
 $start_esc = sql_escape_string($start_date.' 00:00:00');
 $end_esc   = sql_escape_string($end_date.' 23:59:59');
 $where[]   = "l.call_start BETWEEN '{$start_esc}' AND '{$end_esc}'";
 
-// 상태
 if ($f_status > 0) {
     $where[] = "l.call_status = {$f_status}";
 }
 
-// 검색어
 if ($q !== '' && $q_type !== '') {
     if ($q_type === 'name') {
         $q_esc = sql_escape_string($q);
@@ -232,7 +249,6 @@ if ($q !== '' && $q_type !== '') {
         $q_esc = sql_escape_string($q);
         $q4    = substr(preg_replace('/\D+/', '', $q), -4);
         $hp    = preg_replace('/\D+/', '', $q);
-
         $conds = ["t.name LIKE '%{$q_esc}%'"];
         if ($q4 !== '') $conds[] = "t.hp_last4 = '".sql_escape_string($q4)."'";
         if ($hp !== '') $conds[] = "l.call_hp = '".sql_escape_string($hp)."'";
@@ -256,7 +272,6 @@ if ($mb_level == 7) {
 if ($sel_agent_no > 0) {
     $where[] = "l.mb_no = {$sel_agent_no}";
 }
-
 $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
 
 // --------------------------------------------------
@@ -271,41 +286,63 @@ foreach($code_list as $v) {
 }
 
 // --------------------------------------------------
-// (공통) 통계 계산 함수
+// (공통) 통계 계산 함수  ← ★ 2차 상태(및 DB전환) 집계 추가
+//      - 통화상태 집계: 콜 건수 기반
+//      - 2차상태/DB전환 집계: 고유 target_id 기반
 // --------------------------------------------------
-// --------------------------------------------------
-// (공통) 통계 계산 함수  ← ★ after_status 파라미터 추가
-// --------------------------------------------------
-function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $sel_mb_group, $after_status) {
+function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $sel_mb_group, $after_status, $ac_code_list) {
     $result = [
+        // 1) 1차 콜 상태 집계(기존)
         'top_sum_by_status' => [],
         'success_total' => 0,
         'fail_total' => 0,
         'grand_total' => 0,
-
-        // ★ 추가 집계: 접수(후처리) 합계
         'after_total' => 0,
 
+        // 2) 차원 피벗(기존)
         'dim_mode' => 'group',
         'matrix' => [],
         'dim_totals' => [],
         'dim_labels' => [],
-
-        // ★ 추가 집계: 차원별 접수(후처리) 합계
         'dim_after_totals' => [],
 
+        // 3) 지점 미선택 섹션(기존)
         'group_agent_matrix' => [],
         'group_agent_totals' => [],
         'group_totals' => [],
         'group_labels' => [],
         'agent_labels' => [],
-
-        // ★ 지점 미선택 섹션용: 지점/상담자별 접수(후처리) 합계
         'group_after_totals' => [],
         'group_agent_after_totals' => [],
+
+        // 4) ★ 2차 상태/DB전환 (고유 target 기준)
+        'ac_state_labels' => [],               // state_id => name
+        'ac_state_totals' => [],               // 전체 분포
+        'dbconv_total'    => 0,                // state_id=10
+        'dim_ac_state_totals' => [],           // [dim_id][state_id] => cnt
+        'dim_dbconv_totals'   => [],           // [dim_id] => cnt(10)
+
+        // 지점 미선택 섹션용 (그룹-상담자)
+        'group_ac_state_totals' => [],         // [gid][state_id] => cnt
+        'group_dbconv_totals'   => [],         // [gid] => cnt(10)
+        'group_agent_ac_state_totals' => [],   // [gid][aid][state_id] => cnt
+        'group_agent_dbconv_totals'   => [],   // [gid][aid] => cnt(10)
+
+        // 고유 대상 수(분모)
+        'distinct_target_count' => 0,
+        'dim_distinct_target_count' => [],     // [dim_id] => cnt
+        'group_distinct_target_count' => [],   // [gid] => cnt
+        'group_agent_distinct_target_count' => [] // [gid][aid] => cnt
     ];
 
-    // 상단 총합
+    // 라벨 설정(2차 상태)
+    foreach ($ac_code_list as $sid => $info) {
+        $result['ac_state_labels'][(int)$sid] = $info['name_ko'];
+    }
+
+    // -----------------------------
+    // A) 1차 콜 상태 총합(콜 건수 기반, 기존)
+    // -----------------------------
     $sql_top_sum = "
         SELECT l.call_status, COUNT(*) AS cnt
           FROM call_log l
@@ -329,14 +366,14 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         ");
         $rg = isset($row['rg']) ? (int)$row['rg'] : (($st>=200 && $st<300)?1:0);
         if ($rg === 1) $result['success_total'] += $c; else $result['fail_total'] += $c;
-
-        // ★ 접수(후처리) 총합
         if ($st === (int)$after_status) {
             $result['after_total'] += $c;
         }
     }
 
-    // 피벗
+    // -----------------------------
+    // B) 피벗(콜 건수 기반, 기존)
+    // -----------------------------
     $dim_mode = ($mb_level >= 8 && $sel_mb_group === 0) ? 'group'
               : (($sel_mb_group > 0) ? 'agent' : 'group');
     $result['dim_mode'] = $dim_mode;
@@ -360,15 +397,13 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         $result['matrix'][$did][$st] = $cnt;
         if (!isset($result['dim_totals'][$did])) $result['dim_totals'][$did] = 0;
         $result['dim_totals'][$did] += $cnt;
-
-        // ★ 차원(지점/담당자)별 접수(후처리) 합계
         if ($st === (int)$after_status) {
             if (!isset($result['dim_after_totals'][$did])) $result['dim_after_totals'][$did] = 0;
             $result['dim_after_totals'][$did] += $cnt;
         }
     }
 
-    // 라벨
+    // 차원 라벨
     if ($dim_mode === 'agent') {
         $ids = array_keys($result['matrix']);
         if ($ids) {
@@ -380,15 +415,14 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         }
     } else {
         $ids = array_keys($result['matrix']);
-        if ($ids) {
-            foreach ($ids as $gid) {
-                $gid = (int)$gid;
-                $result['dim_labels'][$gid] = get_group_name_cached($gid);
-            }
+        foreach ($ids as $gid) {
+            $result['dim_labels'][(int)$gid] = get_group_name_cached((int)$gid);
         }
     }
 
-    // 지점 미선택 시: 지점별 담당자
+    // -----------------------------
+    // C) 지점 미선택 시: 지점-상담자 (콜 건수 기반, 기존)
+    // -----------------------------
     if ($sel_mb_group === 0) {
         $sql_ga = "
             SELECT l.mb_group AS gid, l.mb_no AS agent_id, l.call_status, COUNT(*) AS cnt
@@ -417,7 +451,6 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
             if (!isset($result['group_totals'][$gid])) $result['group_totals'][$gid] = 0;
             $result['group_totals'][$gid] += $cnt;
 
-            // ★ 지점/상담자별 접수(후처리) 합계
             if ($st === (int)$after_status) {
                 if (!isset($result['group_after_totals'][$gid])) $result['group_after_totals'][$gid] = 0;
                 $result['group_after_totals'][$gid] += $cnt;
@@ -434,7 +467,6 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
             foreach ($gids as $gid) {
                 $result['group_labels'][$gid] = get_group_name_cached($gid);
             }
-
             $agent_ids = [];
             foreach ($result['group_agent_matrix'] as $gid => $agents) {
                 $agent_ids = array_merge($agent_ids, array_keys($agents));
@@ -450,11 +482,151 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         }
     }
 
+    // ============================================================
+    // D) ★ 2차 상태/DB전환 집계(고유 target_id 기준)
+    //     - 분모: 기간/필터에 해당하는 고유 target_id 수
+    //     - 분자: 해당 target_id에 연결된 call_aftercall_ticket.state_id 분포
+    // ============================================================
+    // 공통: 필터된 콜에서 고유 대상 추출(차원별 변형 위해 기본/차원/지점-상담자 3가지 형태)
+    // 1) 전체 고유 대상
+    $sql_distinct_targets = "
+        SELECT DISTINCT l.target_id
+          FROM call_log l
+          JOIN call_target t ON t.target_id = l.target_id
+     LEFT JOIN {$member_table} m ON m.mb_no = l.mb_no
+        {$where_sql}
+    ";
+    $res_dt = sql_query($sql_distinct_targets);
+    $distinct_targets = [];
+    while ($r = sql_fetch_array($res_dt)) $distinct_targets[] = (int)$r['target_id'];
+    $result['distinct_target_count'] = count($distinct_targets);
+
+    // 2) 차원별 고유 대상
+    $dim_select = ($result['dim_mode']==='group') ? 'l.mb_group' : 'l.mb_no';
+    $sql_dim_dt = "
+        SELECT {$dim_select} AS dim_id, l.target_id
+          FROM call_log l
+          JOIN call_target t ON t.target_id = l.target_id
+     LEFT JOIN {$member_table} m ON m.mb_no = l.mb_no
+        {$where_sql}
+         GROUP BY dim_id, l.target_id
+    ";
+    $res_dim_dt = sql_query($sql_dim_dt);
+    while ($r = sql_fetch_array($res_dim_dt)) {
+        $did = (int)$r['dim_id'];
+        if (!isset($result['dim_distinct_target_count'][$did])) $result['dim_distinct_target_count'][$did] = 0;
+        $result['dim_distinct_target_count'][$did] += 1;
+    }
+
+    // 3) 지점-상담자별 고유 대상(지점 미선택일 때만)
+    if ($sel_mb_group === 0) {
+        $sql_ga_dt = "
+            SELECT l.mb_group AS gid, l.mb_no AS aid, l.target_id
+              FROM call_log l
+              JOIN call_target t ON t.target_id = l.target_id
+         LEFT JOIN {$member_table} m ON m.mb_no = l.mb_no
+            {$where_sql}
+             GROUP BY gid, aid, l.target_id
+        ";
+        $res_ga_dt = sql_query($sql_ga_dt);
+        while ($r = sql_fetch_array($res_ga_dt)) {
+            $gid = (int)$r['gid']; $aid = (int)$r['aid'];
+            if (!isset($result['group_distinct_target_count'][$gid])) $result['group_distinct_target_count'][$gid] = 0;
+            $result['group_distinct_target_count'][$gid] += 1;
+
+            if (!isset($result['group_agent_distinct_target_count'][$gid])) $result['group_agent_distinct_target_count'][$gid] = [];
+            if (!isset($result['group_agent_distinct_target_count'][$gid][$aid])) $result['group_agent_distinct_target_count'][$gid][$aid] = 0;
+            $result['group_agent_distinct_target_count'][$gid][$aid] += 1;
+        }
+    }
+
+    // -------- 전체 분포 / DB전환
+    if ($result['distinct_target_count'] > 0) {
+        // 전체: state 분포
+        $sql_ac_all = "
+            SELECT tk.state_id, COUNT(*) AS cnt
+              FROM call_aftercall_ticket tk
+              JOIN (
+                    {$sql_distinct_targets}
+              ) bt ON bt.target_id = tk.target_id
+             GROUP BY tk.state_id
+        ";
+        $res_ac_all = sql_query($sql_ac_all);
+        while ($r = sql_fetch_array($res_ac_all)) {
+            $sid = (int)$r['state_id'];
+            $result['ac_state_totals'][$sid] = (int)$r['cnt'];
+            if ($sid === 10) $result['dbconv_total'] += (int)$r['cnt'];
+        }
+    }
+
+    // -------- 차원별 분포 / DB전환
+    $sql_ac_dim = "
+        SELECT dt.dim_id, tk.state_id, COUNT(*) AS cnt
+          FROM (
+                {$sql_dim_dt}
+          ) dt
+          JOIN call_aftercall_ticket tk
+            ON tk.target_id = dt.target_id
+         GROUP BY dt.dim_id, tk.state_id
+         ORDER BY dt.dim_id
+    ";
+    $res_ac_dim = sql_query($sql_ac_dim);
+    while ($r = sql_fetch_array($res_ac_dim)) {
+        $did = (int)$r['dim_id'];
+        $sid = (int)$r['state_id'];
+        if (!isset($result['dim_ac_state_totals'][$did])) $result['dim_ac_state_totals'][$did] = [];
+        $result['dim_ac_state_totals'][$did][$sid] = (int)$r['cnt'];
+        if ($sid === 10) {
+            if (!isset($result['dim_dbconv_totals'][$did])) $result['dim_dbconv_totals'][$did] = 0;
+            $result['dim_dbconv_totals'][$did] += (int)$r['cnt'];
+        }
+    }
+
+    // -------- 지점-상담자 분포 / DB전환
+    if ($sel_mb_group === 0) {
+        $sql_ac_ga = "
+            SELECT gadt.gid, gadt.aid, tk.state_id, COUNT(*) AS cnt
+              FROM (
+                SELECT l.mb_group AS gid, l.mb_no AS aid, l.target_id
+                  FROM call_log l
+                  JOIN call_target t ON t.target_id = l.target_id
+             LEFT JOIN {$member_table} m ON m.mb_no = l.mb_no
+                {$where_sql}
+                 GROUP BY gid, aid, l.target_id
+              ) gadt
+              JOIN call_aftercall_ticket tk
+                ON tk.target_id = gadt.target_id
+             GROUP BY gadt.gid, gadt.aid, tk.state_id
+             ORDER BY gadt.gid, gadt.aid
+        ";
+        $res_ac_ga = sql_query($sql_ac_ga);
+        while ($r = sql_fetch_array($res_ac_ga)) {
+            $gid = (int)$r['gid']; $aid = (int)$r['aid']; $sid = (int)$r['state_id']; $cnt = (int)$r['cnt'];
+
+            if (!isset($result['group_ac_state_totals'][$gid])) $result['group_ac_state_totals'][$gid] = [];
+            if (!isset($result['group_ac_state_totals'][$gid][$sid])) $result['group_ac_state_totals'][$gid][$sid] = 0;
+            $result['group_ac_state_totals'][$gid][$sid] += $cnt;
+
+            if (!isset($result['group_agent_ac_state_totals'][$gid])) $result['group_agent_ac_state_totals'][$gid] = [];
+            if (!isset($result['group_agent_ac_state_totals'][$gid][$aid])) $result['group_agent_ac_state_totals'][$gid][$aid] = [];
+            $result['group_agent_ac_state_totals'][$gid][$aid][$sid] = $cnt;
+
+            if ($sid === 10) {
+                if (!isset($result['group_dbconv_totals'][$gid])) $result['group_dbconv_totals'][$gid] = 0;
+                $result['group_dbconv_totals'][$gid] += $cnt;
+
+                if (!isset($result['group_agent_dbconv_totals'][$gid])) $result['group_agent_dbconv_totals'][$gid] = [];
+                if (!isset($result['group_agent_dbconv_totals'][$gid][$aid])) $result['group_agent_dbconv_totals'][$gid][$aid] = 0;
+                $result['group_agent_dbconv_totals'][$gid][$aid] += $cnt;
+            }
+        }
+    }
+
     return $result;
 }
 
 // --------------------------------------------------
-// 총 건수 (상세 리스트 페이징용)
+// 총 건수 (상세 리스트 페이징용) - 콜 건수
 // --------------------------------------------------
 $sql_cnt = "
     SELECT COUNT(*) AS cnt
@@ -467,8 +639,7 @@ $row_cnt = sql_fetch($sql_cnt);
 $total_count = (int)($row_cnt['cnt'] ?? 0);
 
 // --------------------------------------------------
-// 상세 목록 쿼리
-//   + sc.is_after_call 컬럼 포함
+// 상세 목록 쿼리 (기존)
 // --------------------------------------------------
 $sql_list = "
     SELECT
@@ -485,9 +656,9 @@ $sql_list = "
         l.target_id,
         l.call_start, 
         l.call_end,
-        l.call_time,                                                   -- 통화시간(초)
-        l.agent_phone,                                                 -- 발신전화번호
-        rec.duration_sec                                               AS talk_time,          -- 상담시간
+        l.call_time,
+        l.agent_phone,
+        rec.duration_sec                                               AS talk_time,
         t.name                                                         AS target_name,
         t.birth_date,
         CASE
@@ -500,19 +671,17 @@ $sql_list = "
         cc.name                                                        AS campaign_name,
         cc.is_open_number                                              AS cc_is_open_number
     FROM call_log l
-    JOIN call_target t 
-      ON t.target_id = l.target_id
- LEFT JOIN {$member_table} m 
-      ON m.mb_no = l.mb_no
+    JOIN call_target t  ON t.target_id = l.target_id
+ LEFT JOIN {$member_table} m ON m.mb_no = l.mb_no
  LEFT JOIN call_status_code sc
-      ON sc.call_status = l.call_status AND sc.mb_group = 0
+        ON sc.call_status = l.call_status AND sc.mb_group = 0
  LEFT JOIN call_recording rec
-      ON rec.call_id = l.call_id 
-     AND rec.mb_group = l.mb_group
-     AND rec.campaign_id = l.campaign_id
+        ON rec.call_id = l.call_id 
+       AND rec.mb_group = l.mb_group
+       AND rec.campaign_id = l.campaign_id
   JOIN call_campaign cc
-      ON cc.campaign_id = l.campaign_id
-     AND cc.mb_group = l.mb_group
+        ON cc.campaign_id = l.campaign_id
+       AND cc.mb_group = l.mb_group
     {$where_sql}
     ORDER BY l.call_start DESC, l.call_id DESC
     LIMIT {$offset}, {$page_rows}
@@ -520,21 +689,31 @@ $sql_list = "
 $res_list = sql_query($sql_list);
 
 // --------------------------------------------------
-// 통계 계산 (상단/피벗/지점별담당자)
+// 통계 계산 (상단/피벗/지점별담당자 + ★2차/DB전환)
 // --------------------------------------------------
-$stats = build_stats($where_sql, $member_table, $code_list_status, $mb_level, $sel_mb_group, $AFTER_STATUS);
+$stats = build_stats($where_sql, $member_table, $code_list_status, $mb_level, $sel_mb_group, $AFTER_STATUS, $ac_code_list);
+
+// 1차 콜 상태 요약
 $top_sum_by_status = $stats['top_sum_by_status'];
 $success_total = $stats['success_total'];
 $fail_total = $stats['fail_total'];
 $grand_total = $stats['grand_total'];
 
+// 접수(1차 after) 전환율
 $after_total = $stats['after_total'];
-$dim_after_totals = $stats['dim_after_totals'];
+
+// 2차 상태/DB전환(고유 대상 기준)
+$ac_state_labels  = $stats['ac_state_labels'];
+unset($ac_state_labels[10]);
+$ac_state_totals  = $stats['ac_state_totals'];
+$dbconv_total     = (int)$stats['dbconv_total'];
+$distinct_targets = (int)$stats['distinct_target_count'];
 
 $dim_mode    = $stats['dim_mode'];
 $matrix      = $stats['matrix'];
 $dim_totals  = $stats['dim_totals'];
 $dim_labels  = $stats['dim_labels'];
+$dim_after_totals   = $stats['dim_after_totals'];
 
 $group_agent_matrix  = $stats['group_agent_matrix'];
 $group_agent_totals  = $stats['group_agent_totals'];
@@ -542,9 +721,21 @@ $group_totals        = $stats['group_totals'];
 $group_labels        = $stats['group_labels'];
 $agent_labels        = $stats['agent_labels'];
 
-// ★ 지점/상담자 섹션용
 $group_after_totals        = $stats['group_after_totals'];
 $group_agent_after_totals  = $stats['group_agent_after_totals'];
+
+// ★ 2차/DB전환 차원별
+$dim_ac_state_totals = $stats['dim_ac_state_totals'];
+$dim_dbconv_totals   = $stats['dim_dbconv_totals'];
+$dim_distinct_target_count = $stats['dim_distinct_target_count'];
+
+// ★ 2차/DB전환 지점-상담자별
+$group_ac_state_totals = $stats['group_ac_state_totals'];
+$group_dbconv_totals   = $stats['group_dbconv_totals'];
+$group_agent_ac_state_totals = $stats['group_agent_ac_state_totals'];
+$group_agent_dbconv_totals   = $stats['group_agent_dbconv_totals'];
+$group_distinct_target_count = $stats['group_distinct_target_count'];
+$group_agent_distinct_target_count = $stats['group_agent_distinct_target_count'];
 
 // ★ 전환율 포맷터
 $fmt_rate = function($num, $den){
@@ -553,18 +744,13 @@ $fmt_rate = function($num, $den){
     return number_format($n * 100 / $d, 1) . '%';
 };
 
-/**
- * ========================
- * 회사/지점/담당자 드롭다운 옵션
- * ========================
- */
+// ========================
+// 조직 드롭다운 옵션
+// ========================
 $build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
 $company_options = $build_org_select_options['company_options'];
 $group_options   = $build_org_select_options['group_options'];
 $agent_options   = $build_org_select_options['agent_options'];
-/**
- * ========================
- */
 
 // --------------------------------------------------
 // 화면 출력
@@ -579,6 +765,11 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 .status-chip { display:inline-block; padding:2px 6px; border-radius:10px; font-size:12px; vertical-align:middle; }
 .btn-convert-after { padding:4px 8px; font-size:12px; }
 .tbl_call_list td {max-width:200px;}
+.status-success{ background:#e9f7ef; }
+.status-warning{ background:#fff6e6; }
+.status-danger{ background:#fdecea; }
+.status-secondary{ background:#f4f6f8; }
+.small-muted{ color:#777; font-size:12px; }
 </style>
 
 <!-- 검색/필터 -->
@@ -601,7 +792,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 
         <label for="q_type">검색구분</label>
         <select name="q_type" id="q_type" style="width:100px">
-            <option value="all">전체</option>
+            <option value="all"   <?php echo $q_type==='all'?'selected':'';?>>전체</option>
             <option value="name"  <?php echo $q_type==='name'?'selected':'';?>>이름</option>
             <option value="last4" <?php echo $q_type==='last4'?'selected':'';?>>전화번호(끝4자리)</option>
             <option value="full"  <?php echo $q_type==='full'?'selected':'';?>>전화번호(전체)</option>
@@ -699,13 +890,19 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 
 <!-- 상단 총괄 -->
 <p>
-    총 통화: <b id="stat_grand_total"><?php echo number_format($grand_total);?></b> 건
+    총 통화(콜 건수): <b id="stat_grand_total"><?php echo number_format($grand_total);?></b> 건
     &nbsp;|&nbsp;
     성공: <span class="badge badge-success"><span id="stat_success_total"><?php echo number_format($success_total);?></span></span>
     &nbsp;/&nbsp;
     실패: <span class="badge badge-fail"><span id="stat_fail_total"><?php echo number_format($fail_total);?></span></span>
     &nbsp;|&nbsp;
     접수전환율: <b><?php echo $fmt_rate($after_total, $grand_total); ?></b>
+    &nbsp;|&nbsp;
+    대상수: <b><?php echo number_format($distinct_targets); ?></b> 건
+    &nbsp;|&nbsp;
+    DB전환수: <b><?php echo number_format($dbconv_total); ?></b> 건
+    &nbsp;|&nbsp;
+    DB전환율: <b><?php echo $fmt_rate($dbconv_total, $distinct_targets); ?></b>
 </p>
 
 <!-- 피벗 요약 테이블 -->
@@ -718,6 +915,12 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
             <th scope="col">총합</th>
             <th scope="col">접수전환율</th>
             <?php foreach ($code_list as $c) echo '<th scope="col">'.get_text($c['name']).'</th>'; ?>
+            <th scope="col" style="background:#eef7ff">DB대상수</th>
+            <th scope="col" style="background:#eef7ff">DB전환수</th>
+            <th scope="col" style="background:#eef7ff">DB전환율</th>
+            <?php foreach ($ac_state_labels as $sid=>$nm) {
+                echo '<th scope="col" style="background:#f6f8fa">'.get_text($nm).'</th>';
+            } ?>
         </tr>
         </thead>
         <tbody>
@@ -732,17 +935,30 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                 echo '<td class="status-col status-'.get_text($ui).'">'.$cnt.'</td>';
             }
             ?>
+            <td style="background:#eef7ff"><?php echo number_format($distinct_targets); ?></td>
+            <td style="background:#eef7ff"><?php echo number_format($dbconv_total); ?></td>
+            <td style="background:#eef7ff"><?php echo $fmt_rate($dbconv_total, $distinct_targets); ?></td>
+            <?php
+            foreach ($ac_state_labels as $sid=>$nm) {
+                $cnt = isset($ac_state_totals[$sid]) ? number_format($ac_state_totals[$sid]) : '-';
+                echo '<td style="background:#f6f8fa">'.$cnt.'</td>';
+            }
+            ?>
         </tr>
 
         <?php
         if (empty($matrix)) {
-            echo '<tr><td colspan="'.(3+count($code_list)).'" class="empty_table">데이터가 없습니다.</td></tr>';
+            echo '<tr><td colspan="'.(7+count($code_list)+count($ac_state_labels)).'" class="empty_table">데이터가 없습니다.</td></tr>';
         } else {
             ksort($matrix, SORT_NUMERIC);
             foreach ($matrix as $did => $rowset) {
                 $label = $dim_labels[$did] ?? (($dim_mode==='group')?('지점 '.$did):('담당자 '.$did));
                 $row_total = (int)($dim_totals[$did] ?? 0);
                 $row_after = (int)($dim_after_totals[$did] ?? 0);
+
+                $d_distinct = (int)($dim_distinct_target_count[$did] ?? 0);
+                $d_dbconv   = (int)($dim_dbconv_totals[$did] ?? 0);
+
                 echo '<tr>';
                 echo '<td>'.get_text($label).'</td>';
                 echo '<td>'.number_format($row_total).'</td>';
@@ -751,6 +967,14 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                     $cnt = isset($rowset[$k]) ? number_format($rowset[$k]) : '-';
                     $ui = $item['ui_type'] ?? 'secondary';
                     echo '<td class="status-col status-'.get_text($ui).'">'.$cnt.'</td>';
+                }
+                echo '<td style="background:#eef7ff">'.($d_distinct?number_format($d_distinct):'-').'</td>';
+                echo '<td style="background:#eef7ff">'.($d_dbconv?number_format($d_dbconv):'-').'</td>';
+                echo '<td style="background:#eef7ff">'.$fmt_rate($d_dbconv, $d_distinct).'</td>';
+
+                foreach ($ac_state_labels as $sid=>$nm) {
+                    $cnt = isset($dim_ac_state_totals[$did][$sid]) ? number_format($dim_ac_state_totals[$did][$sid]) : '-';
+                    echo '<td style="background:#f6f8fa">'.$cnt.'</td>';
                 }
                 echo '</tr>';
             }
@@ -779,6 +1003,12 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                         <th scope="col">총합</th>
                         <th scope="col">접수전환율</th>
                         <?php foreach ($code_list as $c) echo '<th scope="col">'.get_text($c['name']).'</th>'; ?>
+                        <th scope="col" style="background:#eef7ff">DB대상수</th>
+                        <th scope="col" style="background:#eef7ff">DB전환수</th>
+                        <th scope="col" style="background:#eef7ff">DB전환율</th>
+                        <?php foreach ($ac_state_labels as $sid=>$nm) {
+                            echo '<th scope="col" style="background:#f6f8fa">'.get_text($nm).'</th>';
+                        } ?>
                     </tr>
                 </thead>
                 <tbody>
@@ -800,6 +1030,19 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                             $ui = $item['ui_type'] ?? 'secondary';
                             echo '<td class="status-col status-'.get_text($ui).'">'.$cnt.'</td>';
                         }
+
+                        $g_distinct = (int)($group_distinct_target_count[$gid] ?? 0);
+                        $g_dbconv   = (int)($group_dbconv_totals[$gid] ?? 0);
+                        echo '<td style="background:#eef7ff">'.($g_distinct?number_format($g_distinct):'-').'</td>';
+                        echo '<td style="background:#eef7ff">'.($g_dbconv?number_format($g_dbconv):'-').'</td>';
+                        echo '<td style="background:#eef7ff">'.$fmt_rate($g_dbconv, $g_distinct).'</td>';
+
+                        $g_state_sum = [];
+                        if (!empty($group_ac_state_totals[$gid])) $g_state_sum = $group_ac_state_totals[$gid];
+                        foreach ($ac_state_labels as $sid=>$nm) {
+                            $cnt = isset($g_state_sum[$sid]) ? number_format($g_state_sum[$sid]) : '-';
+                            echo '<td style="background:#f6f8fa">'.$cnt.'</td>';
+                        }
                         ?>
                     </tr>
 
@@ -808,6 +1051,10 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                     foreach ($agents as $aid => $rowset) {
                         $row_total = (int)($group_agent_totals[$gid][$aid] ?? 0);
                         $row_after = (int)($group_agent_after_totals[$gid][$aid] ?? 0);
+
+                        $ga_distinct = (int)($group_agent_distinct_target_count[$gid][$aid] ?? 0);
+                        $ga_dbconv   = (int)($group_agent_dbconv_totals[$gid][$aid] ?? 0);
+
                         $alabel = $agent_labels[$aid] ?? ('담당자 '.$aid);
                         echo '<tr>';
                         echo '<td>'.get_text($alabel).'</td>';
@@ -817,6 +1064,15 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                             $cnt = isset($rowset[$k]) ? number_format($rowset[$k]) : '-';
                             $ui = $item['ui_type'] ?? 'secondary';
                             echo '<td class="status-col status-'.get_text($ui).'">'.$cnt.'</td>';
+                        }
+
+                        echo '<td style="background:#eef7ff">'.($ga_distinct?number_format($ga_distinct):'-').'</td>';
+                        echo '<td style="background:#eef7ff">'.($ga_dbconv?number_format($ga_dbconv):'-').'</td>';
+                        echo '<td style="background:#eef7ff">'.$fmt_rate($ga_dbconv, $ga_distinct).'</td>';
+
+                        foreach ($ac_state_labels as $sid=>$nm) {
+                            $cnt = isset($group_agent_ac_state_totals[$gid][$aid][$sid]) ? number_format($group_agent_ac_state_totals[$gid][$aid][$sid]) : '-';
+                            echo '<td style="background:#f6f8fa">'.$cnt.'</td>';
                         }
                         echo '</tr>';
                     }
@@ -857,7 +1113,6 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
             echo '<tr><td colspan="16" class="empty_table">데이터가 없습니다.</td></tr>';
         } else {
             while ($row = sql_fetch_array($res_list)) {
-                // 포맷팅
                 $talk_sec = is_null($row['talk_time']) ? '-' : fmt_hms((int)$row['talk_time']);
                 $call_sec = is_null($row['call_time']) ? '-' : fmt_hms((int)$row['call_time']);
                 $bday     = empty($row['birth_date']) ? '-' : get_text($row['birth_date']);
@@ -869,9 +1124,6 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                 if (!is_null($row['meta_json']) && $row['meta_json'] !== '') {
                     $decoded = json_decode($row['meta_json'], true);
                     if (is_array($decoded)) {
-                        // $kv = [];
-                        // foreach ($decoded as $k=>$v) $kv[] = $k.': '.$v;
-                        // $meta = implode(', ', $kv);
                         $meta = implode(',', $decoded);
                     } else {
                         $meta = get_text($row['meta_json']);
@@ -882,7 +1134,6 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                 $class = 'status-col status-'.get_text($ui);
 
                 // 전화번호 숨김 규칙
-                $hp_display = '';
                 if ((int)$row['cc_is_open_number'] === 0 && (int)$row['sc_is_after_call'] !== 1 && $mb_level < 9) {
                     $hp_display = '(숨김처리)';
                 } else {
@@ -959,7 +1210,7 @@ $base = './call_stats.php?'.http_build_query($qstr);
 
 <script>
 // ===============================
-// 비동기 조직(회사→지점) 셀렉트
+// 회사→지점 셀렉트 자동 전송
 // ===============================
 (function(){
     var companySel = document.getElementById('company_id');
@@ -976,9 +1227,8 @@ $base = './call_stats.php?'.http_build_query($qstr);
             document.getElementById('searchForm').submit();
         });
     }
-
     <?php } ?>
-    const mbGroup = document.getElementById('mb_group');
+
     if (groupSel) {
         groupSel.addEventListener('change', function(){
             const agent = document.getElementById('agent');
@@ -997,25 +1247,19 @@ $base = './call_stats.php?'.http_build_query($qstr);
 
 <script>
 // ===============================
-// 접수로 변경 버튼 처리
+// 접수로 변경 버튼 처리 (기존)
 // ===============================
 (function(){
   const table = document.querySelector('table.table-fixed');
   if (!table) return;
-
   const AFTER_LABEL = <?php echo json_encode($AFTER_LABEL, JSON_UNESCAPED_UNICODE); ?>;
-
   table.addEventListener('click', function(e){
     const btn = e.target.closest('.btn-convert-after');
     if (!btn) return;
-
     const callId = parseInt(btn.getAttribute('data-call-id') || '0', 10);
     if (!callId) return;
-
     if (!confirm("정말 '" + AFTER_LABEL + "' 으로 변경하시겠습니까?")) return;
-
     btn.disabled = true;
-
     fetch(location.pathname, {
       method: 'POST',
       credentials: 'same-origin',
@@ -1029,14 +1273,12 @@ $base = './call_stats.php?'.http_build_query($qstr);
     .then(res => res.json())
     .then(json => {
       if (!json.ok) throw new Error(json.message || '변경 실패');
-
-      // UI 업데이트: 같은 행의 통화결과 텍스트만 교체, 버튼 숨김
       const tr = btn.closest('tr');
       const tdResult = tr ? tr.children[4] : null; // 통화결과 칸
       if (tdResult) {
         tdResult.textContent = AFTER_LABEL;
         tdResult.classList.remove('status-secondary','status-warning','status-fail');
-        tdResult.classList.add('status-success'); // 라벨 색상은 프로젝트 UI 규칙에 맞춰 조정
+        tdResult.classList.add('status-success');
       }
       btn.replaceWith(document.createTextNode('완료'));
     })
