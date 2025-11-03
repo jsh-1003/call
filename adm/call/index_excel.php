@@ -62,6 +62,7 @@ if ($mb_level >= 8) {
 } elseif ($mb_level == 7) {
     $where[] = "t.mb_group = {$my_group}";
 } else {
+    $where[] = "t.mb_group = {$my_group}";
     $where[] = "t.assigned_mb_no = {$mb_no}";
 }
 

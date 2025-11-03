@@ -1427,11 +1427,11 @@ a.btn_ov02:hover, a.ov_listall:hover {color:#fff}
 #agent option.opt-sep { font-weight: bold; color: #495057; background: #f1f3f5;}
 /* 상태 컬럼 경량 하이라이트 */
 .status-col { transition: background-color .2s }
-.status-success  { background: #eaf7ee; }   /* 녹색 매우 연함 */
-.status-primary  { background: #eef4ff; }   /* 파랑 매우 연함 */
-.status-secondary{ background: #f6f7f9; }   /* 회색 매우 연함 */
-.status-warning  { background: #fff8e6; }   /* 노랑 매우 연함 */
-.status-danger   { background: #ffefef; }   /* 빨강 매우 연함 */
+.status-success  { background: #d8f1df; }   /* 연녹 → 조금 더 진한 녹색 */
+.status-primary  { background: #dbe7ff; }   /* 연파랑 → 더 진한 파랑 */
+.status-secondary{ background: #eceef2; }   /* 연회색 → 약간 더 진한 회색 */
+.status-warning  { background: #fff1bf; }   /* 연노랑 → 따뜻한 노랑톤 */
+.status-danger   { background: #ffd6d6; }   /* 연빨강 → 명도 낮춘 분홍빨강 */
 
 
 /* ========== 접수리스트: 2차콜 작업 모달 공통 ========== */

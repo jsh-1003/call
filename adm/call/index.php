@@ -56,6 +56,7 @@ if ($mb_level >= 8) {
 } elseif ($mb_level == 7) {
     $where[] = "t.mb_group = {$my_group}";
 } else {
+    $where[] = "t.mb_group = {$my_group}";
     $where[] = "t.assigned_mb_no = {$mb_no}";
 }
 
@@ -109,7 +110,8 @@ if ($f_asgn !== '' && in_array($f_asgn, ['0','1','2','3', '4'], true)) {
 }
 
 // ★ 삭제 캠페인 제외
-$where[] = "c.status <> 9";
+// $where[] = "c.status <> 9";
+$where[] = "c.status IN (0,1)";
 
 $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
 
@@ -119,7 +121,7 @@ $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
 $sql_cnt = "
     SELECT COUNT(*) AS cnt
     FROM call_target t
-    JOIN call_campaign c ON c.campaign_id = t.campaign_id
+    JOIN call_campaign c ON c.campaign_id = t.campaign_id AND c.mb_group = t.mb_group
     {$where_sql}
 ";
 $row_cnt = sql_fetch($sql_cnt);
@@ -139,7 +141,8 @@ $sql_list = "
         c.name AS campaign_name,
         c.is_open_number
     FROM call_target t
-    JOIN call_campaign c ON c.campaign_id = t.campaign_id
+    JOIN call_campaign c 
+      ON c.campaign_id = t.campaign_id AND c.mb_group = t.mb_group
     {$where_sql}
     ORDER BY t.target_id DESC
     LIMIT {$offset}, {$rows}

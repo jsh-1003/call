@@ -4,7 +4,9 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 // add_stylesheet('css 구문', 출력순서); 숫자가 작을 수록 먼저 출력됨
 add_stylesheet('<link rel="stylesheet" href="'.$member_skin_url.'/style.css">', 0);
 ?>
-
+<style>
+#login_fs {padding:35px 35px 15px 35px}    
+</style>
 <!-- 로그인 시작 { -->
 <div id="mb_login" class="mbskin">
     <div class="mbskin_box">
@@ -35,6 +37,7 @@ add_stylesheet('<link rel="stylesheet" href="'.$member_skin_url.'/style.css">', 
                     * 비밀번호 분실시 관리자에게 문의바랍니다.
                 </div>
             </div>
+            <div style="margin-top:13px;font-size:1.34em">상담문의 : <b>1566-7374</b></div>
         </fieldset> 
         </form>
         <?php @include_once(get_social_skin_path().'/social_login.skin.php'); // 소셜로그인 사용시 소셜로그인 버튼 ?>

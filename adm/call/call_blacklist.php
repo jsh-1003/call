@@ -368,6 +368,7 @@ $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체�
     <table class="table-fixed">
         <thead>
             <tr>
+                <th style="width:50px">P_No.</th>
                 <th style="width:100px">회사</th>
                 <th style="width:120px">지점</th>
                 <th style="width:160px">전화번호</th>
@@ -383,7 +384,9 @@ $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체�
             echo '<tr><td colspan="7" class="empty_table">데이터가 없습니다.</td></tr>';
         } else {
             sql_data_seek($res, 0);
+            $p_no = 0;
             while ($row = sql_fetch_array($res)) {
+                $p_no++;
                 $cid    = (int)$row['company_id'];
                 $gid    = (int)$row['mb_group'];
                 // 회사명은 지점을 통해 얻는 헬퍼가 있다면 사용
@@ -394,6 +397,7 @@ $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체�
                 $creator= get_agent_name_cached((int)$row['created_by']) ?: ('#'.$row['created_by']);
                 ?>
                 <tr>
+                    <td><?php echo $p_no; ?></td>
                     <td><?php echo _h($cname); ?></td>
                     <td><?php echo _h($gname); ?></td>
                     <td><?php echo $hp_fmt; ?></td>

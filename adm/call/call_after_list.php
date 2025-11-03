@@ -61,7 +61,7 @@ $q         = _g('q', '');
 $q_type    = _g('q_type', '');              // name | last4 | full | all
 $f_acstate = isset($_GET['acstate']) ? (int)$_GET['acstate'] : -1; // 2차콜 상태
 $page      = max(1, (int)(_g('page', '1')));
-$page_rows = 30;
+$page_rows = max(10, min(200, (int)_g('rows','50')));
 $offset    = ($page - 1) * $page_rows;
 
 /* ===== 정렬 파라미터 ===== */
@@ -400,6 +400,15 @@ a.ac-edit-btn {font-weight:700;color:#253aaf}
             <?php } ?>
         </select>
 
+        <span class="pipe">|</span>
+
+        <label for="rows">표시건수</label>
+        <select name="rows" id="rows">
+            <?php foreach ([20,50,100,200] as $opt){ ?>
+                <option value="<?php echo $opt;?>" <?php echo $page_rows==$opt?'selected':'';?>><?php echo $opt;?></option>
+            <?php } ?>
+        </select>
+
         <button type="submit" class="btn btn_01">검색</button>
         <?php if ($where_sql) { ?><a href="./call_after_list.php" class="btn btn_02">초기화</a><?php } ?>
 
@@ -508,6 +517,7 @@ a.ac-edit-btn {font-weight:700;color:#253aaf}
     <table class="table-fixed call-list-table">
         <thead>
             <tr>
+                <th style="width:50px">P_No.</th>
                 <th>지점명</th>
                 <th>아이디</th>
                 <th><?php echo sort_th('agent_name','상담원명'); ?></th>
@@ -533,7 +543,9 @@ a.ac-edit-btn {font-weight:700;color:#253aaf}
         if ($total_count === 0) {
             echo '<tr><td colspan="18" class="empty_table">데이터가 없습니다.</td></tr>';
         } else {
+            $p_no = 0;
             while ($row = sql_fetch_array($res_list)) {
+                $p_no++;
                 $hp_fmt   = format_korean_phone($row['call_hp']);
                 $call_sec = is_null($row['call_time']) ? '-' : fmt_hms((int)$row['call_time']);
                 $agent    = $row['agent_name'] ? get_text($row['agent_name']) : (string)$row['agent_mb_id'];
@@ -573,6 +585,7 @@ a.ac-edit-btn {font-weight:700;color:#253aaf}
                 $schedule_disp = format_schedule_display($row['ac_scheduled_at'], $row['ac_schedule_note']);
                 ?>
                 <tr>
+                    <td><?php echo $p_no; ?></td>
                     <td><?php echo get_group_name_cached($row['mb_group']); ?></td>
                     <td><?php echo get_text($row['agent_mb_id']); ?></td>
                     <td><?php echo get_text($agent); ?></td>
