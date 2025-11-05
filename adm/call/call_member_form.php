@@ -7,7 +7,7 @@ require_once './_common.php';
 if ((int)$member['mb_level'] < 7) alert('접근 권한이 없습니다.');
 auth_check_menu($auth, $sub_menu, 'w');
 
-$g5['title'] = '약식 회원 등록/수정';
+$g5['title'] = '회원 등록/수정';
 require_once G5_ADMIN_PATH.'/admin.head.php';
 
 // -----------------------------
@@ -269,6 +269,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $set[] = "mb_group_name=''";
         }
 
+        if(!empty($is_admin_pay) && $is_admin_pay) {
+            if(!empty($pay_start_date)) {
+                $pay_start_date = sql_escape_string($pay_start_date);
+                $set[] = " pay_start_date = date_format('{$pay_start_date}', '%Y-%m-%d') ";
+            } else {
+                $set[] = " pay_start_date = NULL ";
+            }
+        }
+
         $sql = "INSERT INTO {$g5['member_table']} SET ".implode(',', $set).", mb_datetime='".G5_TIME_YMDHIS."'";
         sql_query($sql);
         $new_mb_no = sql_insert_id();
@@ -352,6 +361,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $set[] = "mb_group_name=''";
         }
+
+        if(!empty($is_admin_pay) && $is_admin_pay) {
+            if(!empty($pay_start_date)) {
+                $pay_start_date = sql_escape_string($pay_start_date);
+                $set[] = " pay_start_date = date_format('{$pay_start_date}', '%Y-%m-%d') ";
+            } else {
+                $set[] = " pay_start_date = NULL ";
+            }
+        }
+
         $sql = "UPDATE {$g5['member_table']} SET ".implode(',', $set)." WHERE mb_id='".sql_escape_string($post_id)."'";
         sql_query($sql);
         goto_url('./call_member_list.php');
@@ -442,6 +461,12 @@ if (!$is_new) {
                     <th scope="row">상태</th>
                     <td><?php echo $is_new ? '-' : $stat_label; ?></td>
                 </tr>
+                <?php if($is_admin_pay) { ?>
+                <tr>
+                    <th scope="row"><label for="mb_name">유료시작일</label></th>
+                    <td colspan="3">유료시작일 : <input type="date" id="pay_start_date" name="pay_start_date" value="<?php echo $mb['pay_start_date'] ?>" class="frm_input"></td>
+                </tr>
+                <?php } ?>
 
                 <!-- 회사 섹션 -->
                 <?php if ($my_level >= 10) { ?>

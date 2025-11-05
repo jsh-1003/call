@@ -199,7 +199,7 @@ $sql_search = ' WHERE '.implode(' AND ', $where);
 // -------------------------------------------
 $sst = $_GET['sst'] ?? 'm.company_id desc, m.mb_group desc, m.mb_level asc, m.mb_no';
 $sod = strtolower($_GET['sod'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
-$allowed_sort = ['m.mb_datetime','m.mb_today_login','m.mb_name','m.mb_id','m.mb_group_name','m.company_name'];
+$allowed_sort = ['m.mb_datetime','m.mb_today_login','m.pay_start_date','m.mb_name','m.mb_id','m.mb_group_name','m.company_name'];
 if (!in_array($sst, $allowed_sort, true)) $sst = 'm.company_id desc, m.mb_group desc, m.mb_level asc, m.mb_no';
 $sql_order = " ORDER BY {$sst} {$sod} ";
 
@@ -218,7 +218,7 @@ $sql = "
     m.mb_no, m.mb_id, m.mb_name, m.mb_level, m.mb_hp,
     m.company_id, m.company_name,
     m.mb_group,  m.mb_group_name,
-    m.mb_datetime, m.mb_today_login,
+    m.mb_datetime, m.mb_today_login, m.pay_start_date,
     m.mb_leave_date, m.mb_intercept_date,
     IFNULL(m.is_after_call,0) AS is_after_call,
     /* level=3 상담원일 때만 최근 발신번호 조회 */
@@ -253,6 +253,7 @@ $csrf_token = get_token();
 $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_filter={$role_filter}&is_blocked={$is_blocked}&sfl={$sfl}&stx={$stx}";
 ?>
 <style>
+.td_date {width:80px}
 /* 회사별 구분선 option */
 .opt-sep { color:#888; font-style:italic; }
 
@@ -267,7 +268,6 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
 /* 상태 라벨 */
 .mb_leave_msg { color:#d14343; font-weight:600; }
 .mb_intercept_msg { padding:5px 8px;background-color:#b45309;color:#fff;font-weight:800; }
-
 .role-radio label { margin-right:8px; }
 </style>
 
@@ -370,6 +370,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                 <th scope="col">상태</th>
                 <th scope="col"><?php echo subject_sort_link('m.mb_datetime', $qstr_member_list); ?>등록일</a></th>
                 <th scope="col"><?php echo subject_sort_link('m.mb_today_login', $qstr_member_list); ?>최종접속일</a></th>
+                <th scope="col"><?php echo subject_sort_link('m.pay_start_date', $qstr_member_list); ?>시작일</a></th>
                 <th scope="col">수정</th>
                 <th scope="col">차단</th>
                 <th scope="col">삭제</th>
@@ -396,8 +397,9 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                 $disp_group   = get_group_name_cached((int)$row['mb_group']);
 
                 // 날짜
-                $reg_date   = $row['mb_datetime']     ? substr($row['mb_datetime'], 0, 10) : '';
-                $last_login = $row['mb_today_login']  ? substr($row['mb_today_login'], 0, 10) : '';
+                $reg_date   = $row['mb_datetime']     ? substr($row['mb_datetime'], 2, 8) : '';
+                $last_login = $row['mb_today_login']  ? substr($row['mb_today_login'], 2, 8) : '';
+                $pay_start_date = $row['pay_start_date']  ? substr($row['pay_start_date'], 2, 8) : '';
 
                 // 토글 가능/표시여부
                 $is_after = (int)$row['is_after_call'] === 1;
@@ -438,8 +440,9 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                     <td class="td_center"><?php echo get_text($recent_phone); ?></td>
 
                     <td class="td_mbstat"><?php echo $status_label; ?></td>
-                    <td class="td_datetime"><?php echo $reg_date; ?></td>
-                    <td class="td_datetime"><?php echo $last_login; ?></td>
+                    <td class="td_date"><?php echo $reg_date; ?></td>
+                    <td class="td_date"><?php echo $last_login; ?></td>
+                    <td class="td_date"><?php echo $pay_start_date; ?></td>
                     <td class="td_mng td_mng_s">
                         <?php if (empty($row['mb_leave_date'])) { ?>    
                         <a href="./call_member_form.php?w=u&amp;mb_id=<?php echo urlencode($row['mb_id']); ?>" class="btn btn_03">수정</a>

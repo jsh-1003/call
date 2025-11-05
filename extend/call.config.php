@@ -46,8 +46,10 @@ if($is_admin != 'super') {
     }
 }
 
+$is_admin_pay = false;
 if($member['mb_id'] == 'admin_pay') {
     $auth[] = array(
         '700990' => 'rw',
     );
+    $is_admin_pay = true;
 }
