@@ -61,6 +61,7 @@ if ($mb_level >= 8) {
 }
 
 // 조직 필터 적용
+$force_index = '';
 if ($mb_level >= 8) {
     if ($sel_mb_group > 0) {
         $where[] = "t.mb_group = {$sel_mb_group}";
@@ -70,6 +71,7 @@ if ($mb_level >= 8) {
             $gr = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$sel_company_id."'");
             while ($rr = sql_fetch_array($gr)) $grp_ids[] = (int)$rr['mb_no'];
             $where[] = $grp_ids ? "t.mb_group IN (".implode(',', $grp_ids).")" : "1=0";
+            if($grp_ids) $force_index = ' FORCE INDEX (idx_target_group_targetid_desc) ';
         }
         // ★ 여기 추가: 레벨 8이 전체 지점일 때 자기 회사 범위 강제
         elseif ($mb_level == 8) {
@@ -77,6 +79,7 @@ if ($mb_level >= 8) {
             $gr = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$my_company_id."'");
             while ($rr = sql_fetch_array($gr)) $grp_ids[] = (int)$rr['mb_no'];
             $where[] = $grp_ids ? "t.mb_group IN (".implode(',', $grp_ids).")" : "1=0";
+            if($grp_ids) $force_index = ' FORCE INDEX (idx_target_group_targetid_desc) ';
         }
     }
 }
@@ -140,7 +143,7 @@ $sql_list = "
         c.status AS campaign_status,
         c.name AS campaign_name,
         c.is_open_number
-    FROM call_target t
+    FROM call_target t {$force_index}
     JOIN call_campaign c 
       ON c.campaign_id = t.campaign_id AND c.mb_group = t.mb_group
     {$where_sql}
