@@ -202,6 +202,7 @@ function call_assign_release_expired($mb_group, $campaign_id=0) {
           AND assigned_status = 1
           AND assign_lease_until IS NOT NULL
           AND assign_lease_until < NOW()
+        LIMIT 100;
     ";
     $res = sql_query($sql);
     return (bool)$res;

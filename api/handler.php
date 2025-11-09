@@ -173,6 +173,19 @@ function handle_call_upload(): void {
         send_json(['success'=>false,'message'=>'전화번호가 다릅니다.'], 403);
     }
 
+    // 2-1) 업로드 시작 시 내 배정건이면 진행중(2) + 짧은 리스 연장
+    $aff = sql_query("UPDATE call_target
+        SET assigned_status = 2,
+            assign_lease_until = DATE_ADD(NOW(), INTERVAL 240 SECOND)
+        WHERE target_id = {$target_id}
+        AND mb_group  = {$mb_group}
+        AND assigned_mb_no = {$mb_no}
+        AND assigned_status = 1
+        LIMIT 1
+    ");
+    sql_query($aff);
+
+
     // (정책에 따라 내 배정건만 허용하려면 아래 주석 해제)
     // if ((int)$t['assigned_mb_no'] !== $mb_no) { send_json(['success'=>false,'message'=>'not your assigned target'], 403); }
 

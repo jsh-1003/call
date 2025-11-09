@@ -136,6 +136,16 @@ if (isset($_POST['ajax']) && $_POST['ajax'] === 'toggle_after') {
         echo json_encode(['success'=>false,'message'=>'업데이트 실패']); exit;
     }
 
+    // 히스토리 기록
+    $ip_bin = sql_escape_string(inet_pton($_SERVER['REMOTE_ADDR']));
+    sql_query("
+        INSERT INTO call_aftercall_toggle_log
+            (mb_no, company_id, mb_group, old_value, new_value, changed_by, changed_ip)
+        VALUES
+            ({$target_mb_no}, {$rowT['company_id']}, {$rowT['mb_group']},
+            {$rowT['is_after_call']}, {$want}, {$my_mb_no}, '{$ip_bin}')
+    ");
+    
     echo json_encode(['success'=>true,'changed'=>true,'value'=>$want]); exit;
 }
 

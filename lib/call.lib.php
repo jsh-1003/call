@@ -133,6 +133,10 @@ function issue_session_token_and_store($mb_no, $mb_group, ?string $device_id = n
     $ua   = $_SERVER['HTTP_USER_AGENT'] ?? '';
     $ip   = $_SERVER['REMOTE_ADDR'] ?? '';
     $ipbin = inet_pton($ip) ?: null;
+    
+    // 해당 회원의 기존 발급 토큰 전체 삭제
+    $sql = "DELETE FROM api_sessions WHERE user_id = '{$mb_no}' ";
+    sql_query($sql);
 
     $sql = "INSERT INTO api_sessions
             (token_hash, user_id, mb_group, expires_at, last_seen, created_at, device_id, user_agent, ip_bin)

@@ -148,6 +148,8 @@ body, #hd_top, #wrapper {min-width:1100px}
                 <?php echo $is_after ? 'ON':'OFF'; ?>
             </button>
         </div>
+        <?php } ?>
+        <?php if($member['mb_level'] >= 5) { ?>
         <script>
         // 2차콜담당 토글
         document.addEventListener('click', function(e){
@@ -155,6 +157,8 @@ body, #hd_top, #wrapper {min-width:1100px}
         if (!btn) return;
 
         if (btn.hasAttribute('disabled')) return;
+        
+        if (!confirm('2차콜온오프 상태를 정말 변경하시겠습니까?')) return;
 
         var mbNo = parseInt(btn.getAttribute('data-mb-no') || '0', 10) || 0;
         var cur  = parseInt(btn.getAttribute('data-value') || '0', 10) || 0;
@@ -186,7 +190,7 @@ body, #hd_top, #wrapper {min-width:1100px}
             btn.removeAttribute('disabled');
             });
         });            
-        </script>
+        </script>            
         <?php } ?>
         <div id="tnb">
             <ul>
