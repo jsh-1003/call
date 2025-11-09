@@ -948,7 +948,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 
         <?php
         if (empty($matrix)) {
-            echo '<tr><td colspan="'.(7+count($code_list)+count($ac_state_labels)).'" class="empty_table">데이터가 없습니다.</td></tr>';
+            echo '<tr><td colspan="'.(6+count($code_list)+count($ac_state_labels)).'" class="empty_table">데이터가 없습니다.</td></tr>';
         } else {
             ksort($matrix, SORT_NUMERIC);
             foreach ($matrix as $did => $rowset) {

@@ -305,7 +305,7 @@ elseif ($type === 'agents') {
         {$where_sql}
         GROUP BY l.mb_no, m.mb_name
         ORDER BY call_cnt DESC
-        LIMIT 10
+        LIMIT 200
     ";
     $res = sql_query($sql);
     $rows = [];
