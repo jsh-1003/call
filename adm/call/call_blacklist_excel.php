@@ -1,6 +1,6 @@
 <?php
 // /adm/call/call_blacklist_excel.php
-$sub_menu = '700130';
+$sub_menu = '700500';
 require_once './_common.php';
 
 if ((int)$member['mb_level'] < 5) alert('접근 권한이 없습니다.');
