@@ -340,48 +340,115 @@ function aftercall_last_call_id($mb_group, $campaign_id, $target_id){
 }
 
 /**
- * 공정배분을 위한 "가장 오래전에 마지막 배정을 받은 사람" 1명 선택
- * - 기준: call_aftercall_history.assigned_after_mb_no 의 MAX(changed_at)
+ * 티켓 테이블만 활용한 공정배분 (스키마 변경 없음)
+ * - 기준: call_aftercall_ticket에서 각 상담원의 MAX(ticket_id) = 마지막 배정 시퀀스
  * - NULL(배정 이력 없음) 우선
- * - 경쟁제어: MySQL GET_LOCK('after_assign:{mb_group}')
+ * - 동시성: GET_LOCK('after_assign:{mb_group}')
+ * - 옵션: cooldown_last_n (최근 N개 티켓 내에서 배정된 상담원 잠시 제외)
  */
-function aftercall_pick_next_agent($mb_group){
+function aftercall_pick_next_agent(int $mb_group, int $cooldown_last_n = 0): int {
     global $g5;
-    $cands = aftercall_list_candidates($mb_group);
+
+    // 0) 후보 목록 확보: 진행중/휴면/권한 등은 이 함수 밖에서 필터링된다고 가정
+    $cands = aftercall_list_candidates($mb_group); // => [mb_no, ...]
     if (empty($cands)) return 0;
 
     $link = $g5['connect_db'];
-    // 1) 임시 테이블 생성 (한 세션/연결에만 유효)
-    $sql = "CREATE TEMPORARY TABLE IF NOT EXISTS tmp_after_cands (mb_no INT PRIMARY KEY) ENGINE=MEMORY";
-    mysqli_query($link, $sql);
+    $lock_key = "after_assign:{$mb_group}";
 
-    // 2) INSERT 값들
-    $vals = implode(',', array_map(fn($n)=>"(".(int)$n.")", $cands));
-    mysqli_query($link, "TRUNCATE TABLE tmp_after_cands");
-    mysqli_query($link, "INSERT INTO tmp_after_cands (mb_no) VALUES {$vals}");
+    // 1) 그룹 락 (최대 2초 대기)
+    $lockRes = mysqli_query($link, "SELECT GET_LOCK('{$lock_key}', 2) AS got");
+    $got = ($lockRes && ($r = mysqli_fetch_assoc($lockRes)) && (int)$r['got'] === 1);
+    if (!$got) return 0;
 
-    // 3) 조인해서 가장 오래된 배정자 선택
-    $sql = "
-      SELECT c.mb_no, la.last_assigned_at
-        FROM tmp_after_cands c
-   LEFT JOIN (
-          SELECT h.assigned_after_mb_no AS mb_no, MAX(h.changed_at) AS last_assigned_at
-            FROM call_aftercall_history h
-            JOIN call_aftercall_ticket  t ON t.ticket_id = h.ticket_id AND t.mb_group = {$mb_group}
-           WHERE h.assigned_after_mb_no <> 0
-           GROUP BY h.assigned_after_mb_no
-      ) la ON la.mb_no = c.mb_no
-     ORDER BY (la.last_assigned_at IS NULL) DESC, la.last_assigned_at ASC, c.mb_no ASC
-     LIMIT 1
-    ";
-    $res = mysqli_query($link, $sql);
-    $row = $res ? mysqli_fetch_assoc($res) : null;
+    try {
+        // 2) 후보 파생테이블 (임시테이블 사용 안 함)
+        $union = implode(' UNION ALL ', array_map(fn($n)=>'SELECT '.(int)$n.' AS mb_no', $cands));
 
-    // 4) cleanup (선택)
-    mysqli_query($link, "DROP TEMPORARY TABLE IF EXISTS tmp_after_cands");
+        // 3) 최근 티켓 영역(쿨다운)을 위한 현재 max ticket_id 조회
+        $max_tid = 0;
+        if ($cooldown_last_n > 0) {
+            $rsMax = mysqli_query($link, "SELECT IFNULL(MAX(ticket_id),0) AS m FROM call_aftercall_ticket WHERE mb_group={$mb_group}");
+            if ($rsMax && ($m = mysqli_fetch_assoc($rsMax))) $max_tid = (int)$m['m'];
+        }
+        $cooldown_min_tid = ($cooldown_last_n > 0 && $max_tid > 0) ? max(0, $max_tid - $cooldown_last_n + 1) : 0;
 
-    return (int)($row['mb_no'] ?? 0);
+        // 4) 각 후보별 마지막 배정 ticket_id (la.last_tid) 계산
+        //    쿨다운을 쓰면, 최근 N개 티켓 내에서 이미 배정된 사람은 1차 후보에서 제외
+        $cooldownWhere = ($cooldown_min_tid > 0)
+            ? " AND (la.last_tid IS NULL OR la.last_tid < {$cooldown_min_tid}) "
+            : "";
+
+        $sql1 = "
+          WITH c AS (
+            {$union}
+          ),
+          la AS (
+            SELECT assigned_after_mb_no AS mb_no,
+                   MAX(ticket_id)       AS last_tid
+              FROM call_aftercall_ticket
+             WHERE mb_group = {$mb_group}
+             GROUP BY assigned_after_mb_no
+          )
+          SELECT x.mb_no
+            FROM (
+              SELECT c.mb_no, la.last_tid
+                FROM c
+                LEFT JOIN la ON la.mb_no = c.mb_no
+            ) x
+           WHERE 1 {$cooldownWhere}
+           ORDER BY
+             (x.last_tid IS NULL) DESC,   -- 배정 이력 없음 우선
+             x.last_tid ASC,              -- 마지막 배정이 가장 오래된 사람
+             RAND()                       -- 동률 랜덤화(락 안에서만 사용)
+           LIMIT 1
+        ";
+
+        $res1 = mysqli_query($link, $sql1);
+        $row1 = $res1 ? mysqli_fetch_assoc($res1) : null;
+        $picked = (int)($row1['mb_no'] ?? 0);
+
+        // 5) 쿨다운 때문에 아무도 안 잡히면(=모두 최근에 배정) 쿨다운 해제하고 다시 시도
+        if ($picked === 0) {
+            $sql2 = "
+              WITH c AS (
+                {$union}
+              ),
+              la AS (
+                SELECT assigned_after_mb_no AS mb_no,
+                       MAX(ticket_id)       AS last_tid
+                  FROM call_aftercall_ticket
+                 WHERE mb_group = {$mb_group}
+                 GROUP BY assigned_after_mb_no
+              )
+              SELECT x.mb_no
+                FROM (
+                  SELECT c.mb_no, la.last_tid
+                    FROM c
+                    LEFT JOIN la ON la.mb_no = c.mb_no
+                ) x
+               ORDER BY
+                 (x.last_tid IS NULL) DESC,
+                 x.last_tid ASC,
+                 RAND()
+               LIMIT 1
+            ";
+            $res2 = mysqli_query($link, $sql2);
+            $row2 = $res2 ? mysqli_fetch_assoc($res2) : null;
+            $picked = (int)($row2['mb_no'] ?? 0);
+        }
+
+        // 6) 반환
+        mysqli_query($link, "SELECT RELEASE_LOCK('{$lock_key}')");
+        return $picked;
+
+    } catch (\Throwable $e) {
+        mysqli_query($link, "SELECT RELEASE_LOCK('{$lock_key}')");
+        // 필요 시 로그 남기기
+        return 0;
+    }
 }
+
 
 /**
  * 티켓 발행(+업데이트) & 2차팀장 배정(가능 시)
