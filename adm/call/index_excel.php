@@ -51,7 +51,7 @@ if ($mb_level >= 9) {
 }
 
 // 배정상태 라벨
-$ASSIGN_LABEL = [ 0=>'미배정', 1=>'배정', 3=>'완료', 4=>'거절' ]; // 2=>'진행중'
+$ASSIGN_LABEL = [ 0=>'미배정', 1=>'배정', 2=>'저장중', 3=>'완료', 4=>'거절', 8=>'번호오류', 9=>'블랙' ];
 
 // ---------- WHERE ----------
 $where = [];
@@ -105,6 +105,15 @@ if ($mode === 'screen' || $mode === 'condition') {
             }
         }
     }
+
+    // 캠페인ID
+    if (!empty($campaign_id)) {
+        $q_esc = sql_escape_string($campaign_id);
+        $where[] = "t.campaign_id = '{$q_esc}'";
+    } else {
+        $campaign_id = '';
+    }
+
     if ($f_dnc === '0' || $f_dnc === '1') {
         $where[] = "t.do_not_call = ".(int)$f_dnc;
     }
@@ -113,8 +122,17 @@ if ($mode === 'screen' || $mode === 'condition') {
     }
 }
 
-// 삭제 캠페인 제외(항상)
-$where[] = "c.status <> 9";
+// ★ 삭제 캠페인 제외
+// $where[] = "c.status <> 9";
+$where[] = "
+  NOT EXISTS (
+        SELECT 1
+          FROM call_campaign c
+         WHERE c.campaign_id = t.campaign_id
+           AND c.mb_group    = t.mb_group
+           AND c.status      = 9
+  )
+";
 
 $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
 
@@ -126,16 +144,18 @@ $sql_base = "
         t.assigned_status, t.assigned_mb_no, t.assigned_at, t.assign_lease_until, t.assign_batch_id,
         t.do_not_call, t.last_call_at, t.last_result, t.attempt_count, t.next_try_at,
         t.created_at, t.updated_at,
+        /*
         c.status AS campaign_status,
         c.name   AS campaign_name,
         c.is_open_number,
+        */
 
         g.mv_group_name,
         g.company_id AS gx_company_id,
 
         sc2.name_ko AS last_result_label
     FROM call_target t
-    JOIN call_campaign c ON c.campaign_id = t.campaign_id
+    /* JOIN call_campaign c ON c.campaign_id = t.campaign_id */
     LEFT JOIN (
         SELECT mb_group,
                MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('지점 ', mb_group))) AS mv_group_name,
@@ -170,7 +190,7 @@ $sheet->setTitle('DB리스트');
 $headers = [
     '회사','지점','캠페인','전화번호',
     '이름','만나이','생년월일',
-    '추가정보','배정상태','담당자','DNC','통화결과','업데이트'
+    '추가정보','배정상태','담당자','블랙','통화결과','업데이트'
 ];
 for ($i=0; $i<count($headers); $i++) {
     $sheet->setCellValueExplicitByColumnAndRow($i, 1, (string)$headers[$i], PHPExcel_Cell_DataType::TYPE_STRING);
@@ -204,6 +224,12 @@ function _age_years($birth_date){
 
 $rownum = 2;
 while ($row = sql_fetch_array($res)) {
+    // 캠페인 정보를 지우고 가져와서 보여줌.
+    $campaign_info = get_campaign_from_cached($row['campaign_id']);
+    $row['campaign_status'] = $campaign_info['status'];
+    $row['campaign_name'] = $campaign_info['name'];
+    $row['is_open_number'] = $campaign_info['is_open_number'];
+
     $gid       = (int)$row['mb_group'];
     $company   = _company_name_from_group($gid, (int)($row['gx_company_id'] ?? 0));
     $group     = _group_name_from_mv($row['mv_group_name']);

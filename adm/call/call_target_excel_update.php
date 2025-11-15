@@ -121,6 +121,18 @@ function parse_birth_date($s) {
 // ===== 파일 체크 & 로드 =====
 if (empty($_FILES['excelfile']['tmp_name'])) alert_close("엑셀 파일을 업로드해 주세요.");
 
+// NEW) mid4 화이트리스트 적재 (한 번만 읽고 메모리에 유지)
+$mid4_whitelist = [];
+$mid4_rs = sql_query("SELECT mid4 FROM call_phone_mid4"); // mid4는 CHAR(4) 가정
+while ($r = sql_fetch_array($mid4_rs)) {
+    // 혹시 공백/널 방지
+    $k = isset($r['mid4']) ? trim((string)$r['mid4']) : '';
+    if ($k !== '' && preg_match('/^[0-9]{4}$/', $k)) {
+        $mid4_whitelist[$k] = true;
+    }
+}
+unset($mid4_rs);
+
 $file = $_FILES['excelfile']['tmp_name'];
 // 원본 파일명도 NFC로
 $orig_name = k_nfc($_FILES['excelfile']['name']);
@@ -218,6 +230,29 @@ try {
             $skip_count++;
             if (count($fail_msgs) < 20) $fail_msgs[] = "행 {$i}: 잘못된 전화번호 '{$raw_hp}'";
             continue;
+        }
+
+        // NEW) 010 번호대만 중간대역(mid4) 화이트리스트 점검
+        // DB의 GENERATED mid4 = SUBSTRING(call_hp,4,4) 와 동일하게 PHP에서 추출
+        //  ex) 01012345678 -> substr($call_hp, 3, 4) === '1234'
+        if (strpos($call_hp, '010') === 0) {
+            $mid4 = substr($call_hp, 3, 4); // 010 뒤의 4자리 추출
+            if (!isset($mid4_whitelist[$mid4])) {
+                $skip_count++;
+                if (count($fail_msgs) < 20) {
+                    $fail_msgs[] = "행 {$i}: 미허용 중간대역({$mid4}) - '{$raw_hp}'";
+                }
+                continue; // 스테이징 적재도 하지 않음
+            }
+            // NEW) 마지막 4자리 단순 패턴 필터
+            $last4 = substr($call_hp, -4);
+            if (in_array($last4, ['0000','1111','1234','2222','3333','4444','5555','6666','7777','8888','9999'], true)) {
+                $skip_count++;
+                if (count($fail_msgs) < 20) {
+                    $fail_msgs[] = "행 {$i}: 비정상 마지막4자리({$last4}) - '{$raw_hp}'";
+                }
+                continue; // 스테이징에도 올리지 않음
+            }
         }
 
         // 이름

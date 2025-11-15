@@ -44,7 +44,7 @@ if ($mb_level >= 9) {
 }
 
 // 배정상태 라벨
-$ASSIGN_LABEL = [ 0=>'미배정', 1=>'배정', 3=>'완료', 4=>'거절', 9=>'블랙' ]; // 2=>'진행중', 
+$ASSIGN_LABEL = [ 0=>'미배정', 1=>'배정', 2=>'저장중', 3=>'완료', 4=>'거절', 8=>'번호오류', 9=>'블랙' ];
 
 // ----------------------------------------------------------------------------------
 // WHERE 구성 (+ 삭제 캠페인 제외 조건)
@@ -120,7 +120,7 @@ if ($f_dnc === '0' || $f_dnc === '1') {
     $where[] = "t.do_not_call = ".(int)$f_dnc;
 }
 // 배정상태 필터
-if ($f_asgn !== '' && in_array($f_asgn, ['0','1','2','3', '4'], true)) {
+if ($f_asgn !== '' && in_array($f_asgn, ['0','1','2','3','4','8','9'], true)) {
     $where[] = "t.assigned_status = ".(int)$f_asgn;
 }
 
@@ -346,7 +346,7 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
                 <th>추가정보</th>
                 <th style="width:110px">배정상태</th>
                 <th style="width:120px">담당자</th>
-                <th style="width:80px">DNC</th>
+                <th style="width:80px">블랙</th>
                 <th style="width:130px">통화결과</th>
                 <th style="width:150px">업데이트</th>
             </tr>
@@ -408,10 +408,12 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
                     <td><?php echo _h($gname); ?></td>
 
                     <td class="camp-cell">
-                        <?php echo _h($row['campaign_name']); ?>
-                        <?php if ($camp_inactive) { ?>
-                            <span class="badge badge-camp-inactive">비활성 캠페인</span>
-                        <?php } ?>
+                        <a href="<?php echo $PHP_SELF.'?campaign_id='.$row['campaign_id']; ?>">
+                            <?php echo _h($row['campaign_name']); ?>
+                            <?php if ($camp_inactive) { ?>
+                                <span class="badge badge-camp-inactive">비활성 캠페인</span>
+                            <?php } ?>
+                        </a>
                     </td>
 
                     <td><?php echo $hp_fmt; ?></td>
