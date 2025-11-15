@@ -341,11 +341,14 @@ function adjustColor([r, g, b], status) {
 // ===============================================
 (function(global){
   function pad(n){ return (n<10?'0':'')+n; }
-  function fmt(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+  function fmtDate(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+  function fmtDT(d){  // HTML datetime-local 형식: YYYY-MM-DDTHH:MM
+    return fmtDate(d) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
 
-  // 로컬(브라우저) 기준 자정으로 맞추기
+  // 자정/하루끝 스냅(날짜 모드에서만 의미있음)
   function startOfDay(d){ const x = new Date(d); x.setHours(0,0,0,0); return x; }
-  function endOfDay(d){ const x = new Date(d); x.setHours(23,59,59,999); return x; }
+  function endOfDay(d){   const x = new Date(d); x.setHours(23,59,59,999); return x; }
 
   function startOfWeek(d, weekStart){ // weekStart: 1=Mon, 0=Sun
     const x = startOfDay(d);
@@ -371,56 +374,100 @@ function adjustColor([r, g, b], status) {
     return endOfDay(x);
   }
 
-  function calcRange(key, opts){
+  // 시간 문자열 "HH:MM" 을 날짜에 주입
+  function applyTime(dateObj, hhmm){
+    const [hh, mm] = (hhmm || '00:00').split(':').map(v=>parseInt(v,10)||0);
+    const x = new Date(dateObj);
+    x.setHours(hh, mm, 0, 0);
+    return x;
+  }
+
+  // 입력 엘리먼트의 모드 자동판별 ('date' or 'datetime')
+  function detectMode($start, $end){
+    const t1 = ($start && $start.type) || '';
+    const t2 = ($end   && $end.type)   || '';
+    // 둘 중 하나라도 datetime-local이면 datetime 모드
+    if (t1 === 'datetime-local' || t2 === 'datetime-local') return 'datetime';
+    return 'date';
+  }
+
+  // 범위 계산(기준은 '날짜'); 실제 적용시 모드에 따라 시간 주입
+  function calcRangeDateOnly(key, opts){
     const now = new Date();
     const today = startOfDay(now);
     const y = new Date(today); y.setDate(today.getDate()-1);
 
     const weekStart = (opts && typeof opts.weekStart==='number') ? opts.weekStart : 1; // 월요일
-    const thisWeekEndToday = !!(opts && opts.thisWeekEndToday !== false);   // default true
+    const thisWeekEndToday  = !!(opts && opts.thisWeekEndToday  !== false); // default true
     const thisMonthEndToday = !!(opts && opts.thisMonthEndToday !== false); // default true
 
     switch(key){
-      case 'yesterday':
-        return { start: fmt(y), end: fmt(y) };
-      case 'today':
-        return { start: fmt(today), end: fmt(today) };
+      case 'yesterday':  return { start: new Date(y),     end: new Date(y) };
+      case 'today':      return { start: new Date(today), end: new Date(today) };
 
       case 'last_week': {
-        const lastWeekRef = new Date(today); lastWeekRef.setDate(today.getDate()-7);
-        const s = startOfWeek(lastWeekRef, weekStart);
-        const e = endOfWeek(lastWeekRef, weekStart);
-        return { start: fmt(s), end: fmt(e) };
+        const ref = new Date(today); ref.setDate(today.getDate()-7);
+        return { start: startOfWeek(ref, weekStart), end: endOfWeek(ref, weekStart) };
       }
       case 'this_week': {
         const s = startOfWeek(today, weekStart);
-        let e = thisWeekEndToday ? today : endOfWeek(today, weekStart);
-        return { start: fmt(s), end: fmt(e) };
+        const e = thisWeekEndToday ? endOfDay(today) : endOfWeek(today, weekStart);
+        return { start: s, end: e };
       }
 
       case 'last_month': {
         const ref = new Date(today); ref.setMonth(ref.getMonth()-1);
-        const s = startOfMonth(ref);
-        const e = endOfMonth(ref);
-        return { start: fmt(s), end: fmt(e) };
+        return { start: startOfMonth(ref), end: endOfMonth(ref) };
       }
       case 'this_month': {
         const s = startOfMonth(today);
-        let e = thisMonthEndToday ? today : endOfMonth(today);
-        return { start: fmt(s), end: fmt(e) };
+        const e = thisMonthEndToday ? endOfDay(today) : endOfMonth(today);
+        return { start: s, end: e };
       }
     }
     return null;
   }
 
+  // 공개 API: calcRange(key, cfg) -> {start, end} 문자열 반환 (모드에 맞춰 포맷)
+  function calcRange(key, cfg){
+    const base = calcRangeDateOnly(key, cfg);
+    if (!base) return null;
+
+    const mode = (cfg && cfg.mode) ? cfg.mode : 'auto';
+    const startHHMM = (cfg && cfg.defaultStartTime) ? cfg.defaultStartTime : '08:00';
+    const endHHMM   = (cfg && cfg.defaultEndTime)   ? cfg.defaultEndTime   : '19:00';
+
+    let finalMode = mode;
+    if (mode === 'auto') {
+      // auto 모드는 호출자가 startInput/endInput을 넣었을 때만 의미
+      try {
+        const $s = typeof cfg.startInput==='string' ? document.querySelector(cfg.startInput) : cfg.startInput;
+        const $e = typeof cfg.endInput==='string'   ? document.querySelector(cfg.endInput)   : cfg.endInput;
+        finalMode = detectMode($s, $e);
+      } catch(e){ finalMode = 'date'; }
+    }
+
+    if (finalMode === 'datetime') {
+      const s = applyTime(base.start, startHHMM);
+      const e = applyTime(base.end,   endHHMM);
+      return { start: fmtDT(s), end: fmtDT(e) };
+    } else {
+      // date 모드: YYYY-MM-DD 고정
+      return { start: fmtDate(base.start), end: fmtDate(base.end) };
+    }
+  }
+
   /**
    * 버튼 초기화
    * @param {Object} cfg
-   *  - container: 버튼 래퍼 요소 또는 selector (data-range 버튼들을 자식으로 가짐)
-   *  - startInput, endInput: input 요소 또는 selector
+   *  - container: 버튼 래퍼 요소 또는 selector
+   *  - startInput, endInput: input 요소 또는 selector (type=date | datetime-local)
    *  - form: submit할 form 요소 또는 selector
    *  - autoSubmit: true면 클릭 시 즉시 submit
-   *  - weekStart, thisWeekEndToday, thisMonthEndToday: 동작 옵션(위 설명)
+   *  - mode: 'auto' | 'date' | 'datetime' (기본 'auto' = 자동감지)
+   *  - defaultStartTime: 'HH:MM' (datetime 모드에서 시작 기본시각, 기본 '08:00')
+   *  - defaultEndTime:   'HH:MM' (datetime 모드에서 종료 기본시각, 기본 '19:00')
+   *  - weekStart, thisWeekEndToday, thisMonthEndToday: 범위 계산 옵션
    */
   function initDateRangeButtons(cfg){
     const $container = typeof cfg.container==='string' ? document.querySelector(cfg.container) : cfg.container;
@@ -431,14 +478,18 @@ function adjustColor([r, g, b], status) {
 
     if (!$container || !$start || !$end) return;
 
+    // 최종 모드 확정
+    const finalMode = (cfg.mode && cfg.mode!=='auto') ? cfg.mode : detectMode($start, $end);
+    const cmp = (v)=> String(v||'').trim();
+
     function setActive(){
-      const s = $start.value;
-      const e = $end.value;
+      const sVal = cmp($start.value);
+      const eVal = cmp($end.value);
       const btns = $container.querySelectorAll('[data-range]');
       btns.forEach(btn=>{
         const key = btn.getAttribute('data-range');
-        const rg = calcRange(key, cfg);
-        const active = !!(rg && rg.start === s && rg.end === e);
+        const rg = calcRange(key, Object.assign({}, cfg, {mode: finalMode}));
+        const active = !!(rg && cmp(rg.start) === sVal && cmp(rg.end) === eVal);
         btn.classList.toggle('active', active);
       });
     }
@@ -447,7 +498,7 @@ function adjustColor([r, g, b], status) {
       const t = ev.target.closest('[data-range]');
       if (!t) return;
       const key = t.getAttribute('data-range');
-      const rg = calcRange(key, cfg);
+      const rg = calcRange(key, Object.assign({}, cfg, {mode: finalMode}));
       if (!rg) return;
       $start.value = rg.start;
       $end.value   = rg.end;
@@ -458,7 +509,7 @@ function adjustColor([r, g, b], status) {
     // 최초 활성화 반영
     setActive();
 
-    // 외부에서 값이 바뀌었을 때 갱신하고 싶다면 아래를 호출:
+    // 외부에서 값이 바뀌었을 때 갱신하고 싶다면 아래를 받는다:
     return { refresh: setActive };
   }
 

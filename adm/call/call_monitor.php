@@ -366,6 +366,7 @@ canvas { background:#fff; }
 
     async function loadKPI(){
         const r = await fetchJson('kpi'); if (!r.ok) return;
+        console.log(r);
         el.kpiRemainDb.textContent = (r.remainDb ?? 0).toLocaleString();
         el.kpiTotal.textContent   = r.total.toLocaleString();
         el.kpiSuccess.textContent = r.success.toLocaleString();

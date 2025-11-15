@@ -225,7 +225,7 @@ function handle_call_upload(): void {
     // 멱등성 키 만들기
     $req_uid = substr(hash('sha256',
         implode('|', [
-            $mb_group, $mb_no, $target_id, $call_status, (string)$call_start, (string)$call_end, (string)$hp
+            $mb_group, $mb_no, $target_id, (string)$call_start, (string)$call_end, (string)$hp
         ])
     ), 0, 36);
 

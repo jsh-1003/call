@@ -271,6 +271,19 @@ $r = blacklist_register($mb_group, $call_hp, [
 // $r['action'] 으로 insert/update/skip 구분 가능
 */
 
+function get_campaign_from_cached(int $campaign_id) {
+    static $campaign = [];
+    if(!empty($campaign[$campaign_id])) return $campaign[$campaign_id];
+    $sql = "SELECT * from call_campaign where campaign_id = '{$campaign_id}' ";
+    $row = sql_fetch($sql);
+    if($row) {
+        $campaign[$campaign_id] = $row;
+    } else {
+        $campaign[$campaign_id] = [];
+    }
+    return $campaign[$campaign_id];
+}
+
 function get_company_name_from_cached(int $company_id) {
     static $company_name = [];
     if(!empty($company_name[$company_id])) return $company_name[$company_id];
@@ -282,7 +295,6 @@ function get_company_name_from_cached(int $company_id) {
         $company_name[$company_id] = '회사-???';
     }
     return $company_name[$company_id];
-
 }
 
 // 지점ID로 회사명 가져오기

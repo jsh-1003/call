@@ -20,8 +20,10 @@ $my_company_id = (int)($member['company_id'] ?? 0);
 $member_table  = $g5['member_table']; // g5_member
 
 $today         = date('Y-m-d');
-$default_start = $today;
-$default_end   = $today;
+// $default_start = $today;
+// $default_end   = $today;
+$default_start = date('Y-m-d').'T08:00';
+$default_end   = date('Y-m-d').'T19:00';
 
 $start_date = _g('start', $default_start);
 $end_date   = _g('end',   $default_end);
@@ -220,8 +222,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['mode'] ?? '') === 'convert
 // WHERE 구성 (company/group/agent/기간/검색) - 콜 리스트/콜 집계 용
 // --------------------------------------------------
 $where = [];
-$start_esc = sql_escape_string($start_date.' 00:00:00');
-$end_esc   = sql_escape_string($end_date.' 23:59:59');
+$start_esc = sql_escape_string($start_date);
+$end_esc   = sql_escape_string($end_date);
 $where[]   = "l.call_start BETWEEN '{$start_esc}' AND '{$end_esc}'";
 
 if ($f_status > 0) {
@@ -776,9 +778,9 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 <div class="local_sch01 local_sch">
     <form method="get" action="./call_stats.php" class="form-row" id="searchForm">
         <label for="start">기간</label>
-        <input type="date" id="start" name="start" value="<?php echo get_text($start_date);?>" class="frm_input">
+        <input type="datetime-local" id="start" name="start" value="<?php echo get_text($start_date);?>" class="frm_input">
         <span class="tilde">~</span>
-        <input type="date" id="end" name="end" value="<?php echo get_text($end_date);?>" class="frm_input">
+        <input type="datetime-local" id="end" name="end" value="<?php echo get_text($end_date);?>" class="frm_input">
 
         <?php render_date_range_buttons('dateRangeBtns'); ?>
         <script>

@@ -396,6 +396,7 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
                 </td>
                 <td class="td_left"><?php echo get_text($r['campaign_memo']); ?></td>
                 <td class="td_left td_cam_name" style='background:<?php echo $bg_rate ?>;'>
+                    <a href="./index.php?campaign_id=<?php echo $r['campaign_id'] ?>" target="_blank">
                     <span class="name-text"><?php echo get_text($r['name']); ?></span>
                     <?php if ($inactive) { ?>
                         <span class="badge badge-inactive">비활성</span>
@@ -408,6 +409,7 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
                         echo '<span class="badge badge-private">1차 비공개</span>';
                     }
                     ?>
+                    </a>
                 </td>
                 <td class="td_cnt"><?php echo $rate ?>%</td>
                 <td class="td_cntsmall"><?php echo number_format($total); ?></td>

@@ -61,7 +61,6 @@ if ($mb_level >= 8) {
 }
 
 // 조직 필터 적용
-$force_index = '';
 if ($mb_level >= 8) {
     if ($sel_mb_group > 0) {
         $where[] = "t.mb_group = {$sel_mb_group}";
@@ -71,7 +70,6 @@ if ($mb_level >= 8) {
             $gr = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$sel_company_id."'");
             while ($rr = sql_fetch_array($gr)) $grp_ids[] = (int)$rr['mb_no'];
             $where[] = $grp_ids ? "t.mb_group IN (".implode(',', $grp_ids).")" : "1=0";
-            if($grp_ids) $force_index = ' FORCE INDEX (idx_target_group_targetid_desc) ';
         }
         // ★ 여기 추가: 레벨 8이 전체 지점일 때 자기 회사 범위 강제
         elseif ($mb_level == 8) {
@@ -79,7 +77,6 @@ if ($mb_level >= 8) {
             $gr = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$my_company_id."'");
             while ($rr = sql_fetch_array($gr)) $grp_ids[] = (int)$rr['mb_no'];
             $where[] = $grp_ids ? "t.mb_group IN (".implode(',', $grp_ids).")" : "1=0";
-            if($grp_ids) $force_index = ' FORCE INDEX (idx_target_group_targetid_desc) ';
         }
     }
 }
@@ -103,6 +100,21 @@ if ($q !== '' && $q_type !== '') {
         }
     }
 }
+
+// 통화상태
+$f_status  = isset($_GET['status']) ? (int)$_GET['status'] : 0;  // 0=전체
+if ($f_status > 0) {
+    $where[] = "t.last_result = {$f_status}";
+}
+
+// 캠페인ID
+if (!empty($campaign_id)) {
+    $q_esc = sql_escape_string($campaign_id);
+    $where[] = "t.campaign_id = '{$q_esc}'";
+} else {
+    $campaign_id = '';
+}
+
 // DNC 필터
 if ($f_dnc === '0' || $f_dnc === '1') {
     $where[] = "t.do_not_call = ".(int)$f_dnc;
@@ -114,7 +126,15 @@ if ($f_asgn !== '' && in_array($f_asgn, ['0','1','2','3', '4'], true)) {
 
 // ★ 삭제 캠페인 제외
 // $where[] = "c.status <> 9";
-$where[] = "c.status IN (0,1)";
+$where[] = "
+  NOT EXISTS (
+        SELECT 1
+          FROM call_campaign c
+         WHERE c.campaign_id = t.campaign_id
+           AND c.mb_group    = t.mb_group
+           AND c.status      = 9
+  )
+";
 
 $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
 
@@ -124,7 +144,7 @@ $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
 $sql_cnt = "
     SELECT COUNT(*) AS cnt
     FROM call_target t
-    JOIN call_campaign c ON c.campaign_id = t.campaign_id AND c.mb_group = t.mb_group
+    /* JOIN call_campaign c ON c.campaign_id = t.campaign_id AND c.mb_group = t.mb_group */
     {$where_sql}
 ";
 $row_cnt = sql_fetch($sql_cnt);
@@ -133,20 +153,24 @@ $total_count = (int)($row_cnt['cnt'] ?? 0);
 // ----------------------------------------------------------------------------------
 // 목록 (캠페인 조인 + is_open_number 포함)
 // ----------------------------------------------------------------------------------
-$force_index='';
 $sql_list = "
     SELECT
         t.target_id, t.campaign_id, t.mb_group, t.call_hp, t.hp_last4,
         t.name, t.birth_date, t.meta_json, t.sex,
         t.assigned_status, t.assigned_mb_no, t.assigned_at, t.assign_lease_until, t.assign_batch_id,
         t.do_not_call, t.last_call_at, t.last_result, t.attempt_count, t.next_try_at,
-        t.created_at, t.updated_at,
+        t.created_at, t.updated_at
+        /*
+        ,
         c.status AS campaign_status,
         c.name AS campaign_name,
         c.is_open_number
-    FROM call_target t {$force_index}
+        */
+    FROM call_target t 
+    /*
     JOIN call_campaign c 
       ON c.campaign_id = t.campaign_id AND c.mb_group = t.mb_group
+    */
     {$where_sql}
     ORDER BY t.target_id DESC
     LIMIT {$offset}, {$rows}
@@ -174,6 +198,8 @@ $group_options = $build_org_select_options['group_options'];
  * ========================
  */
 
+$codes = [];
+$codes = get_code_list($sel_mb_group);
 
 // ----------------------------------------------------------------------------------
 // 화면
@@ -204,10 +230,17 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
         <span class="ov_txt">전체 </span>
         <span class="ov_num"> <?php echo number_format($total_count) ?> 개</span>
     </span>
+    <?php
+    if (!empty($campaign_id)) {
+        $campaign_info = get_campaign_from_cached($campaign_id);
+        echo '&nbsp;&nbsp;<span class="btn_ov01">선택캠페인 : '.$campaign_info['name'].'</span>';
+    }
+    ?>
 </div>
 
 <div class="local_sch01 local_sch">
     <form method="get" action="./index.php" class="form-row" autocomplete="off" id="searchForm">
+        <input type="hidden" name="campaign_id" value="<?php echo $campaign_id ?>">
         <?php if ($mb_level >= 9) { ?>
             <select name="company_id" id="company_id">
                 <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
@@ -269,6 +302,16 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
             <?php } ?>
         </select>
 
+        <label for="status">상태코드</label>
+        <select name="status" id="status">
+            <option value="0">전체</option>
+            <?php foreach ($codes as $c) { ?>
+                <option value="<?php echo (int)$c['call_status'];?>" <?php echo ($f_status===(int)$c['call_status']?'selected':'');?>>
+                    <?php echo (int)$c['call_status'].' - '.get_text($c['name']);?>
+                </option>
+            <?php } ?>
+        </select>
+
         <label for="rows">표시건수</label>
         <select name="rows" id="rows">
             <?php foreach ([20,50,100,200] as $opt){ ?>
@@ -320,6 +363,12 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
                 $ginfo    = $group_map[$gid] ?? ['group_name'=>'-', 'company_id'=>0];
                 $cname    = get_company_name_from_group_id_cached($gid);
                 $gname    = get_group_name_cached($gid);
+
+                // 캠페인 정보를 지우고 가져와서 보여줌.
+                $campaign_info = get_campaign_from_cached($row['campaign_id']);
+                $row['campaign_status'] = $campaign_info['status'];
+                $row['campaign_name'] = $campaign_info['name'];
+                $row['is_open_number'] = $campaign_info['is_open_number'];
 
                 // 전화번호: is_open_number=0이면 숨김
                 $hp_fmt = ((int)$row['is_open_number'] === 0 && $mb_level < 9) ? '(숨김처리)' : _h(format_korean_phone($row['call_hp']));
