@@ -286,7 +286,7 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
         <select name="campaign_id" id="campaign_id" style="height:29px;width:200px;">
             <option value="0"<?php echo $campaign_id===0?' selected':'';?>>전체 캠페인</option>
             <?php foreach ($campaign_list as $k => $c) { ?>
-                <option value="<?php echo (int)$k; ?>" <?php echo get_selected($campaign_id, (int)$k); ?>><?php echo get_text($c['name']).((int)$c['status']==1 ? '' : ' (비활성)'); ?></option>
+                <option value="<?php echo (int)$k; ?>" <?php echo get_selected($campaign_id, (int)$k); ?>><?php echo ((int)$c['status']==1 ? '' : '(비활성) ').get_text($c['name']); ?></option>
             <?php } ?>
         </select>
 

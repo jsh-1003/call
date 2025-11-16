@@ -20,7 +20,9 @@ if(!$chk) {
     goto_url('/adm/call/call_target_excel.php');
 }
 
-
+if (empty($is_validate)) {
+    $is_validate = 0;
+}
 // ===== 이름 검증 설정 =====
 // 허용 성씨 화이트리스트 (필요하면 추가/수정)
 $CALL_ALLOWED_SURNAMES = [
@@ -350,7 +352,7 @@ if ($step === 'preview') {
             $err_cnt++;
         } else {
             // 010 번호 + mid4 / last4 필터
-            if (strpos($call_hp, '010') === 0) {
+            if (strpos($call_hp, '010') === 0 && $is_validate) {
                 $mid4 = substr($call_hp, 3, 4);
                 if (!isset($mid4_whitelist[$mid4])) {
                     $status = '제외';
@@ -391,7 +393,7 @@ if ($step === 'preview') {
             }
         }
         // ===== 이름 검증 =====
-        if ($status === '정상') {
+        if ($status === '정상' && $is_validate) {
             $name_reason = '';
             if (!call_validate_name_basic($name, $name_reason)) {
                 $status = '오류';
@@ -407,7 +409,6 @@ if ($step === 'preview') {
         if ($status === '정상') {
             $ok_cnt++;
         }
-
 
         // ===== 부가정보 요약 =====
         if ($is_headerless) {
@@ -515,7 +516,7 @@ if ($step === 'preview') {
             </table>
         </div>
 
-        <form method="post" action="<?php echo $_SERVER['PHP_SELF']; ?>" class="btn_win01 btn_win" style="margin-top:15px;">
+        <form method="post" action="<?php echo $_SERVER['PHP_SELF']; ?>" class="btn_win01 win_btn" style="margin-top:15px;">
             <!-- CSRF 토큰 재전달 -->
             <input type="hidden" name="csrf_token" value="<?php echo get_text($_POST['csrf_token']); ?>">
             <input type="hidden" name="token" value="<?php echo get_admin_token(); ?>">
@@ -528,10 +529,8 @@ if ($step === 'preview') {
                 <input type="hidden" name="is_open_number0" value="1">
             <?php } ?>
 
-            <button type="submit"<?php echo empty($preview_rows) ? ' disabled' : ''; ?>>
-                검증 완료, 업로드 진행
-            </button>
-            <button type="button" onclick="window.close();">취소</button>
+            <button type="submit"<?php echo empty($preview_rows) ? ' disabled' : ''; ?> class="btn_submit btn">검증 완료, 업로드 진행</button>&nbsp;&nbsp;
+            <button type="button" onclick="window.close();" class="btn_close btn">취소</button>
         </form>
     </div>
 
@@ -728,7 +727,7 @@ include_once(G5_PATH.'/head.sub.php');
         <dd><ul style="margin:0;padding-left:18px;"><?php foreach ($fail_msgs as $m) echo '<li>'.get_text($m).'</li>'; ?></ul></dd>
         <?php } ?>
     </dl>
-    <div class="btn_win01 btn_win">
+    <div class="btn_win01 win_btn">
         <button type="button" onclick="closeAndRefresh();">창 닫기</button>
     </div>
 </div>

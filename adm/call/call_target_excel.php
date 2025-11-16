@@ -198,6 +198,10 @@ select[disabled]{background:#f7f7f7;color:#999}
         <div id="excelfile_upload">
             <label for="excelfile"><b>파일선택</b></label>
             <input type="file" name="excelfile" id="excelfile" accept=".xls,.xlsx" required>
+            <label for="is_validate">
+                <input type="checkbox" id="is_validate" name="is_validate" value="1" checked>
+                DB 유효성 검사 진행 <span> <이름(글자 수, 특문 포함, 성씨 등), 전화번호 대역 및 연번></span>
+            </label>
         </div>
         <!-- is_open_number 전달 규격 -->
         <?php if ($my_level >= 9) { ?>
@@ -223,7 +227,7 @@ select[disabled]{background:#f7f7f7;color:#999}
         </div>
 
         <div class="win_btn btn_confirm">
-            <input type="submit" value="타겟 엑셀파일 등록" class="btn_submit btn">
+            <input type="submit" value="타겟 엑셀파일 등록" class="btn_submit btn">&nbsp;&nbsp;
             <button type="button" onclick="window.close();" class="btn_close btn">닫기</button>
         </div>
     </form>
