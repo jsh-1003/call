@@ -61,6 +61,7 @@ if ($mb_level >= 8) {
 }
 
 // 조직 필터 적용
+$grp_ids = [$sel_mb_group];
 if ($mb_level >= 8) {
     if ($sel_mb_group > 0) {
         $where[] = "t.mb_group = {$sel_mb_group}";
@@ -198,6 +199,8 @@ $group_options = $build_org_select_options['group_options'];
  * ========================
  */
 
+$campaign_list = get_campaign_list(implode(',', $grp_ids));
+
 $codes = [];
 $codes = get_code_list($sel_mb_group);
 
@@ -279,6 +282,13 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
         <?php } else { ?>
             <input type="hidden" name="mb_group" id="mb_group" value="<?php echo (int)$sel_mb_group; ?>">
         <?php } ?>
+
+        <select name="campaign_id" id="campaign_id" style="height:29px;width:200px;">
+            <option value="0"<?php echo $campaign_id===0?' selected':'';?>>전체 캠페인</option>
+            <?php foreach ($campaign_list as $k => $c) { ?>
+                <option value="<?php echo (int)$k; ?>" <?php echo get_selected($campaign_id, (int)$k); ?>><?php echo get_text($c['name']).((int)$c['status']==1 ? '' : ' (비활성)'); ?></option>
+            <?php } ?>
+        </select>
 
         <select name="q_type" id="q_type">
             <option value="name"  <?php echo $q_type==='name'?'selected':'';?>>이름</option>
@@ -365,7 +375,8 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
                 $gname    = get_group_name_cached($gid);
 
                 // 캠페인 정보를 지우고 가져와서 보여줌.
-                $campaign_info = get_campaign_from_cached($row['campaign_id']);
+                // $campaign_info = get_campaign_from_cached($row['campaign_id']);
+                $campaign_info = $campaign_list[$row['campaign_id']];
                 $row['campaign_status'] = $campaign_info['status'];
                 $row['campaign_name'] = $campaign_info['name'];
                 $row['is_open_number'] = $campaign_info['is_open_number'];

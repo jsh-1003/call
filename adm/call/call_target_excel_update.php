@@ -20,6 +20,73 @@ if(!$chk) {
     goto_url('/adm/call/call_target_excel.php');
 }
 
+
+// ===== 이름 검증 설정 =====
+// 허용 성씨 화이트리스트 (필요하면 추가/수정)
+$CALL_ALLOWED_SURNAMES = [
+    '김','이','박','최','정','강','조','윤','장','임','한','오',
+    '서','신','권','황','안','송','전','홍','유','고','문','양',
+    '손','배','백','허','남','노','심','하','곽','성','차','주',
+    '우','구','민','류','나','진','엄','채','원','천','방','공',
+    '현','함','변','염','여','추','도','소','석','선','설','마',
+    '길','연','위','표','명','기','반','라','왕','금','옥','육',
+    '인','지','어','탁','국','모'
+];
+
+// 언더바(_) 기준 오른쪽 잘라서 검증용 이름을 만드는 함수
+function call_clean_name_for_check($name_raw) {
+    $name = trim((string)$name_raw);
+    if ($name === '') return '';
+
+    // 언더바 기준 왼쪽만 사용
+    $pos = mb_strpos($name, '_');
+    if ($pos !== false) {
+        $name = mb_substr($name, 0, $pos);
+    }
+    return trim($name);
+}
+
+/**
+ * 이름 기본 검증
+ * - 언더바 오른쪽은 버리고 검증
+ * - 5글자 이상이면 오류
+ * - 특수문자 들어가면 오류 (한글/영문/공백 이외)
+ * - 허용 성씨 목록에 없는 성이면 오류
+ *
+ * @param string $name_raw  저장용 원본 이름
+ * @param string|null $reason_out  실패 사유 텍스트 (참조)
+ * @return bool true=정상, false=이상
+ */
+function call_validate_name_basic($name_raw, &$reason_out = null) {
+    global $CALL_ALLOWED_SURNAMES;
+
+    $nm = call_clean_name_for_check($name_raw);
+    // 이름이 비어 있으면 검증 통과 (이름 없는 데이터 허용)
+    if ($nm === '') return true;
+
+    // 1) 글자수 5자 이상
+    if (mb_strlen($nm, 'UTF-8') >= 5) {
+        $reason_out = '이름 글자 수 5자 이상';
+        return false;
+    }
+
+    // 2) 특수문자 포함 (한글/영문/공백 이외는 모두 특수문자로 간주)
+    if (preg_match('/[^가-힣A-Za-z\s]/u', $nm)) {
+        $reason_out = '이름에 특수문자 포함';
+        return false;
+    }
+
+    // 3) 허용 성씨 체크 (첫 글자만)
+    $surname = mb_substr($nm, 0, 1, 'UTF-8');
+    if ($surname !== '' && !in_array($surname, $CALL_ALLOWED_SURNAMES, true)) {
+        $reason_out = "허용되지 않은 성씨({$surname})";
+        return false;
+    }
+
+    return true;
+}
+
+
 $my_level = (int)$member['mb_level'];
 $my_group = isset($member['mb_group']) ? (int)$member['mb_group'] : 0;
 $mb_group = ($my_level >= 8) ? (int)($_POST['mb_group'] ?? 0) : $my_group;
@@ -32,12 +99,23 @@ $company_id = (int)get_company_id_from_group_id_cached($mb_group);
 // 레벨 9+만 체크박스 허용: 체크되면 0(1차 비공개), 미체크=1(공개)
 // 레벨 9 미만은 항상 1(공개) 강제
 $is_open_number = 1;
+$had_is_open_checkbox = false;
 if ($my_level >= 9) {
-    $is_open_number = isset($_POST['is_open_number0']) ? 0 : 1;
+    if (isset($_POST['is_open_number0'])) {
+        $is_open_number = 0;
+        $had_is_open_checkbox = true;
+    } else {
+        $is_open_number = 1;
+    }
 }
 
 // 메모도 NFC로
 $memo = isset($_POST['memo']) ? k_nfc(strip_tags(clean_xss_attributes($_POST['memo']))) : '';
+
+// 현재 스텝: preview(1차 검증/미리보기) or commit(실제 등록)
+$step = (isset($_POST['step']) && $_POST['step'] === 'commit') ? 'commit' : 'preview';
+
+$max_preview = 20;
 
 // ===== 성별 변환 유틸 =====
 // 0=모름, 1=남, 2=여
@@ -118,14 +196,22 @@ function parse_birth_date($s) {
     return $date;
 }
 
-// ===== 파일 체크 & 로드 =====
-if (empty($_FILES['excelfile']['tmp_name'])) alert_close("엑셀 파일을 업로드해 주세요.");
+// ===== 캠페인 생성 (파일명 기반 + NFC + is_open_number 반영) =====
+function create_campaign_from_filename($mb_group, $orig_name, $memo, $is_open_number) {
+    $base = pathinfo($orig_name, PATHINFO_FILENAME);
+    $base = k_nfc(trim(preg_replace('/\s+/', ' ', $base)));
+    $stamp = date('ymd_Hi');
+    $name  = mb_substr($base, 0, 80).'_'.$stamp;   // 저장명도 NFC
+    $sql = "INSERT INTO call_campaign (mb_group, name, campaign_memo, is_open_number, status, created_at, updated_at)
+            VALUES ('{$mb_group}', '".sql_escape_string($name)."', '".sql_escape_string(k_nfc($memo))."', '{$is_open_number}', 1, NOW(), NOW())";
+    sql_query($sql);
+    return sql_insert_id();
+}
 
-// NEW) mid4 화이트리스트 적재 (한 번만 읽고 메모리에 유지)
+// ===== mid4 화이트리스트 로드 =====
 $mid4_whitelist = [];
 $mid4_rs = sql_query("SELECT mid4 FROM call_phone_mid4"); // mid4는 CHAR(4) 가정
 while ($r = sql_fetch_array($mid4_rs)) {
-    // 혹시 공백/널 방지
     $k = isset($r['mid4']) ? trim((string)$r['mid4']) : '';
     if ($k !== '' && preg_match('/^[0-9]{4}$/', $k)) {
         $mid4_whitelist[$k] = true;
@@ -133,9 +219,45 @@ while ($r = sql_fetch_array($mid4_rs)) {
 }
 unset($mid4_rs);
 
-$file = $_FILES['excelfile']['tmp_name'];
-// 원본 파일명도 NFC로
-$orig_name = k_nfc($_FILES['excelfile']['name']);
+// ===== 파일 경로 결정 (1단계: 업로드 & 저장 / 2단계: 저장된 파일 재사용) =====
+$upload_dir = G5_DATA_PATH . '/call_upload';
+if (!is_dir($upload_dir)) {
+    @mkdir($upload_dir, 0707, true);
+    @chmod($upload_dir, 0707);
+}
+
+if ($step === 'commit') {
+    // 2단계: 저장된 파일로부터 처리
+    $saved_basename = preg_replace('/[^0-9A-Za-z_\.\-]/', '', (string)($_POST['saved_file'] ?? ''));
+    if ($saved_basename === '') {
+        alert_close('업로드 파일 정보가 없습니다.');
+    }
+    $file = $upload_dir . '/' . $saved_basename;
+    if (!is_file($file)) {
+        alert_close('업로드 파일을 찾을 수 없습니다. 다시 업로드해 주세요.');
+    }
+    $orig_name = k_nfc((string)($_POST['orig_name'] ?? $saved_basename));
+} else {
+    // 1단계: 실제 파일 업로드
+    if (empty($_FILES['excelfile']['tmp_name'])) {
+        alert_close("엑셀 파일을 업로드해 주세요.");
+    }
+    if (!is_uploaded_file($_FILES['excelfile']['tmp_name'])) {
+        alert_close('정상적인 업로드가 아닙니다.');
+    }
+
+    $ext = strtolower(pathinfo($_FILES['excelfile']['name'], PATHINFO_EXTENSION));
+    if ($ext === '') $ext = 'xlsx';
+
+    $saved_basename = 'call_' . date('Ymd_His') . '_' . substr(md5(uniqid('', true)), 0, 8) . '.' . $ext;
+    $file = $upload_dir . '/' . $saved_basename;
+
+    if (!move_uploaded_file($_FILES['excelfile']['tmp_name'], $file)) {
+        alert_close('업로드 파일을 저장하지 못했습니다.');
+    }
+    // 원본 파일명도 NFC로
+    $orig_name = k_nfc($_FILES['excelfile']['name']);
+}
 
 include_once(G5_LIB_PATH.'/PHPExcel/IOFactory.php');
 
@@ -192,22 +314,244 @@ if ($is_headerless) {
     }
 }
 
-// ===== 캠페인 생성 (파일명 기반 + NFC + is_open_number 반영) =====
-function create_campaign_from_filename($mb_group, $orig_name, $memo, $is_open_number) {
-    $base = pathinfo($orig_name, PATHINFO_FILENAME);
-    $base = k_nfc(trim(preg_replace('/\s+/', ' ', $base)));
-    $stamp = date('ymd_Hi');
-    $name  = mb_substr($base, 0, 80).'_'.$stamp;   // 저장명도 NFC
-    $sql = "INSERT INTO call_campaign (mb_group, name, campaign_memo, is_open_number, status, created_at, updated_at)
-            VALUES ('{$mb_group}', '".sql_escape_string($name)."', '".sql_escape_string(k_nfc($memo))."', '{$is_open_number}', 1, NOW(), NOW())";
-    sql_query($sql);
-    return sql_insert_id();
+/* =========================================================
+ * 1단계: 상위 10개 행 사전 검증 & 컨펌 화면
+ * =======================================================*/
+if ($step === 'preview') {
+    $preview_rows = [];
+    $ok_cnt = 0;
+    $err_cnt = 0;
+
+    for ($i = $start_row, $cnt = 0; $i <= $num_rows && $cnt < $max_preview; $i++) {
+        $rowData = $sheet->rangeToArray('A'.$i.':'.$highestColumn.$i, NULL, TRUE, FALSE);
+        if (!isset($rowData[0])) continue;
+        $row = array_map('k_nfc', array_map(fn($v)=>trim((string)$v), $rowData[0]));
+
+        // 완전 빈 행은 스킵 (카운트에도 안 넣음)
+        $all_join = implode('', $row);
+        if ($all_join === '') continue;
+
+        $cnt++;
+
+        // 전화번호
+        if ($is_headerless) {
+            $raw_hp  = (string)$row[0];
+        } else {
+            $raw_hp  = (string)($row[$idx_hp] ?? '');
+        }
+        $call_hp = preg_replace('/\D+/', '', $raw_hp);
+
+        $status = '정상';
+        $reason = '';
+
+        if (!$call_hp || !preg_match('/^[0-9]{10,12}$/', $call_hp)) {
+            $status = '오류';
+            $reason = "잘못된 전화번호 형식";
+            $err_cnt++;
+        } else {
+            // 010 번호 + mid4 / last4 필터
+            if (strpos($call_hp, '010') === 0) {
+                $mid4 = substr($call_hp, 3, 4);
+                if (!isset($mid4_whitelist[$mid4])) {
+                    $status = '제외';
+                    $reason = "미허용 중간대역({$mid4})";
+                    $err_cnt++;
+                } else {
+                    $last4 = substr($call_hp, -4);
+                    if (in_array($last4, ['0000','1111','1234','2222','3333','4444','5555','6666','7777','8888','9999'], true)) {
+                        $status = '제외';
+                        $reason = "비정상 마지막4자리({$last4})";
+                        $err_cnt++;
+                    }
+                }
+            }
+        }
+
+        // 이름
+        $name = $is_headerless
+            ? (isset($row[1]) ? k_nfc((string)$row[1]) : '')
+            : (($idx_name !== null && isset($row[$idx_name])) ? k_nfc((string)$row[$idx_name]) : '');
+
+        // 생년월일 + 성별
+        $birth_date = null;
+        $sex = 0;
+        if ($is_headerless) {
+            if (isset($row[2])) {
+                [$birth_date, $sex_from_birth] = parse_birth_and_sex((string)$row[2]);
+                $sex = $sex_from_birth;
+            }
+        } else {
+            if ($idx_sex !== null && isset($row[$idx_sex])) {
+                $sex = normalize_sex($row[$idx_sex]);
+            }
+            if ($idx_birth !== null && isset($row[$idx_birth])) {
+                [$parsed_birth, $sex_from_birth] = parse_birth_and_sex((string)$row[$idx_birth]);
+                if ($parsed_birth) $birth_date = $parsed_birth;
+                if ($sex === 0 && $sex_from_birth > 0) $sex = $sex_from_birth;
+            }
+        }
+        // ===== 이름 검증 =====
+        if ($status === '정상') {
+            $name_reason = '';
+            if (!call_validate_name_basic($name, $name_reason)) {
+                $status = '오류';
+                // 기존 이유가 있으면 이어붙이기
+                if ($reason !== '') {
+                    $reason .= ' / ';
+                }
+                $reason .= '이름 이상'.($name_reason ? ' - '.$name_reason : '');
+                $err_cnt++; // 전화번호는 정상인데 이름 때문에 오류로 바뀐 경우만 카운트
+            }
+        }
+
+        if ($status === '정상') {
+            $ok_cnt++;
+        }
+
+
+        // ===== 부가정보 요약 =====
+        if ($is_headerless) {
+            // 헤더가 없으면 col4 이후를 몇 개만 요약
+            $extras = [];
+            for ($k = 3; $k < count($row) && count($extras) < 3; $k++) {
+                if ($row[$k] === '') continue;
+                $extras[] = 'col'.($k+1).': '.$row[$k];
+            }
+        } else {
+            // 헤더가 있으면 hp/name/birth/sex 빼고 앞에서부터 1~2개만
+            $extras = [];
+            foreach ($header as $k => $h) {
+                if ($k === $idx_hp || $k === $idx_name || $k === $idx_birth || $k === $idx_sex) continue;
+                $h_label = trim((string)$h);
+                if ($h_label === '') continue;
+                $val = isset($row[$k]) ? $row[$k] : '';
+                if ($val === '') continue;
+
+                $extras[] = $h_label.': '.$val;
+                if (count($extras) >= 2) break;
+            }
+        }
+
+        $extra_str = implode(', ', $extras);
+        if ($extra_str !== '' && mb_strlen($extra_str) > 40) {
+            $extra_str = mb_substr($extra_str, 0, 40).'…';
+        }
+
+        $preview_rows[] = [
+            'rownum'      => $i,
+            'raw_hp'      => $raw_hp,
+            'call_hp'     => $call_hp,
+            'name'        => $name,
+            'birth_date'  => $birth_date,
+            'sex'         => $sex,
+            'status'      => $status,
+            'reason'      => $reason,
+            'extra'       => $extra_str,   // ★ 추가
+        ];
+    }
+
+    $g5['title'] = '엑셀 등록 사전 검증';
+    include_once(G5_PATH.'/head.sub.php');
+    ?>
+    <div class="new_win">
+        <h1><?php echo $g5['title']; ?></h1>
+
+        <div class="local_desc01 local_desc">
+            <p>업로드된 엑셀의 상위 <?php echo $max_preview ?>개 데이터 행에 대해 형식 검증을 수행했습니다.</p>
+            <p>
+                <strong>정상 행:</strong> <?php echo number_format($ok_cnt); ?>건 /
+                <strong>오류·제외 행:</strong> <?php echo number_format($err_cnt); ?>건
+            </p>
+            <p>
+                아래 내용을 확인한 뒤, 문제가 없으면 업로드를 진행해 주세요.<br>오류가 있다면 창을 닫고 엑셀 파일을 수정한 후 다시 업로드하는 것을 권장합니다.<br>
+                추천필드명 : 전화번호 / 이름 / 생년월일 / 성별
+            </p>
+        </div>
+
+        <div class="tbl_head01 tbl_wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">엑셀 행</th>
+                        <!-- <th scope="col">전화번호(원본)</th> -->
+                        <th scope="col">전화번호(숫자만)</th>
+                        <th scope="col">이름</th>
+                        <th scope="col">생년월일</th>
+                        <th scope="col">성별</th>
+                        <th scope="col">부가정보 일부</th>
+                        <th scope="col">상태</th>
+                        <th scope="col">메시지</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php if (empty($preview_rows)) { ?>
+                    <tr>
+                        <td colspan="8" class="text-center">검증할 데이터 행이 없습니다.</td>
+                    </tr>
+                <?php } else { ?>
+                    <?php foreach ($preview_rows as $r) {
+                        $sex_txt = ($r['sex'] === 1 ? '남' : ($r['sex'] === 2 ? '여' : ''));
+                        ?>
+                        <tr>
+                            <td class="text-center"><?php echo (int)$r['rownum']; ?></td>
+                            <!-- <td><?php echo get_text($r['raw_hp']); ?></td> -->
+                            <td><?php echo get_text($r['call_hp']); ?></td>
+                            <td><?php echo get_text($r['name']); ?></td>
+                            <td class="text-center"><?php echo get_text($r['birth_date']); ?></td>
+                            <td class="text-center"><?php echo get_text($sex_txt); ?></td>
+                            <td><?php echo get_text($r['extra']); ?></td>
+                            <td class="text-center">
+                                <?php if ($r['status']==='정상') { ?>
+                                    <span style="color:green;font-weight:bold;">정상</span>
+                                <?php } else { ?>
+                                    <span style="color:#d00;font-weight:bold;"><?php echo get_text($r['status']); ?></span>
+                                <?php } ?>
+                            </td>
+                            <td><?php echo get_text($r['reason']); ?></td>
+                        </tr>
+                    <?php } ?>
+                <?php } ?>
+                </tbody>
+            </table>
+        </div>
+
+        <form method="post" action="<?php echo $_SERVER['PHP_SELF']; ?>" class="btn_win01 btn_win" style="margin-top:15px;">
+            <!-- CSRF 토큰 재전달 -->
+            <input type="hidden" name="csrf_token" value="<?php echo get_text($_POST['csrf_token']); ?>">
+            <input type="hidden" name="token" value="<?php echo get_admin_token(); ?>">
+            <input type="hidden" name="step" value="commit">
+            <input type="hidden" name="mb_group" value="<?php echo (int)$mb_group; ?>">
+            <input type="hidden" name="memo" value="<?php echo htmlspecialchars($memo, ENT_QUOTES); ?>">
+            <input type="hidden" name="saved_file" value="<?php echo htmlspecialchars($saved_basename, ENT_QUOTES); ?>">
+            <input type="hidden" name="orig_name" value="<?php echo htmlspecialchars($orig_name, ENT_QUOTES); ?>">
+            <?php if ($my_level >= 9 && $had_is_open_checkbox) { ?>
+                <input type="hidden" name="is_open_number0" value="1">
+            <?php } ?>
+
+            <button type="submit"<?php echo empty($preview_rows) ? ' disabled' : ''; ?>>
+                검증 완료, 업로드 진행
+            </button>
+            <button type="button" onclick="window.close();">취소</button>
+        </form>
+    </div>
+
+    <?php include_once(G5_PATH.'/tail.sub.php'); ?>
+    <?php
+    // 1단계에서는 여기서 종료
+    exit;
 }
+
+/* =========================================================
+ * 2단계: 실제 스테이징 적재 + 본 테이블 인서트
+ *  - 아래는 기존 로직을 그대로 사용하되, 파일입력만 변경된 상태
+ * =======================================================*/
+
+// 여기부터는 실제 DB 인서트 단계
 $campaign_id = create_campaign_from_filename($mb_group, $orig_name, $memo, $is_open_number);
 
-$batch_id = (int)(microtime(true)*1000) + random_int(1, 999);
+$batch_id    = (int)(microtime(true)*1000) + random_int(1, 999);
 $total_count = $stg_count = $skip_count = $ins_count = $dup_count = 0;
-$fail_msgs = [];
+$fail_msgs   = [];
 
 sql_query("START TRANSACTION");
 
@@ -217,6 +561,10 @@ try {
         if (!isset($rowData[0])) continue;
         // 각 셀을 문자열화 + 트림 + NFC
         $row = array_map('k_nfc', array_map(fn($v)=>trim((string)$v), $rowData[0]));
+
+        // 완전 빈 행은 카운트/적재 모두 스킵
+        if (implode('', $row) === '') continue;
+
         $total_count++;
 
         // 전화번호
@@ -232,9 +580,7 @@ try {
             continue;
         }
 
-        // NEW) 010 번호대만 중간대역(mid4) 화이트리스트 점검
-        // DB의 GENERATED mid4 = SUBSTRING(call_hp,4,4) 와 동일하게 PHP에서 추출
-        //  ex) 01012345678 -> substr($call_hp, 3, 4) === '1234'
+        // 010 번호대만 중간대역(mid4) 화이트리스트 점검
         if (strpos($call_hp, '010') === 0) {
             $mid4 = substr($call_hp, 3, 4); // 010 뒤의 4자리 추출
             if (!isset($mid4_whitelist[$mid4])) {
@@ -244,7 +590,7 @@ try {
                 }
                 continue; // 스테이징 적재도 하지 않음
             }
-            // NEW) 마지막 4자리 단순 패턴 필터
+            // 마지막 4자리 단순 패턴 필터
             $last4 = substr($call_hp, -4);
             if (in_array($last4, ['0000','1111','1234','2222','3333','4444','5555','6666','7777','8888','9999'], true)) {
                 $skip_count++;
@@ -283,8 +629,15 @@ try {
             }
         }
 
-        // birth_date가 아직 없고, 메타에 들어있을 수도 있으니 안전하게 한 번 더 시도(헤더풀의 나머지 필드)
-        // -> 여기서는 과도한 추론을 피하기 위해 스킵
+        // ===== 이름 검증 =====
+        $name_reason = '';
+        if (!call_validate_name_basic($name, $name_reason)) {
+            $skip_count++;
+            if (count($fail_msgs) < 20) {
+                $fail_msgs[] = "행 {$i}: 이름 이상 '".(string)$name."' - ".$name_reason;
+            }
+            continue; // 이름 이상이면 스테이징/본테이블 모두 적재 안 함
+        }
 
         // 기타정보(meta): 헤더풀일 때 나머지 컬럼을 JSON으로
         if ($is_headerless) {
@@ -317,15 +670,7 @@ try {
         }
     }
 
-    // 최종 적재
-    // $ins_sql = "
-    //   INSERT IGNORE INTO call_target
-    //   (campaign_id, mb_group, call_hp, name, birth_date, sex, meta_json, created_at, updated_at)
-    //   SELECT s.campaign_id, s.mb_group, s.call_hp, s.name, s.birth_date, s.sex, s.meta_json, NOW(), NOW()
-    //   FROM call_stg_target_upload s
-    //   WHERE s.batch_id = '{$batch_id}' AND s.mb_group = '{$mb_group}' AND s.campaign_id = '{$campaign_id}'
-    // ";
-    // 블랙리스트 제외
+    // 최종 적재 (블랙리스트 제외)
     $ins_sql = "
     INSERT IGNORE INTO call_target
     (campaign_id, mb_group, call_hp, name, birth_date, sex, meta_json, created_at, updated_at)
@@ -350,6 +695,11 @@ try {
 } catch (Exception $e) {
     sql_query("ROLLBACK");
     alert_close('처리 중 오류: '.$e->getMessage());
+} finally {
+    // 임시 업로드 파일은 최대한 제거 (실패해도 무시)
+    if (isset($file) && is_file($file)) {
+        @unlink($file);
+    }
 }
 
 $g5['title'] = '엑셀 등록 결과';
@@ -391,7 +741,6 @@ include_once(G5_PATH.'/head.sub.php');
     // 1) window.opener (새 창/팝업으로 열린 경우)
     try {
       if (window.opener && !window.opener.closed) {
-        // 필요 시 특정 리스트 페이지만 새로고침하고 싶다면 location.href 체크 후 reload
         window.opener.location.reload();
         done = true;
       }
@@ -420,9 +769,6 @@ include_once(G5_PATH.'/head.sub.php');
   window.addEventListener('unload', function(){
     refreshOpener();
   });
-
-  // (선택) 업로드 완료 페이지라면 자동으로 0.3초 뒤 닫기
-  // setTimeout(closeAndRefresh, 300);
 })();
 </script>
 

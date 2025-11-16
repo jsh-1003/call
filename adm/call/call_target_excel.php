@@ -110,6 +110,7 @@ if ($my_level >= 8) {
 }
 ?>
 <style>
+body {min-width:100%}
 .input_wrap{margin:10px;padding:20px;border:1px solid #e9e9e9;background:#fff}
 #memo{width:80%}
 select[disabled]{background:#f7f7f7;color:#999}
@@ -129,6 +130,7 @@ select[disabled]{background:#f7f7f7;color:#999}
             1행은 헤더로 사용하며 <strong>이름 / 전화번호 / 생년월일</strong>은 기본 컬럼, 그 외 열은 <code>추가정보</code>로 묶어 저장합니다.
         </p>
         <p>지원 형식: <strong>*.xls / *.xlsx</strong></p>
+        <p>업로드시 상위 10개 행에대한 검증을 진행합니다. 검증 후 이상 없으면 업로드 진행 바랍니다.</p>
     </div>
 
     <form name="fcallexcel" id="fcallexcel" method="post" action="./call_target_excel_update.php" enctype="multipart/form-data" autocomplete="off">
@@ -208,7 +210,7 @@ select[disabled]{background:#f7f7f7;color:#999}
                         checked>
                     <b>1차 비공개</b>
                 </label>
-                <p class="frm_info" style="padding-top:5px">체크 시 2차 콜에서만 번호 공개합니다. - 기능 작업전입니다(현재는 전체 공개)</p>
+                <p class="frm_info" style="padding-top:5px">체크 시 2차 콜에서만 번호 공개합니다.</p>
             </div>
         <?php } else { ?>
             <!-- 레벨9 미만은 무조건 공개(=1) -->

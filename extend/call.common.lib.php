@@ -271,6 +271,21 @@ $r = blacklist_register($mb_group, $call_hp, [
 // $r['action'] 으로 insert/update/skip 구분 가능
 */
 
+function get_campaign_list($mb_group=0) {
+    if(!$mb_group) {
+        $where = ' WHERE status <> 9 ';
+    } else {
+        $where = " WHERE mb_group in ({$mb_group}) AND status <> 9 ";
+    }
+    $sql = "SELECT * from call_campaign {$where} ORDER BY campaign_id DESC";
+    $res = sql_query($sql);
+    $list = [];
+    while ($row=sql_fetch_array($res)) {
+        $list[$row['campaign_id']] = $row;
+    }
+    return $list;
+}
+
 function get_campaign_from_cached(int $campaign_id) {
     static $campaign = [];
     if(!empty($campaign[$campaign_id])) return $campaign[$campaign_id];
