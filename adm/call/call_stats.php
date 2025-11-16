@@ -739,6 +739,121 @@ $group_agent_dbconv_totals   = $stats['group_agent_dbconv_totals'];
 $group_distinct_target_count = $stats['group_distinct_target_count'];
 $group_agent_distinct_target_count = $stats['group_agent_distinct_target_count'];
 
+
+/* ===============================
+ * 캠페인별 통계 계산
+ *  - where_sql 필터 그대로 사용
+ *  - 1차 상태/접수전환율: 콜 건수 기준
+ *  - DB전환/2차상태: 고유 target_id 기준
+ * =============================== */
+
+// 1) 캠페인별 1차 콜 상태 집계
+$camp_totals          = [];
+$camp_after_totals    = [];
+$camp_status_matrix   = [];   // [campaign_id][call_status] => cnt
+$camp_labels          = [];   // [campaign_id] => name
+
+$sql_camp_calls = "
+    SELECT 
+        l.campaign_id,
+        cc.name AS campaign_name,
+        l.call_status,
+        COUNT(*) AS cnt
+      FROM call_log l
+      JOIN call_target t 
+        ON t.target_id = l.target_id
+ LEFT JOIN {$member_table} m 
+        ON m.mb_no = l.mb_no
+      JOIN call_campaign cc
+        ON cc.campaign_id = l.campaign_id
+       AND cc.mb_group    = l.mb_group
+    {$where_sql}
+     GROUP BY l.campaign_id, cc.name, l.call_status
+";
+$res_camp_calls = sql_query($sql_camp_calls);
+while ($r = sql_fetch_array($res_camp_calls)) {
+    $cid = (int)$r['campaign_id'];
+    $st  = (int)$r['call_status'];
+    $cnt = (int)$r['cnt'];
+
+    $camp_labels[$cid] = get_text($r['campaign_name']);
+
+    if (!isset($camp_status_matrix[$cid])) {
+        $camp_status_matrix[$cid] = [];
+    }
+    $camp_status_matrix[$cid][$st] = $cnt;
+
+    if (!isset($camp_totals[$cid])) $camp_totals[$cid] = 0;
+    $camp_totals[$cid] += $cnt;
+
+    if ($st === (int)$AFTER_STATUS) {
+        if (!isset($camp_after_totals[$cid])) $camp_after_totals[$cid] = 0;
+        $camp_after_totals[$cid] += $cnt;
+    }
+}
+
+// 2) 캠페인별 고유 대상 수 (DB전환 분모)
+$camp_distinct_target_count = []; // [campaign_id] => cnt
+
+$sql_camp_dt = "
+    SELECT 
+        l.campaign_id,
+        l.mb_group,
+        l.target_id
+      FROM call_log l
+      JOIN call_target t 
+        ON t.target_id = l.target_id
+ LEFT JOIN {$member_table} m 
+        ON m.mb_no = l.mb_no
+    {$where_sql}
+     GROUP BY l.campaign_id, l.mb_group, l.target_id
+";
+$res_camp_dt = sql_query($sql_camp_dt);
+while ($r = sql_fetch_array($res_camp_dt)) {
+    $cid = (int)$r['campaign_id'];
+    if (!isset($camp_distinct_target_count[$cid])) {
+        $camp_distinct_target_count[$cid] = 0;
+    }
+    $camp_distinct_target_count[$cid] += 1;
+}
+
+// 3) 캠페인별 2차 상태 / DB전환 (state_id=10)
+$camp_ac_state_totals = [];   // [campaign_id][state_id] => cnt
+$camp_dbconv_totals   = [];   // [campaign_id] => cnt(state_id=10)
+
+$sql_ac_camp = "
+    SELECT 
+        dt.campaign_id,
+        tk.state_id,
+        COUNT(*) AS cnt
+      FROM (
+            {$sql_camp_dt}
+      ) dt
+      JOIN call_aftercall_ticket tk
+        ON tk.target_id   = dt.target_id
+       AND tk.campaign_id = dt.campaign_id
+       AND tk.mb_group    = dt.mb_group
+     GROUP BY dt.campaign_id, tk.state_id
+";
+$res_ac_camp = sql_query($sql_ac_camp);
+while ($r = sql_fetch_array($res_ac_camp)) {
+    $cid = (int)$r['campaign_id'];
+    $sid = (int)$r['state_id'];
+    $cnt = (int)$r['cnt'];
+
+    if (!isset($camp_ac_state_totals[$cid])) {
+        $camp_ac_state_totals[$cid] = [];
+    }
+    $camp_ac_state_totals[$cid][$sid] = $cnt;
+
+    if ($sid === 10) {
+        if (!isset($camp_dbconv_totals[$cid])) {
+            $camp_dbconv_totals[$cid] = 0;
+        }
+        $camp_dbconv_totals[$cid] += $cnt;
+    }
+}
+
 // ★ 전환율 포맷터
 $fmt_rate = function($num, $den){
     $n = (int)$num; $d = (int)$den;
@@ -772,6 +887,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 .status-danger{ background:#fdecea; }
 .status-secondary{ background:#f4f6f8; }
 .small-muted{ color:#777; font-size:12px; }
+.sortable th {cursor:pointer}
 </style>
 
 <!-- 검색/필터 -->
@@ -909,7 +1025,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 
 <!-- 피벗 요약 테이블 -->
 <div class="tbl_head01 tbl_wrap" style="margin-top:10px;">
-    <table style="table-layout:fixed">
+    <table style="table-layout:fixed" class="sortable">
         <caption><?php echo $g5['title']; ?></caption>
         <thead>
         <tr>
@@ -986,6 +1102,82 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
     </table>
 </div>
 
+<!-- 캠페인별 통계 -->
+<h3 style="margin-top:18px;">캠페인별 통계</h3>
+<div class="tbl_head01 tbl_wrap" style="margin-top:8px;">
+    <table style="table-layout:fixed" class="sortable">
+        <caption>캠페인별 통계</caption>
+        <thead>
+        <tr>
+            <th scope="col" style="width:200px;">캠페인</th>
+            <th scope="col" style="width:80px;">총합</th>
+            <th scope="col" style="width:90px;">접수전환율</th>
+            <?php foreach ($code_list as $c) {
+                $ui = $c['ui_type'] ?? 'secondary';
+                echo '<th scope="col" class="status-col status-'.get_text($ui).'">'.get_text($c['name']).'</th>';
+            } ?>
+            <th scope="col" style="background:#eef7ff;width:90px;">DB대상수</th>
+            <th scope="col" style="background:#eef7ff;width:90px;">DB전환수</th>
+            <th scope="col" style="background:#eef7ff;width:90px;">DB전환율</th>
+            <?php foreach ($ac_state_labels as $sid=>$nm) {
+                echo '<th scope="col" style="background:#f6f8fa">'.get_text($nm).'</th>';
+            } ?>
+        </tr>
+        </thead>
+        <tbody>
+        <?php
+        if (empty($camp_labels)) {
+            // 캠페인 데이터 없음
+            $colspan = 7 + count($code_list) + count($ac_state_labels);
+            echo '<tr><td colspan="'.$colspan.'" class="empty_table">데이터가 없습니다.</td></tr>';
+        } else {
+            // 캠페인 정렬: 이름 기준
+            $camp_ids = array_keys($camp_labels);
+            usort($camp_ids, function($a, $b) use($camp_labels){
+                return strcmp($camp_labels[$a], $camp_labels[$b]);
+            });
+
+            foreach ($camp_ids as $cid) {
+                $label_full = $camp_labels[$cid];
+                $label_short = cut_str($label_full, 16);
+                $row_total = (int)($camp_totals[$cid] ?? 0);
+                $row_after = (int)($camp_after_totals[$cid] ?? 0);
+                $dist_cnt  = (int)($camp_distinct_target_count[$cid] ?? 0);
+                $dbconv_cnt= (int)($camp_dbconv_totals[$cid] ?? 0);
+                $status_row= $camp_status_matrix[$cid] ?? [];
+                $state_row = $camp_ac_state_totals[$cid] ?? [];
+
+                echo '<tr>';
+                echo '<td title="'.get_text($label_full).'" class="td_left">'.get_text($label_short).'</td>';
+                echo '<td>'.($row_total?number_format($row_total):'-').'</td>';
+                echo '<td>'.$fmt_rate($row_after, $row_total).'</td>';
+
+                // 1차 상태별
+                foreach ($code_list_status as $st => $item) {
+                    $cnt = isset($status_row[$st]) ? number_format($status_row[$st]) : '-';
+                    $ui  = $item['ui_type'] ?? 'secondary';
+                    echo '<td class="status-col status-'.get_text($ui).'">'.$cnt.'</td>';
+                }
+
+                // DB 대상/전환
+                echo '<td style="background:#eef7ff">'.($dist_cnt?number_format($dist_cnt):'-').'</td>';
+                echo '<td style="background:#eef7ff">'.($dbconv_cnt?number_format($dbconv_cnt):'-').'</td>';
+                echo '<td style="background:#eef7ff">'.$fmt_rate($dbconv_cnt, $dist_cnt).'</td>';
+
+                // 2차 상태별 (state_id 10 제외)
+                foreach ($ac_state_labels as $sid => $nm) {
+                    $cnt = isset($state_row[$sid]) ? number_format($state_row[$sid]) : '-';
+                    echo '<td style="background:#f6f8fa">'.$cnt.'</td>';
+                }
+
+                echo '</tr>';
+            }
+        }
+        ?>
+        </tbody>
+    </table>
+</div>
+
 <!-- 지점 미선택 시: 지점별 담당자 통계 -->
 <?php if ($sel_mb_group === 0) { ?>
     <h3 style="margin-top:18px;">지점별 담당자 통계</h3>
@@ -997,7 +1189,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
     <?php } else { ?>
         <?php foreach ($group_agent_matrix as $gid => $agents) { ?>
         <div class="tbl_head01 tbl_wrap" style="margin-top:10px;">
-            <table style="table-layout:fixed">
+            <table style="table-layout:fixed" class="sortable">
                 <caption><?php echo get_text($group_labels[$gid] ?? ('지점 '.$gid)); ?></caption>
                 <thead>
                     <tr>
@@ -1291,6 +1483,6 @@ $base = './call_stats.php?'.http_build_query($qstr);
   });
 })();
 </script>
-
+<script src="https://cdn.jsdelivr.net/gh/stuartlangridge/sorttable/sorttable/sorttable.js"></script>
 <?php
 include_once(G5_ADMIN_PATH.'/admin.tail.php');
