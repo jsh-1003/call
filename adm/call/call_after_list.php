@@ -342,10 +342,11 @@ unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['pa
 
 <style>
 table.call-list-table td {min-width:65px}
+table.call-list-table td.p_no {width:45px;min-width:45px;}
 table.call-list-table td.td_mdhi {width:95px}
 table.call-list-table td.td_hi {width:55px}
 table.call-list-table td.small_txt {max-width:200px;}
-table.call-list-table td.td_mini_hp {width:85px}
+table.call-list-table td.td_mini_hp {width:116px}
 td.campaign_name {max-width:120px;}
 .th-sort { text-decoration:none; color:inherit; }
 .th-sort:hover { text-decoration:underline; }
@@ -517,7 +518,7 @@ a.ac-edit-btn {font-weight:700;color:#253aaf}
     <table class="table-fixed call-list-table">
         <thead>
             <tr>
-                <th style="width:50px">P_No.</th>
+                <th>P_No.</th>
                 <th>지점명</th>
                 <th>아이디</th>
                 <th><?php echo sort_th('agent_name','상담원명'); ?></th>
@@ -585,7 +586,7 @@ a.ac-edit-btn {font-weight:700;color:#253aaf}
                 $schedule_disp = format_schedule_display($row['ac_scheduled_at'], $row['ac_schedule_note']);
                 ?>
                 <tr>
-                    <td><?php echo $p_no; ?></td>
+                    <td class="p_no"><?php echo $p_no; ?></td>
                     <td><?php echo get_group_name_cached($row['mb_group']); ?></td>
                     <td><?php echo get_text($row['agent_mb_id']); ?></td>
                     <td><?php echo get_text($agent); ?></td>
@@ -610,7 +611,7 @@ a.ac-edit-btn {font-weight:700;color:#253aaf}
                     <td><?php echo $bday; ?></td>
                     <td><?php echo $man_age; ?></td>
                     <td><?php echo cut_str($meta_txt, 12); ?></td>
-                    <td class="td_mini_hp"><?php echo substr(get_text($hp_fmt), 4, 9); ?></td>             <!-- 전화번호 -->
+                    <td class="td_mini_hp"><?php echo get_text($hp_fmt); ?></td>             <!-- 전화번호 -->
                     <td><?php echo $after_label; ?></td>                  <!-- 2차담당자 -->
                     <td class="status-col status-<?php echo get_text($ac_ui); ?>"><?php echo get_text($ac_label); ?></td>
                     <td class="small_txt"><?php echo $schedule_disp; ?></td>
