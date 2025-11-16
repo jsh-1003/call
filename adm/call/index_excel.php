@@ -189,7 +189,7 @@ $sheet->setTitle('DB리스트');
 // ✅ 헤더: 이름/만나이 분리 + 생년월일 추가
 $headers = [
     '회사','지점','캠페인','전화번호',
-    '이름','만나이','생년월일',
+    '이름','만나이','생년월일','성별',
     '추가정보','배정상태','담당자','블랙','통화결과','업데이트'
 ];
 for ($i=0; $i<count($headers); $i++) {
@@ -252,7 +252,7 @@ while ($row = sql_fetch_array($res)) {
     $sex_txt = '';
     if ((int)$row['sex'] === 1) $sex_txt = '남성';
     elseif ((int)$row['sex'] === 2) $sex_txt = '여성';
-    $meta_txt = $sex_txt;
+    $meta_txt = '';
     $mj = $row['meta_json'];
     if (is_string($mj)) {
         $j = json_decode($mj, true);
@@ -296,6 +296,7 @@ while ($row = sql_fetch_array($res)) {
     if ($age_txt === '') $sheet->setCellValueExplicitByColumnAndRow($c++, $r, '', PHPExcel_Cell_DataType::TYPE_STRING);
     else                 $sheet->setCellValueExplicitByColumnAndRow($c++, $r, $age_txt, PHPExcel_Cell_DataType::TYPE_NUMERIC);
     $sheet->setCellValueExplicitByColumnAndRow($c++, $r, $birth,    PHPExcel_Cell_DataType::TYPE_STRING); // 생년월일
+    $sheet->setCellValueExplicitByColumnAndRow($c++, $r, $sex_txt, PHPExcel_Cell_DataType::TYPE_STRING);  // 성별
     $sheet->setCellValueExplicitByColumnAndRow($c++, $r, $meta_txt, PHPExcel_Cell_DataType::TYPE_STRING); // 추가정보
     $sheet->setCellValueExplicitByColumnAndRow($c++, $r, $as_label, PHPExcel_Cell_DataType::TYPE_STRING); // 배정상태
     $sheet->setCellValueExplicitByColumnAndRow($c++, $r, $agent_txt,PHPExcel_Cell_DataType::TYPE_STRING); // 담당자
