@@ -795,8 +795,7 @@ while ($r = sql_fetch_array($res_camp_calls)) {
 // 2) 캠페인별 고유 대상 수 (DB전환 분모)
 $camp_distinct_target_count = []; // [campaign_id] => cnt
 
-$sql_camp_dt = "
-    SELECT 
+$sql_camp_dt = "SELECT 
         l.campaign_id,
         l.mb_group,
         l.target_id
@@ -821,19 +820,30 @@ while ($r = sql_fetch_array($res_camp_dt)) {
 $camp_ac_state_totals = [];   // [campaign_id][state_id] => cnt
 $camp_dbconv_totals   = [];   // [campaign_id] => cnt(state_id=10)
 
+// 3-1) 2차 상태/DB전환 집계용 WHERE (call_log 기준 + tk 상관조건)
+$where_ac = $where; // 기존 l/t/m 조건 복사
+$where_ac[] = "l.campaign_id = tk.campaign_id";
+$where_ac[] = "l.mb_group    = tk.mb_group";
+$where_ac[] = "l.target_id   = tk.target_id";
+$where_sql_ac = $where_ac ? ('WHERE '.implode(' AND ', $where_ac)) : '';
+
 $sql_ac_camp = "
     SELECT 
-        dt.campaign_id,
+        tk.campaign_id,
         tk.state_id,
         COUNT(*) AS cnt
-      FROM (
-            {$sql_camp_dt}
-      ) dt
-      JOIN call_aftercall_ticket tk
-        ON tk.target_id   = dt.target_id
-       AND tk.campaign_id = dt.campaign_id
-       AND tk.mb_group    = dt.mb_group
-     GROUP BY dt.campaign_id, tk.state_id
+      FROM call_aftercall_ticket tk
+     WHERE EXISTS (
+            SELECT 1
+              FROM call_log l
+              JOIN call_target t 
+                ON t.target_id = l.target_id
+         LEFT JOIN {$member_table} m 
+                ON m.mb_no = l.mb_no
+            {$where_sql_ac}
+            LIMIT 1
+      )
+     GROUP BY tk.campaign_id, tk.state_id
 ";
 $res_ac_camp = sql_query($sql_ac_camp);
 while ($r = sql_fetch_array($res_ac_camp)) {
@@ -853,6 +863,7 @@ while ($r = sql_fetch_array($res_ac_camp)) {
         $camp_dbconv_totals[$cid] += $cnt;
     }
 }
+
 
 // ★ 전환율 포맷터
 $fmt_rate = function($num, $den){

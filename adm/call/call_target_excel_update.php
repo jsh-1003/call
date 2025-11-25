@@ -32,7 +32,7 @@ $CALL_ALLOWED_SURNAMES = [
     '우','구','민','류','나','진','엄','채','원','천','방','공',
     '현','함','변','염','여','추','도','소','석','선','설','마',
     '길','연','위','표','명','기','반','라','왕','금','옥','육',
-    '인','지','어','탁','국','모'
+    '인','지','어','탁','국','모','맹','봉','호','형','예','음'
 ];
 
 // 언더바(_) 기준 오른쪽 잘라서 검증용 이름을 만드는 함수
@@ -312,7 +312,7 @@ if ($is_headerless) {
     }
 
     if ($idx_hp === null) {
-        alert_close('헤더에 "전화번호" 열이 필요합니다.');
+        alert_close('헤더에 전화번호 열이 필요합니다.');
     }
 }
 
@@ -520,6 +520,7 @@ if ($step === 'preview') {
             <!-- CSRF 토큰 재전달 -->
             <input type="hidden" name="csrf_token" value="<?php echo get_text($_POST['csrf_token']); ?>">
             <input type="hidden" name="token" value="<?php echo get_admin_token(); ?>">
+            <input type="hidden" name="is_validate" value="<?php echo $is_validate ?>">
             <input type="hidden" name="step" value="commit">
             <input type="hidden" name="mb_group" value="<?php echo (int)$mb_group; ?>">
             <input type="hidden" name="memo" value="<?php echo htmlspecialchars($memo, ENT_QUOTES); ?>">
@@ -573,14 +574,14 @@ try {
             $raw_hp  = (string)($row[$idx_hp] ?? '');
         }
         $call_hp = preg_replace('/\D+/', '', $raw_hp);
-        if (!$call_hp || !preg_match('/^[0-9]{10,12}$/', $call_hp)) {
+        if (!$call_hp || !preg_match('/^[0-9]{9,12}$/', $call_hp)) {
             $skip_count++;
             if (count($fail_msgs) < 20) $fail_msgs[] = "행 {$i}: 잘못된 전화번호 '{$raw_hp}'";
             continue;
         }
 
         // 010 번호대만 중간대역(mid4) 화이트리스트 점검
-        if (strpos($call_hp, '010') === 0) {
+        if (strpos($call_hp, '010') === 0 && $is_validate) {
             $mid4 = substr($call_hp, 3, 4); // 010 뒤의 4자리 추출
             if (!isset($mid4_whitelist[$mid4])) {
                 $skip_count++;
@@ -630,12 +631,14 @@ try {
 
         // ===== 이름 검증 =====
         $name_reason = '';
-        if (!call_validate_name_basic($name, $name_reason)) {
-            $skip_count++;
-            if (count($fail_msgs) < 20) {
-                $fail_msgs[] = "행 {$i}: 이름 이상 '".(string)$name."' - ".$name_reason;
+        if($is_validate) {
+            if (!call_validate_name_basic($name, $name_reason)) {
+                $skip_count++;
+                if (count($fail_msgs) < 20) {
+                    $fail_msgs[] = "행 {$i}: 이름 이상 '".(string)$name."' - ".$name_reason;
+                }
+                continue; // 이름 이상이면 스테이징/본테이블 모두 적재 안 함
             }
-            continue; // 이름 이상이면 스테이징/본테이블 모두 적재 안 함
         }
 
         // 기타정보(meta): 헤더풀일 때 나머지 컬럼을 JSON으로

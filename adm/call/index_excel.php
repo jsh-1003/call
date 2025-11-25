@@ -7,7 +7,7 @@ require_once './_common.php';
 if ((int)$member['mb_level'] < 3) alert('접근 권한이 없습니다.');
 
 // ---------- PHPExcel (그누보드 내장 구형 라이브러리) ----------
-@ini_set('memory_limit','1024M');  // 요청하신 1024M
+@ini_set('memory_limit','2048M');
 @set_time_limit(0);
 
 // 고급 바인더 + 캐시 세팅
@@ -19,7 +19,7 @@ include_once(G5_LIB_PATH.'/PHPExcel/Settings.php');
 
 PHPExcel_Cell::setValueBinder(new PHPExcel_Cell_AdvancedValueBinder());
 $cacheMethod   = PHPExcel_CachedObjectStorageFactory::cache_to_phpTemp;
-$cacheSettings = array('memoryCacheSize' => '256MB'); // 상황에 따라 512MB로 올려도 됨
+$cacheSettings = array('memoryCacheSize' => '512MB'); // 상황에 따라 512MB로 올려도 됨
 PHPExcel_Settings::setCacheStorageMethod($cacheMethod, $cacheSettings);
 
 // ---------- 멤버/권한 ----------
