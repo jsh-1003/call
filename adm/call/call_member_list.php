@@ -230,6 +230,7 @@ $sql = "
     m.mb_group,  m.mb_group_name,
     m.mb_datetime, m.mb_today_login, m.pay_start_date,
     m.mb_leave_date, m.mb_intercept_date,
+    m.is_after_db_use, 
     IFNULL(m.is_after_call,0) AS is_after_call,
     /* level=3 상담원일 때만 최근 발신번호 조회 */
     CASE 
@@ -384,6 +385,9 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                 <th scope="col">수정</th>
                 <th scope="col">차단</th>
                 <th scope="col">삭제</th>
+                <?php if($my_level >= 9) { ?>
+                <th scope="col">DB상세</th>
+                <?php } ?>
             </tr>
         </thead>
         <tbody>
@@ -474,6 +478,15 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                             삭제회원
                         <?php } ?>
                     </td>
+                    <?php if($my_level >= 9) { ?>
+                    <td class="td_mng td_mng_s">
+                        <?php
+                            if($row['mb_level'] == 8) {
+                                echo $row['is_after_db_use'] ? '<span class="badge badge-company">사용</span>' : '미사용';
+                            }
+                        ?>
+                    </td>
+                    <?php } ?>
                 </tr>
                 <?php
             }

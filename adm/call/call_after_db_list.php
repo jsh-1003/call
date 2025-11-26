@@ -4,7 +4,7 @@ $sub_menu = '700420';
 require_once './_common.php';
 
 // 접근 권한: 관리자 레벨 5 이상
-if ($is_admin !== 'super' && (int)$member['mb_level'] < 5) {
+if ($is_admin !== 'super' && (int)$member['mb_level'] < 10) {
     alert('접근 권한이 없습니다~!'.$member['mb_level']);
 }
 
@@ -168,6 +168,10 @@ $codes = [];
 $rc = sql_query("SELECT call_status, name_ko, status, ui_type FROM call_status_code WHERE mb_group=0 ORDER BY sort_order ASC, call_status ASC");
 while ($r = sql_fetch_array($rc)) $codes[] = $r;
 
+$ac_codes = [];
+$rac = sql_query("SELECT state_id, name_ko, ui_type, sort_order FROM call_aftercall_state_code WHERE status=1 ORDER BY sort_order ASC, state_id ASC");
+while ($r = sql_fetch_array($rac)) $ac_codes[(int)$r['state_id']] = $r;
+
 $status_ui = [];
 $rui = sql_query("SELECT call_status, ui_type FROM call_status_code WHERE mb_group=0");
 while ($v = sql_fetch_array($rui)) $status_ui[(int)$v['call_status']] = ($v['ui_type'] ?: 'secondary');
@@ -305,6 +309,11 @@ td.campaign_name {max-width:120px;}
 .ac-badge.on { display:inline-block; padding:1px 6px; border-radius:10px; font-size:11px; background:#16a34a; color:#fff; }
 .ac-badge.off{ display:inline-block; padding:1px 6px; border-radius:10px; font-size:11px; background:#9ca3af; color:#fff; }
 a.ac-edit-btn {font-weight:700;color:#253aaf}
+/* 상세정보 그리드 */
+.ac-grid-row { display:flex; gap:10px; margin-bottom:8px; }
+.ac-col { flex:1; display:flex; flex-direction:column; gap:2px; }
+.ac-col label { font-size:11px; color:#666; font-weight:bold; }
+.full-width { width:100%; box-sizing:border-box; }
 </style>
 
 <div class="local_ov01 local_ov">
@@ -571,7 +580,7 @@ $base = './call_after_db_list.php?'.http_build_query($qstr);
 <div id="acOverlay" class="ac-overlay" hidden></div>
 <div class="ac-panel" id="acPanel" aria-hidden="true" hidden>
   <div class="ac-panel__head">
-    <strong>2차콜 처리</strong>
+    <strong style="color:#e33">접수DB관리 - 아직 작업중인 페이지입니다. 이용 불가 X</strong>
     <button type="button" class="ac-panel__close" id="acClose" aria-label="닫기">×</button>
   </div>
   <div class="ac-panel__body">
@@ -580,13 +589,108 @@ $base = './call_after_db_list.php?'.http_build_query($qstr);
       <div>추가정보: <span id="s_meta">-</span></div>
     </div>
 
-    <form id="acForm" method="post" action="./ajax_call_after_db_list.php" autocomplete="off">
-      <input type="hidden" name="ajax" value="save">
-      <input type="hidden" name="token" value="<?php echo get_token();?>">
-      <input type="hidden" name="campaign_id" id="f_campaign_id" value="">
-      <input type="hidden" name="mb_group" id="f_mb_group" value="">
-      <input type="hidden" name="target_id" id="f_target_id" value="">
-      <input type="hidden" name="schedule_clear" id="f_schedule_clear" value="0">
+    <!-- 상세 정보 입력 섹션 -->
+    <div id="acDetailSection" hidden style="background:#f9fafb; padding:10px; border:1px solid #e5e7eb; border-radius:4px; margin-bottom:15px;">
+        <form id="acDetailForm" method="post" action="./ajax_call_after_db_list.php" autocomplete="off">
+        <input type="hidden" name="ajax" value="save">
+        <input type="hidden" name="token" value="<?php echo get_token();?>">
+        <input type="hidden" name="target_id" id="f_target_id" value="">
+        <input type="hidden" name="db_id" id="f_db_id" value="">
+
+        <div class="ac-grid-row">
+            <div class="ac-col">
+                <label>고객명</label>
+                <input type="text" name="detail_name" class="frm_input full-width">
+            </div>
+            <div class="ac-col">
+                <label>생년월일</label>
+                <input type="text" name="detail_birth" class="frm_input full-width" placeholder="YYYY-MM-DD">
+            </div>
+            <div class="ac-col">
+                <label>나이</label>
+                <input type="number" name="detail_age" class="frm_input full-width">
+            </div>
+            <div class="ac-col">
+                <label>성별</label>
+                <div style="display:flex; gap:10px; align-items:center; height:30px;">
+                    <label><input type="radio" name="detail_sex" value="1"> 남</label>
+                    <label><input type="radio" name="detail_sex" value="2"> 여</label>
+                </div>
+            </div>
+        </div>
+        <div class="ac-grid-row">
+            <div class="ac-col">
+                <label>연락처</label>
+                <input type="text" name="detail_hp" class="frm_input full-width">
+            </div>
+            <div class="ac-col">
+                <label>납입보험료</label>
+                <input type="text" name="detail_month_pay" class="frm_input full-width">
+            </div>
+            <div class="ac-col" style="flex:2;">
+                <label>방문희망일시</label>
+                <input type="datetime-local" name="detail_scheduled_at" class="frm_input full-width">
+            </div>
+        </div>
+        <div class="ac-grid-row">
+            <div class="ac-col">
+                <label>주소 (지역1)</label>
+                <select name="detail_region1" class="frm_input full-width">
+                    <option value="">선택</option>
+                    <option value="서울">서울</option>
+                    <option value="경기">경기</option>
+                    <option value="인천">인천</option>
+                    <option value="강원">강원</option>
+                    <option value="충북">충북</option>
+                    <option value="충남">충남</option>
+                    <option value="대전">대전</option>
+                    <option value="세종">세종</option>
+                    <option value="전북">전북</option>
+                    <option value="전남">전남</option>
+                    <option value="광주">광주</option>
+                    <option value="경북">경북</option>
+                    <option value="경남">경남</option>
+                    <option value="대구">대구</option>
+                    <option value="울산">울산</option>
+                    <option value="부산">부산</option>
+                    <option value="제주">제주</option>
+                </select>
+            </div>
+            <div class="ac-col">
+                <label>주소 (지역2)</label>
+                <select name="detail_region2" class="frm_input full-width">
+                    <option value="">선택</option>
+                    <!-- JS로 동적 처리 예정이나 우선 기본값 -->
+                </select>
+            </div>
+            <div class="ac-col" style="flex:2;">
+                <label>상세주소</label>
+                <input type="text" name="detail_addr_etc" class="frm_input full-width">
+            </div>
+        </div>
+        <div class="ac-grid-row">
+            <div class="ac-col" style="flex:1;">
+                <label>기타 / 메모</label>
+                <textarea name="detail_memo" class="frm_input full-width" rows="2"></textarea>
+            </div>
+        </div>
+
+        <div class="ac-actions">
+            <button type="submit" class="btn btn_01">저장</button>
+            <button type="button" class="btn btn_02" id="acCancel">닫기</button>
+        </div>
+        </form>
+    </div>
+
+    <form id="acForm" method="post" action="./ajax_call_after_list.php" autocomplete="off">
+    <input type="hidden" name="ajax" value="save">
+    <input type="hidden" name="token" value="<?php echo get_token();?>">
+    <input type="hidden" name="campaign_id" id="f_campaign_id" value="">
+    <input type="hidden" name="mb_group" id="f_mb_group" value="">
+    <input type="hidden" name="target_id" id="f_target_id" value="">
+    <input type="hidden" name="db_id" id="f_db_id" value="">
+    <input type="hidden" name="target_id" id="f_target_id" value="">
+    <input type="hidden" name="schedule_clear" id="f_schedule_clear" value="0">
 
       <div class="ac-field">
         <label for="f_state_id">처리상태</label>
@@ -632,6 +736,7 @@ $base = './call_after_db_list.php?'.http_build_query($qstr);
         <label>활동 로그</label>
         <div id="f_timeline" class="ac-timeline"></div>
       </div>
+
     </form>
   </div>
 </div>
@@ -642,82 +747,31 @@ $base = './call_after_db_list.php?'.http_build_query($qstr);
     <a href="<?php echo $href_screen;    ?>" class="btn btn_02" style="background:#e5e7eb !important">현재화면 엑셀다운</a>
 </div>
 
+<script src="./js/call_after_db_list.js?v=20251126_1"></script>
 <script>
 (function(){
-  // 모달/단건 조회/저장/타임라인 렌더
-  var panel   = document.getElementById('acPanel');
-  var overlay = document.getElementById('acOverlay');
-  var btnClose= document.getElementById('acClose');
-  var btnCancel=document.getElementById('acCancel');
+  // ============================================================
+  // [전역 변수 및 초기화]
+  // ============================================================
+  var form     = document.getElementById(AC_SETTINGS.ids.form);
 
-  function openPanel(){ panel.hidden=false; overlay.hidden=false; panel.setAttribute('aria-hidden','false'); document.body.classList.add('ac-open'); }
-  function closePanel(){ panel.hidden=true; overlay.hidden=true; panel.setAttribute('aria-hidden','true'); document.body.classList.remove('ac-open'); }
-  if (btnClose)  btnClose.addEventListener('click', closePanel);
-  if (btnCancel) btnCancel.addEventListener('click', closePanel);
-  if (overlay)   overlay.addEventListener('click', closePanel);
-  document.addEventListener('keydown', function(e){ if(e.key==='Escape') closePanel(); });
+  // ============================================================
+  // [이벤트 바인딩 및 실행]
+  // ============================================================
 
-  // 타임라인 렌더
-  function renderTimeline(history, notes){
-    var el = document.getElementById('f_timeline');
-    el.innerHTML = '';
+  // 1. 팝업 기본 이벤트
+  after_db_initPopupEvents();
 
-    var items = [];
-    (history||[]).forEach(function(h){
-      var baseText = (h.prev_label || (h.prev_state == null ? '대기' : h.prev_state))
-                  + ' → '
-                  + (h.new_label || h.new_state);
-      if(h.prev_state == h.new_state) {
-        baseText = '';
-      }
-      // 담당자 텍스트는 메모에 이미 들어가므로 afterTxt는 생략
-      var memoTxt = h.memo ? ' <span class="small-muted-system">' + h.memo + '</span>' : '';
-      items.push({
-        t: new Date(h.changed_at.replace(' ','T')),
-        time: h.changed_at,
-        who: h.who_name || h.who_id || h.changed_by,
-        kind: 'state',
-        text: baseText + memoTxt
+  // 2. 지역1 변경 시 지역2 업데이트
+  var r1Sel = document.querySelector('select[name="'+AC_SETTINGS.names.detail_region1+'"]');
+  if (r1Sel) {
+      r1Sel.addEventListener('change', function() {
+          after_db_updateRegion2(this.value);
       });
-    });
-    (notes||[]).forEach(function(n){
-      items.push({
-        t: new Date(n.created_at.replace(' ','T')),
-        time: n.created_at,
-        who: n.who_name || n.who_id || n.created_by,
-        kind: n.note_type,
-        text: n.note_type==='schedule'
-              ? ((n.scheduled_at? (n.scheduled_at.substring(5,16)+' / ') : '') + (n.note_text||''))
-              : (n.note_text||'')
-      });
-    });
-    items.sort(function(a,b){ return b.t - a.t; });
-
-    if (!items.length) {
-      var none = document.createElement('div');
-      none.className='ac-timeline__item';
-      none.innerHTML = '<div class="ac-timeline__time">-</div><div class="ac-timeline__body small-muted">로그가 없습니다.</div>';
-      el.appendChild(none);
-      return;
-    }
-
-    items.forEach(function(it){
-      var row = document.createElement('div'); row.className='ac-timeline__item';
-      var badgeClass = it.kind==='state' ? 'ac-badge ac-badge--state' : (it.kind==='schedule'?'ac-badge ac-badge--sched':'ac-badge ac-badge--note');
-      var typeLabel  = it.kind==='state' ? '상태' : (it.kind==='schedule'?'일정':'메모');
-
-      var time = document.createElement('div'); time.className='ac-timeline__time'; time.textContent = it.time;
-      var body = document.createElement('div'); body.className='ac-timeline__body';
-      body.innerHTML = '<span class="'+badgeClass+'">'+typeLabel+'</span>'
-                     + '<b>'+ (it.who||'') +'</b> · '
-                     + (it.text ? (it.text+'') : '');
-      row.appendChild(time); row.appendChild(body);
-      el.appendChild(row);
-    });
   }
 
-  // 팝업 열기
-  document.querySelectorAll('.ac-edit-btn').forEach(function(btn){
+  // 3. 팝업 열기 버튼 클릭 이벤트
+  document.querySelectorAll('.'+AC_SETTINGS.classes.editBtn).forEach(function(btn){
     btn.addEventListener('click', function(){
       const btnEl      = this;
       var campaign_id  = btnEl.getAttribute('data-campaign-id');
@@ -726,141 +780,75 @@ $base = './call_after_db_list.php?'.http_build_query($qstr);
       var targetName   = btnEl.getAttribute('data-target-name') || '';
       var hp           = btnEl.getAttribute('data-call-hp') || '';
       var state_id     = btnEl.getAttribute('data-state-id') || 0;
+      var curAfter     = parseInt(btnEl.getAttribute('data-after-mb-no') || '0', 10) || 0;
 
-      const curAfter = parseInt(btnEl.getAttribute('data-after-mb-no') || '0', 10) || 0;
-      const afterSel = document.getElementById('f_after_agent');
-      if (!afterSel) return;
-      afterSel.innerHTML = '<option value="0">불러오는 중...</option>';
-
-      // 고객 요약
-      document.getElementById('s_target_name').textContent = targetName || '-';
-      document.getElementById('s_hp').textContent = hp || '';
-      document.getElementById('s_birth').textContent = btnEl.getAttribute('data-birth') || '-';
+      // 고객 요약 정보 표시
+      document.getElementById(AC_SETTINGS.ids.s_target_name).textContent = targetName || '-';
+      document.getElementById(AC_SETTINGS.ids.s_hp).textContent = hp || '';
+      document.getElementById(AC_SETTINGS.ids.s_birth).textContent = btnEl.getAttribute('data-birth') || '-';
       var age = btnEl.getAttribute('data-age') || '';
-      document.getElementById('s_age').textContent = (age!==''? (age+'세') : '-');
-      document.getElementById('s_meta').textContent = btnEl.getAttribute('data-meta') || '-';
+      document.getElementById(AC_SETTINGS.ids.s_age).textContent = (age!==''? (age+'세') : '-');
+      document.getElementById(AC_SETTINGS.ids.s_meta).textContent = btnEl.getAttribute('data-meta') || '-';
 
-      // 폼 기본값
-      document.getElementById('f_campaign_id').value = campaign_id;
-      document.getElementById('f_mb_group').value    = mb_group;
-      document.getElementById('f_target_id').value   = target_id;
-      document.getElementById('f_state_id').value    = state_id;
-      document.getElementById('f_memo').value        = '';
-      document.getElementById('f_schedule_date').value = '';
-      document.getElementById('f_schedule_time').value = '';
-      document.getElementById('f_schedule_note').value = '';
-      document.getElementById('f_schedule_clear').value = '0';
-      renderTimeline([],[]);
+      // 폼 리셋
+      after_db_resetPopupForm(campaign_id, mb_group, target_id, state_id);
 
-      // 담당자 불러오기 (해당 지점만)
-      const urlAg = new URL('./ajax_call_after_db_list.php', location.href);
-      urlAg.searchParams.set('ajax','agents');
-      urlAg.searchParams.set('mb_group', mb_group);
-
-      fetch(urlAg.toString(), { credentials:'same-origin' })
-        .then(function(res){
-          if (!res.ok) throw new Error('네트워크 오류');
-          return res.json();
-        })
-        .then(function(j){
-          if (!j || j.success === false) {
-            throw new Error((j && j.message) || '가져오기 실패');
+      // 상세정보 비동기 조회
+      after_db_mockFetchDetailInfo(target_id).then(function(res) {
+          var secDetail = document.getElementById(AC_SETTINGS.ids.detailSection);
+          if (res.use_detail && secDetail) {
+              secDetail.hidden = false;
+              if (res.data) {
+                  after_db_fillDetailSection(res.data);
+              }
           }
-          const opts = ['<option value="0">미지정</option>'];
-          (j.rows || []).forEach(function(x){
-            const label = (x.mb_name || x.mb_id) + ' ' + (parseInt(x.is_after_call,10) === 1 ? '[ON]' : '[OFF]');
-            opts.push('<option value="'+ x.mb_no +'">'+ label +'</option>');
-          });
-          afterSel.innerHTML = opts.join('');
-          afterSel.value = String(curAfter);
-          if (afterSel.selectedIndex < 0) afterSel.value = '0';
-        })
-        .catch(function(err){
-          console.error(err);
-          afterSel.innerHTML = '<option value="0">미지정</option>';
-          afterSel.value = '0';
-        });
+      });
 
-      // 티켓/이력/노트 로드
-      var url = new URL('./ajax_call_after_db_list.php', location.href);
-      url.searchParams.set('ajax','get');
-      url.searchParams.set('campaign_id', campaign_id);
-      url.searchParams.set('mb_group', mb_group);
-      url.searchParams.set('target_id', target_id);
-      fetch(url.toString(), {credentials:'same-origin'})
-        .then(r=>r.json())
-        .then(j=>{
-          if (j && j.success) {
-            var t = j.ticket || {};
-            if (typeof t.state_id !== 'undefined' && t.state_id !== null)
-              document.getElementById('f_state_id').value = t.state_id;
+      // 담당자 목록 로드
+      after_db_loadAgentOptions(mb_group, curAfter);
 
-            // 일정 값 프리필
-            if (t.scheduled_at) {
-              var d = t.scheduled_at.split(' ');
-              if (d[0]) document.getElementById('f_schedule_date').value = d[0];
-              if (d[1]) document.getElementById('f_schedule_time').value = d[1].slice(0,5);
-            }
-            if (t.schedule_note) document.getElementById('f_schedule_note').value = t.schedule_note;
+      // 티켓 데이터 로드
+      after_db_loadTicketData(campaign_id, mb_group, target_id);
 
-            // 2차담당자 프리필(티켓 값 우선)
-            if (typeof t.assigned_after_mb_no !== 'undefined' && t.assigned_after_mb_no !== null) {
-              var v = String(parseInt(t.assigned_after_mb_no,10) || 0);
-              var sel = document.getElementById('f_after_agent');
-              if (sel) { sel.value = v; if (sel.selectedIndex < 0) sel.value = '0'; }
-            }
-
-            renderTimeline(j.history || [], j.notes || []);
-          }
-        })
-        .catch(console.error);
-
-      openPanel();
+      // 팝업 표시
+      after_db_openPanel();
     });
   });
 
-  // 일정 퀵버튼
-  function setDateInput(offsetDays){
-    var iDate = document.getElementById('f_schedule_date');
-    var d = new Date();
-    d.setDate(d.getDate() + offsetDays);
-    var y = d.getFullYear(), m = (d.getMonth()+1+'').padStart(2,'0'), day = (d.getDate()+'').padStart(2,'0');
-    iDate.value = y+'-'+m+'-'+day;
-  }
-  var btnToday = document.getElementById('btnSchedToday');
-  var btnTomorrow = document.getElementById('btnSchedTomorrow');
-  var btnClear = document.getElementById('btnSchedClear');
-  if (btnToday) btnToday.addEventListener('click', function(){ setDateInput(0); if(!document.getElementById('f_schedule_time').value) document.getElementById('f_schedule_time').value='14:00'; });
-  if (btnTomorrow) btnTomorrow.addEventListener('click', function(){ setDateInput(1); if(!document.getElementById('f_schedule_time').value) document.getElementById('f_schedule_time').value='10:00'; });
+  // 4. 일정 퀵버튼
+  var btnToday = document.getElementById(AC_SETTINGS.ids.btnSchedToday);
+  var btnTomorrow = document.getElementById(AC_SETTINGS.ids.btnSchedTomorrow);
+  var btnClear = document.getElementById(AC_SETTINGS.ids.btnSchedClear);
+  if (btnToday) btnToday.addEventListener('click', function(){ after_db_setDateInput(0); if(!document.getElementById(AC_SETTINGS.ids.f_schedule_time).value) document.getElementById(AC_SETTINGS.ids.f_schedule_time).value='14:00'; });
+  if (btnTomorrow) btnTomorrow.addEventListener('click', function(){ after_db_setDateInput(1); if(!document.getElementById(AC_SETTINGS.ids.f_schedule_time).value) document.getElementById(AC_SETTINGS.ids.f_schedule_time).value='10:00'; });
   if (btnClear) btnClear.addEventListener('click', function(){
-      document.getElementById('f_schedule_date').value='';
-      document.getElementById('f_schedule_time').value='';
-      document.getElementById('f_schedule_note').value='';
-      document.getElementById('f_schedule_clear').value='1';
+      document.getElementById(AC_SETTINGS.ids.f_schedule_date).value='';
+      document.getElementById(AC_SETTINGS.ids.f_schedule_time).value='';
+      document.getElementById(AC_SETTINGS.ids.f_schedule_note).value='';
+      document.getElementById(AC_SETTINGS.ids.f_schedule_clear).value='1';
   });
 
-  // 저장
-  var form = document.getElementById('acForm');
-  form.addEventListener('submit', function(e){
-    e.preventDefault();
-    var fd = new FormData(form);
-    fetch('./ajax_call_after_db_list.php', {method:'POST', body:fd, credentials:'same-origin'})
-      .then(r=>r.json())
-      .then(j=>{
-        if (j && j.success) {
-          renderTimeline(j.history || [], j.notes || []);
-          location.reload();
-        } else {
-          alert('저장 실패: '+(j && j.message ? j.message : ''));
-        }
-      })
-      .catch(err=>{ console.error(err); alert('저장 중 오류'); });
-  });
-
-  var btnCancel = document.getElementById('acCancel');
-  if (btnCancel) btnCancel.addEventListener('click', function(){ closePanel(); });
+  // 5. 폼 저장
+  if (form) {
+      form.addEventListener('submit', function(e){
+        e.preventDefault();
+        var fd = new FormData(form);
+        fetch('./ajax_call_after_db_list.php', {method:'POST', body:fd, credentials:'same-origin'})
+          .then(r=>r.json())
+          .then(j=>{
+            if (j && j.success) {
+              after_db_renderTimeline(j.history || [], j.notes || []);
+              location.reload();
+            } else {
+              alert('저장 실패: '+(j && j.message ? j.message : ''));
+            }
+          })
+          .catch(err=>{ console.error(err); alert('저장 중 오류'); });
+      });
+  }
 
 })();
+
 
 (function(){
     var $form = document.getElementById('searchForm');

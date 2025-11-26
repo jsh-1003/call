@@ -13,7 +13,7 @@ if($member['mb_level'] >= 7) {
         array('700300', '녹취내역', '' . G5_ADMIN_URL.'/call/call_recordings.php', 'call'),
         array('700000', '---', '#this', 'line'),
         array('700400', '접수관리', '' . G5_ADMIN_URL.'/call/call_after_list.php', 'call'),
-        array('700420', '접수DB관리', '' . G5_ADMIN_URL.'/call/call_after_db_list.php', 'call'),
+        //array('700420', '접수DB관리', '' . G5_ADMIN_URL.'/call/call_after_db_list.php', 'call'),
         array('700500', '블랙관리', '' . G5_ADMIN_URL.'/call/call_blacklist.php', 'call'),
     );
     $menu["menu700"][] = array('700100', 'DB리스트', '' . G5_ADMIN_URL.'/call/index.php', 'call');

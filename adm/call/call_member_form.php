@@ -62,6 +62,7 @@ function same_company_or_admin($my_level, $my_company_id, $target_company_id){
 // -----------------------------
 $mb = [];
 $is_new = ($w !== 'u');
+$is_after_db_use = 0;
 if (!$is_new) {
     $mb = get_member($mb_id);
     if (!(isset($mb['mb_id']) && $mb['mb_id'])) alert('존재하지 않는 회원입니다.');
@@ -70,6 +71,7 @@ if (!$is_new) {
     if (!same_company_or_admin($my_level, $my_company_id, $target_company_id)) {
         alert('같은 회사 구성원만 수정할 수 있습니다.');
     }
+    $is_after_db_use = $mb['is_after_db_use'];
 }
 
 // -----------------------------
@@ -165,6 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $post_id   = isset($_POST['mb_id']) ? trim($_POST['mb_id']) : '';
     $post_pw   = isset($_POST['mb_password']) ? trim($_POST['mb_password']) : '';
     $post_name = isset($_POST['mb_name']) ? trim($_POST['mb_name']) : '';
+    $post_is_after_db_use = isset($_POST['is_after_db_use']) ? (int)$_POST['is_after_db_use'] : 0;
 
     // --- 역할 결정: 수정 시에는 대상의 기존 레벨을 강제 유지(권한 변경 불가) ---
     if ($post_w === 'u') {
@@ -256,6 +259,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $set[] = "mb_group='0'";
             $set[] = "mb_group_name=''";
             $set[] = "mb_hp='".sql_escape_string($post_company_hp)."'";
+            $set[] = "is_after_db_use='".(int)$post_is_after_db_use."'";
         } elseif ($post_level == 7) {
             $set[] = "company_id='".(int)$post_company_id."'";
             $set[] = "company_name=".($post_company_name!=='' ? "'".sql_escape_string($post_company_name)."'" : "''");
@@ -332,6 +336,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($post_company_hp !== '') {
                     $set[] = "mb_hp='".sql_escape_string($post_company_hp)."'";
                 }
+                $set[] = "is_after_db_use='".(int)$post_is_after_db_use."'";
             }
             $set[] = "mb_group='0'";
             $set[] = "mb_group_name=''";
@@ -418,7 +423,7 @@ if (!$is_new) {
                 <?php if ($my_level >= 8) { ?>
                 <tr>
                     <th scope="row">권한(역할)</th>
-                    <td colspan="3">
+                    <td>
                         <?php if ($is_new) { // 신규만 선택 가능 ?>
                             <?php if ($my_level >= 10) { ?>
                             <label class="mgr12">
@@ -452,6 +457,19 @@ if (!$is_new) {
                             <div class="help">수정에서는 권한 변경이 불가합니다.</div>
                         <?php } ?>
                     </td>
+                    <?php if ($my_level >= 9) { ?>
+                    <th scope="row">접수DB상세</th>
+                    <td>
+                            <label class="mgr12">
+                                <input type="radio" name="is_after_db_use" value="1" <?php echo ($is_after_db_use==1?'checked':''); ?>>
+                                사용
+                            </label>
+                            <label class="mgr12">
+                                <input type="radio" name="is_after_db_use" value="0" <?php echo ($is_after_db_use==0?'checked':''); ?>>
+                                미사용
+                            </label>
+                    </td>
+                    <?php } ?>
                 </tr>
                 <?php } ?>
 
