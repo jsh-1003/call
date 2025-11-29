@@ -129,8 +129,10 @@ select[disabled]{background:#f7f7f7;color:#999}
             엑셀파일을 업로드하면 <strong>파일명으로 캠페인을 자동 생성</strong>하고,<br>
             1행은 헤더로 사용하며 <strong>이름 / 전화번호 / 생년월일</strong>은 기본 컬럼, 그 외 열은 <code>추가정보</code>로 묶어 저장합니다.
         </p>
-        <p>지원 형식: <strong>*.xls / *.xlsx</strong></p>
-        <p>업로드시 상위 10개 행에대한 검증을 진행합니다. 검증 후 이상 없으면 업로드 진행 바랍니다.</p>
+        <p>지원 형식: <strong>*.csv . *.xls / *.xlsx</strong></p>
+        <p>업로드시 상위 20개 행에대한 검증을 진행합니다. 검증 후 이상 없으면 업로드 진행 바랍니다.</p>
+        <p style="font-weight:bold;font-size:1.1em;color:#33e">되도록 csv로 저장하여 업로드 바랍니다.</p>
+        <p style="font-weight:bold;font-size:1.1em;color:#e33">10MB, 10만행 까지 지원합니다.</p>
     </div>
 
     <form name="fcallexcel" id="fcallexcel" method="post" action="./call_target_excel_update.php" enctype="multipart/form-data" autocomplete="off">
@@ -197,7 +199,7 @@ select[disabled]{background:#f7f7f7;color:#999}
 
         <div id="excelfile_upload">
             <label for="excelfile"><b>파일선택</b></label>
-            <input type="file" name="excelfile" id="excelfile" accept=".xls,.xlsx" required>
+            <input type="file" name="excelfile" id="excelfile" accept=".xls,.xlsx,.csv" required>
             <label for="is_validate">
                 <input type="checkbox" id="is_validate" name="is_validate" value="1" checked>
                 DB 유효성 검사 진행 <span> <이름(글자 수, 특문 포함, 성씨 등), 전화번호 대역 및 연번></span>
@@ -227,7 +229,7 @@ select[disabled]{background:#f7f7f7;color:#999}
         </div>
 
         <div class="win_btn btn_confirm">
-            <input type="submit" value="타겟 엑셀파일 등록" class="btn_submit btn">&nbsp;&nbsp;
+            <input id="btn_submit" type="submit" value="타겟 엑셀파일 등록" class="btn_submit btn">&nbsp;&nbsp;
             <button type="button" onclick="window.close();" class="btn_close btn">닫기</button>
         </div>
     </form>
@@ -297,6 +299,37 @@ select[disabled]{background:#f7f7f7;color:#999}
         });
     });
 })();
+
+$(function(){
+    var MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+    $('#fcallexcel').on('submit', function(e){
+        var $btn  = $('#btn_submit');
+        var input = document.getElementById('excelfile');
+
+        if (!input || !input.files || !input.files.length) {
+            alert('엑셀 파일을 선택해 주세요.');
+            e.preventDefault();
+            return false;
+        }
+
+        var file = input.files[0];
+
+        // 10MB 초과 체크
+        if (file.size > MAX_FILE_SIZE) {
+            alert('파일 용량이 10MB를 초과했습니다.\n'
+                + '현재 용량: 약 ' + (file.size / (1024*1024)).toFixed(1) + 'MB\n'
+                + '10MB 이하로 나누어 업로드해 주세요.');
+            e.preventDefault();
+            return false;
+        }
+
+        // 용량 정상일 때만 더블클릭 방지
+        $btn.prop('disabled', true).val('처리 중...');
+        return true;
+    });
+});
+
 </script>
 
 <?php

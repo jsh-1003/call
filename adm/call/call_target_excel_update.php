@@ -3,8 +3,9 @@
 $sub_menu = '700700';
 include_once('./_common.php');
 
-set_time_limit(0);
+set_time_limit(360);
 ini_set('memory_limit', '512M');
+$MAX_ROWS = 100000;
 
 auth_check_menu($auth, $sub_menu, "w");
 
@@ -264,17 +265,43 @@ if ($step === 'commit') {
 include_once(G5_LIB_PATH.'/PHPExcel/IOFactory.php');
 
 try {
-    $objPHPExcel = PHPExcel_IOFactory::load($file);
+    // $objPHPExcel = PHPExcel_IOFactory::load($file);
+    $reader = PHPExcel_IOFactory::createReaderForFile($file);
+
+    // CSV인 경우 구체적 옵션 설정
+    if ($reader instanceof PHPExcel_Reader_CSV) {
+        $csvRaw = file_get_contents($file);
+        // CP949 의심되면 CP949로 설정
+        if (!mb_check_encoding($csvRaw, 'UTF-8')) {
+            $reader->setInputEncoding('CP949');
+        } else {
+            $reader->setInputEncoding('UTF-8');
+        }
+        // $reader->setInputEncoding('UTF-8');     // 필요하면 'CP949'로 변경 가능
+        $reader->setDelimiter(',');             // 기본 구분자
+        $reader->setEnclosure('"');             // 큰따옴표 처리
+        $reader->setSheetIndex(0);
+    }
+
+    $reader->setReadDataOnly(true); // 스타일/서식은 무시, 값만
+    $objPHPExcel = $reader->load($file);
 } catch (Exception $e) {
     alert_close('엑셀 파일을 읽을 수 없습니다: '.$e->getMessage());
 }
 
 $sheet = $objPHPExcel->getSheet(0);
 $num_rows = $sheet->getHighestRow();
+if ($num_rows > $MAX_ROWS) {
+    alert_close("엑셀 행 수가 너무 많습니다 ({$estimated_rows}행). ".number_format($MAX_ROWS)."행 이하로 나누어서 업로드해 주세요.");
+}
+
 $highestColumn = $sheet->getHighestColumn();
 
-// 첫 행 가져오기 (+ 헤더 셀들 NFC 정규화)
-$firstRowRaw = $sheet->rangeToArray('A1:'.$highestColumn.'1', NULL, TRUE, FALSE)[0];
+// 수식 계산하지 않고 "보이는 값" 그대로 읽기
+$firstRowArr = $sheet->rangeToArray('A1:'.$highestColumn.'1', NULL, false, false);
+// 방어: 결과가 비정상이면 빈 배열로
+$firstRowRaw = isset($firstRowArr[0]) && is_array($firstRowArr[0]) ? $firstRowArr[0] : [];
+
 $firstRow = array_map('k_nfc', array_map(fn($v)=>trim((string)$v), $firstRowRaw));
 
 // A열이 전화번호 패턴인지 확인 (헤더 유무 감지)
@@ -325,7 +352,7 @@ if ($step === 'preview') {
     $err_cnt = 0;
 
     for ($i = $start_row, $cnt = 0; $i <= $num_rows && $cnt < $max_preview; $i++) {
-        $rowData = $sheet->rangeToArray('A'.$i.':'.$highestColumn.$i, NULL, TRUE, FALSE);
+        $rowData = $sheet->rangeToArray('A'.$i.':'.$highestColumn.$i, NULL, FALSE, FALSE);
         if (!isset($rowData[0])) continue;
         $row = array_map('k_nfc', array_map(fn($v)=>trim((string)$v), $rowData[0]));
 
@@ -516,7 +543,7 @@ if ($step === 'preview') {
             </table>
         </div>
 
-        <form method="post" action="<?php echo $_SERVER['PHP_SELF']; ?>" class="btn_win01 win_btn" style="margin-top:15px;">
+        <form id="excel_step1" method="post" action="<?php echo $_SERVER['PHP_SELF']; ?>" class="btn_win01 win_btn" style="margin-top:15px;">
             <!-- CSRF 토큰 재전달 -->
             <input type="hidden" name="csrf_token" value="<?php echo get_text($_POST['csrf_token']); ?>">
             <input type="hidden" name="token" value="<?php echo get_admin_token(); ?>">
@@ -530,9 +557,16 @@ if ($step === 'preview') {
                 <input type="hidden" name="is_open_number0" value="1">
             <?php } ?>
 
-            <button type="submit"<?php echo empty($preview_rows) ? ' disabled' : ''; ?> class="btn_submit btn">검증 완료, 업로드 진행</button>&nbsp;&nbsp;
+            <button id="btn_submit" type="submit"<?php echo empty($preview_rows) ? ' disabled' : ''; ?> class="btn_submit btn">검증 완료, 업로드 진행</button>&nbsp;&nbsp;
             <button type="button" onclick="window.close();" class="btn_close btn">취소</button>
         </form>
+        <script>
+        $(function(){
+            $('#excel_step1').on('submit', function(){
+                $('#btn_submit').prop('disabled', true).val('처리 중...');
+            });
+        });
+        </script>
     </div>
 
     <?php include_once(G5_PATH.'/tail.sub.php'); ?>
@@ -553,11 +587,13 @@ $batch_id    = (int)(microtime(true)*1000) + random_int(1, 999);
 $total_count = $stg_count = $skip_count = $ins_count = $dup_count = 0;
 $fail_msgs   = [];
 
+$BATCH_SIZE = 2000;
+$rows_in_tx = 0;
 sql_query("START TRANSACTION");
 
 try {
     for ($i = $start_row; $i <= $num_rows; $i++) {
-        $rowData = $sheet->rangeToArray('A'.$i.':'.$highestColumn.$i, NULL, TRUE, FALSE);
+        $rowData = $sheet->rangeToArray('A'.$i.':'.$highestColumn.$i, NULL, FALSE, FALSE);
         if (!isset($rowData[0])) continue;
         // 각 셀을 문자열화 + 트림 + NFC
         $row = array_map('k_nfc', array_map(fn($v)=>trim((string)$v), $rowData[0]));
@@ -670,7 +706,16 @@ try {
             $skip_count++;
             if (count($fail_msgs) < 20) $fail_msgs[] = "행 {$i}: 스테이징 실패";
         }
+
+        if ($rows_in_tx >= $BATCH_SIZE) {
+            sql_query("COMMIT");
+            sql_query("START TRANSACTION");
+            $rows_in_tx = 0;
+        }
     }
+
+    // 남은 것들 커밋
+    sql_query("COMMIT");
 
     // 최종 적재 (블랙리스트 제외)
     $ins_sql = "
@@ -689,11 +734,13 @@ try {
         )
     ";
 
+    // 별도 트랜잭션으로 본 테이블 인서트
+    sql_query("START TRANSACTION");
     sql_query($ins_sql);
     $ins_count = max(0, (int)mysqli_affected_rows($g5['connect_db']));
     $dup_count = max(0, $stg_count - $ins_count);
-
     sql_query("COMMIT");
+
 } catch (Exception $e) {
     sql_query("ROLLBACK");
     alert_close('처리 중 오류: '.$e->getMessage());
@@ -702,6 +749,19 @@ try {
     if (isset($file) && is_file($file)) {
         @unlink($file);
     }
+}
+
+if (isset($sheet)) {
+    unset($sheet);
+}
+if (isset($objPHPExcel)) {
+    if (method_exists($objPHPExcel, 'disconnectWorksheets')) {
+        $objPHPExcel->disconnectWorksheets();
+    }
+    unset($objPHPExcel);
+}
+if (function_exists('gc_collect_cycles')) {
+    gc_collect_cycles();
 }
 
 $g5['title'] = '엑셀 등록 결과';
@@ -723,7 +783,7 @@ include_once(G5_PATH.'/head.sub.php');
         <dt>총 데이터 행</dt><dd><?php echo number_format($total_count); ?></dd>
         <dt>엑셀 처리 성공</dt><dd><?php echo number_format($stg_count); ?></dd>
         <dt>신규 등록</dt><dd><?php echo number_format($ins_count); ?></dd>
-        <dt>중복(기존 존재)</dt><dd><?php echo number_format($dup_count); ?></dd>
+        <dt>중복&블랙</dt><dd><?php echo number_format($dup_count); ?></dd>
         <dt>실패(정보 이상)</dt><dd><?php echo number_format($skip_count); ?></dd>
         <?php if (!empty($fail_msgs)) { ?>
         <dt>실패 샘플(최대 20건)</dt>
