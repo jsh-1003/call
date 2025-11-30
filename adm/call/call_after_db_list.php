@@ -295,7 +295,7 @@ $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체�
 $qparams_for_sort = $_GET;
 unset($qparams_for_sort['sort'], $qparams_for_sort['dir'], $qparams_for_sort['page']);
 ?>
-
+<script src="./js/call_after_db_list.js?v=20251130_1"></script>
 <style>
 table.call-list-table td {min-width:65px}
 table.call-list-table td.p_no {width:45px;min-width:45px;}
@@ -309,11 +309,6 @@ td.campaign_name {max-width:120px;}
 .ac-badge.on { display:inline-block; padding:1px 6px; border-radius:10px; font-size:11px; background:#16a34a; color:#fff; }
 .ac-badge.off{ display:inline-block; padding:1px 6px; border-radius:10px; font-size:11px; background:#9ca3af; color:#fff; }
 a.ac-edit-btn {font-weight:700;color:#253aaf}
-/* 상세정보 그리드 */
-.ac-grid-row { display:flex; gap:10px; margin-bottom:8px; }
-.ac-col { flex:1; display:flex; flex-direction:column; gap:2px; }
-.ac-col label { font-size:11px; color:#666; font-weight:bold; }
-.full-width { width:100%; box-sizing:border-box; }
 </style>
 
 <div class="local_ov01 local_ov">
@@ -580,8 +575,12 @@ $base = './call_after_db_list.php?'.http_build_query($qstr);
 <div id="acOverlay" class="ac-overlay" hidden></div>
 <div class="ac-panel" id="acPanel" aria-hidden="true" hidden>
   <div class="ac-panel__head">
-    <strong style="color:#e33">접수DB관리 - 아직 작업중인 페이지입니다. 이용 불가 X</strong>
-    <button type="button" class="ac-panel__close" id="acClose" aria-label="닫기">×</button>
+    <strong>접수DB관리 - 각각 저장</strong>
+    <div style="display:flex;gap:7px;align-items:center;margin-left:auto;">
+        <button id="acPrev" class="btn btn-mini2"><i class="fa fa-chevron-left"></i> 이전</button>
+        <button id="acNext" class="btn btn-mini2">다음 <i class="fa fa-chevron-right"></i></button>
+        <button type="button" class="ac-panel__close" id="acClose" aria-label="닫기">×</button>
+    </div>
   </div>
   <div class="ac-panel__body">
     <div class="ac-summary">
@@ -589,98 +588,9 @@ $base = './call_after_db_list.php?'.http_build_query($qstr);
       <div>추가정보: <span id="s_meta">-</span></div>
     </div>
 
-    <!-- 상세 정보 입력 섹션 -->
-    <div id="acDetailSection" hidden style="background:#f9fafb; padding:10px; border:1px solid #e5e7eb; border-radius:4px; margin-bottom:15px;">
-        <form id="acDetailForm" method="post" action="./ajax_call_after_db_list.php" autocomplete="off">
-        <input type="hidden" name="ajax" value="save">
-        <input type="hidden" name="token" value="<?php echo get_token();?>">
-        <input type="hidden" name="target_id" id="f_target_id" value="">
-        <input type="hidden" name="db_id" id="f_db_id" value="">
-
-        <div class="ac-grid-row">
-            <div class="ac-col">
-                <label>고객명</label>
-                <input type="text" name="detail_name" class="frm_input full-width">
-            </div>
-            <div class="ac-col">
-                <label>생년월일</label>
-                <input type="text" name="detail_birth" class="frm_input full-width" placeholder="YYYY-MM-DD">
-            </div>
-            <div class="ac-col">
-                <label>나이</label>
-                <input type="number" name="detail_age" class="frm_input full-width">
-            </div>
-            <div class="ac-col">
-                <label>성별</label>
-                <div style="display:flex; gap:10px; align-items:center; height:30px;">
-                    <label><input type="radio" name="detail_sex" value="1"> 남</label>
-                    <label><input type="radio" name="detail_sex" value="2"> 여</label>
-                </div>
-            </div>
-        </div>
-        <div class="ac-grid-row">
-            <div class="ac-col">
-                <label>연락처</label>
-                <input type="text" name="detail_hp" class="frm_input full-width">
-            </div>
-            <div class="ac-col">
-                <label>납입보험료</label>
-                <input type="text" name="detail_month_pay" class="frm_input full-width">
-            </div>
-            <div class="ac-col" style="flex:2;">
-                <label>방문희망일시</label>
-                <input type="datetime-local" name="detail_scheduled_at" class="frm_input full-width">
-            </div>
-        </div>
-        <div class="ac-grid-row">
-            <div class="ac-col">
-                <label>주소 (지역1)</label>
-                <select name="detail_region1" class="frm_input full-width">
-                    <option value="">선택</option>
-                    <option value="서울">서울</option>
-                    <option value="경기">경기</option>
-                    <option value="인천">인천</option>
-                    <option value="강원">강원</option>
-                    <option value="충북">충북</option>
-                    <option value="충남">충남</option>
-                    <option value="대전">대전</option>
-                    <option value="세종">세종</option>
-                    <option value="전북">전북</option>
-                    <option value="전남">전남</option>
-                    <option value="광주">광주</option>
-                    <option value="경북">경북</option>
-                    <option value="경남">경남</option>
-                    <option value="대구">대구</option>
-                    <option value="울산">울산</option>
-                    <option value="부산">부산</option>
-                    <option value="제주">제주</option>
-                </select>
-            </div>
-            <div class="ac-col">
-                <label>주소 (지역2)</label>
-                <select name="detail_region2" class="frm_input full-width">
-                    <option value="">선택</option>
-                    <!-- JS로 동적 처리 예정이나 우선 기본값 -->
-                </select>
-            </div>
-            <div class="ac-col" style="flex:2;">
-                <label>상세주소</label>
-                <input type="text" name="detail_addr_etc" class="frm_input full-width">
-            </div>
-        </div>
-        <div class="ac-grid-row">
-            <div class="ac-col" style="flex:1;">
-                <label>기타 / 메모</label>
-                <textarea name="detail_memo" class="frm_input full-width" rows="2"></textarea>
-            </div>
-        </div>
-
-        <div class="ac-actions">
-            <button type="submit" class="btn btn_01">저장</button>
-            <button type="button" class="btn btn_02" id="acCancel">닫기</button>
-        </div>
-        </form>
-    </div>
+    <?php
+    include_once('./call_after_db_sub_form.php');
+    ?>
 
     <form id="acForm" method="post" action="./ajax_call_after_list.php" autocomplete="off">
     <input type="hidden" name="ajax" value="save">
@@ -689,7 +599,6 @@ $base = './call_after_db_list.php?'.http_build_query($qstr);
     <input type="hidden" name="mb_group" id="f_mb_group" value="">
     <input type="hidden" name="target_id" id="f_target_id" value="">
     <input type="hidden" name="db_id" id="f_db_id" value="">
-    <input type="hidden" name="target_id" id="f_target_id" value="">
     <input type="hidden" name="schedule_clear" id="f_schedule_clear" value="0">
 
       <div class="ac-field">
@@ -729,7 +638,7 @@ $base = './call_after_db_list.php?'.http_build_query($qstr);
 
       <div class="ac-actions">
         <button type="submit" class="btn btn_01">저장</button>
-        <button type="button" class="btn btn_02" id="acCancel">닫기</button>
+        <!-- <button type="button" class="btn btn_02" id="acCancel">닫기</button> -->
       </div>
 
       <div class="ac-field">
@@ -747,33 +656,47 @@ $base = './call_after_db_list.php?'.http_build_query($qstr);
     <a href="<?php echo $href_screen;    ?>" class="btn btn_02" style="background:#e5e7eb !important">현재화면 엑셀다운</a>
 </div>
 
-<script src="./js/call_after_db_list.js?v=20251126_1"></script>
 <script>
-(function(){
+(function() {
   // ============================================================
   // [전역 변수 및 초기화]
   // ============================================================
   var form     = document.getElementById(AC_SETTINGS.ids.form);
+  // 페이지 내 모든 팝업 호출 버튼 (이름 링크 + 처리 버튼 포함)
+  var rawBtns = Array.prototype.slice.call(
+      document.querySelectorAll('.' + AC_SETTINGS.classes.editBtn)
+  );
+  // target_id 기준 대표 버튼 모음
+  var editButtons = [];          // 이동에 사용할 "대표 버튼"
+  var targetIndexMap = {};       // target_id → index
+  var domToIndexMap = new WeakMap(); // 실제 DOM → index
+  var currentIdx = -1;
+  
+  // ============================================================
+  // target_id 로 묶어서 대표 버튼 만들기
+  // ============================================================
+  rawBtns.forEach(function(btn) {
+      var target_id = btn.getAttribute('data-target-id');
+      if (!target_id) return;
+
+      if (targetIndexMap[target_id] === undefined) {
+          var idx = editButtons.length;
+          targetIndexMap[target_id] = idx;
+          editButtons.push(btn);        // 이 target_id 의 대표 버튼
+      }
+      // 모든 버튼이 자기 target_id 의 대표 인덱스를 가리키게
+      domToIndexMap.set(btn, targetIndexMap[target_id]);
+  });
 
   // ============================================================
-  // [이벤트 바인딩 및 실행]
+  // 인덱스로 팝업 열기 (핵심 함수)
   // ============================================================
+  function openByIndex(idx) {
+      var btnEl = editButtons[idx];
+      if (!btnEl) return;
 
-  // 1. 팝업 기본 이벤트
-  after_db_initPopupEvents();
+      currentIdx = idx;
 
-  // 2. 지역1 변경 시 지역2 업데이트
-  var r1Sel = document.querySelector('select[name="'+AC_SETTINGS.names.detail_region1+'"]');
-  if (r1Sel) {
-      r1Sel.addEventListener('change', function() {
-          after_db_updateRegion2(this.value);
-      });
-  }
-
-  // 3. 팝업 열기 버튼 클릭 이벤트
-  document.querySelectorAll('.'+AC_SETTINGS.classes.editBtn).forEach(function(btn){
-    btn.addEventListener('click', function(){
-      const btnEl      = this;
       var campaign_id  = btnEl.getAttribute('data-campaign-id');
       var mb_group     = btnEl.getAttribute('data-mb-group');
       var target_id    = btnEl.getAttribute('data-target-id');
@@ -782,38 +705,67 @@ $base = './call_after_db_list.php?'.http_build_query($qstr);
       var state_id     = btnEl.getAttribute('data-state-id') || 0;
       var curAfter     = parseInt(btnEl.getAttribute('data-after-mb-no') || '0', 10) || 0;
 
-      // 고객 요약 정보 표시
+      // 고객 요약
       document.getElementById(AC_SETTINGS.ids.s_target_name).textContent = targetName || '-';
-      document.getElementById(AC_SETTINGS.ids.s_hp).textContent = hp || '';
-      document.getElementById(AC_SETTINGS.ids.s_birth).textContent = btnEl.getAttribute('data-birth') || '-';
+      document.getElementById(AC_SETTINGS.ids.s_hp).textContent          = hp || '';
+      document.getElementById(AC_SETTINGS.ids.s_birth).textContent       = btnEl.getAttribute('data-birth') || '-';
       var age = btnEl.getAttribute('data-age') || '';
-      document.getElementById(AC_SETTINGS.ids.s_age).textContent = (age!==''? (age+'세') : '-');
-      document.getElementById(AC_SETTINGS.ids.s_meta).textContent = btnEl.getAttribute('data-meta') || '-';
+      document.getElementById(AC_SETTINGS.ids.s_age).textContent         = (age !== '' ? age + '세' : '-');
+      document.getElementById(AC_SETTINGS.ids.s_meta).textContent        = btnEl.getAttribute('data-meta') || '-';
 
-      // 폼 리셋
+      // 폼 세팅
       after_db_resetPopupForm(campaign_id, mb_group, target_id, state_id);
 
-      // 상세정보 비동기 조회
-      after_db_mockFetchDetailInfo(target_id).then(function(res) {
+      // 상세정보 Ajax
+      after_db_FetchDetailInfo(target_id).then(function(res) {
           var secDetail = document.getElementById(AC_SETTINGS.ids.detailSection);
-          if (res.use_detail && secDetail) {
+          if (res && res.use_detail && secDetail) {
               secDetail.hidden = false;
-              if (res.data) {
-                  after_db_fillDetailSection(res.data);
-              }
+              if (res.data) after_db_fillDetailSection(res.data);
           }
       });
 
-      // 담당자 목록 로드
+      // 담당자
       after_db_loadAgentOptions(mb_group, curAfter);
 
-      // 티켓 데이터 로드
+      // 티켓
       after_db_loadTicketData(campaign_id, mb_group, target_id);
 
-      // 팝업 표시
+      // 팝업 열기
       after_db_openPanel();
-    });
+  }
+
+  // ============================================================
+  // 이전/다음 이동
+  // ============================================================
+  function move(delta) {
+      if (currentIdx < 0) return;
+      var nextIdx = currentIdx + delta;
+      if (nextIdx < 0 || nextIdx >= editButtons.length) return;
+      openByIndex(nextIdx);
+  }
+  
+  // ============================================================
+  // 버튼 바인딩
+  // ============================================================
+
+  // 1. 팝업 기본 이벤트
+  after_db_initPopupEvents();
+
+  // 2. 모든 호출 버튼 클릭 → 해당 target_id 인덱스로 매핑
+  rawBtns.forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+          e.preventDefault();
+          var idx = domToIndexMap.get(this);
+          if (idx !== undefined) openByIndex(idx);
+      });
   });
+
+  // 3. 이전/다음 버튼 이벤트
+  var btnPrev = document.getElementById('acPrev');
+  var btnNext = document.getElementById('acNext');
+  if (btnPrev) btnPrev.addEventListener('click', function(e){ e.preventDefault(); move(-1); });
+  if (btnNext) btnNext.addEventListener('click', function(e){ e.preventDefault(); move(1); });
 
   // 4. 일정 퀵버튼
   var btnToday = document.getElementById(AC_SETTINGS.ids.btnSchedToday);
@@ -833,13 +785,22 @@ $base = './call_after_db_list.php?'.http_build_query($qstr);
       form.addEventListener('submit', function(e){
         e.preventDefault();
         var fd = new FormData(form);
-        fetch('./ajax_call_after_db_list.php', {method:'POST', body:fd, credentials:'same-origin'})
+
+        // // ✅ FormData 내용 출력
+        // console.group('FormData Dump');
+        // for (const [key, value] of fd.entries()) {
+        //     console.log(key, value);
+        // }
+        // console.groupEnd();
+
+        fetch('./ajax_call_after_list.php', {method:'POST', body:fd, credentials:'same-origin'})
           .then(r=>r.json())
           .then(j=>{
             if (j && j.success) {
               after_db_renderTimeline(j.history || [], j.notes || []);
               location.reload();
             } else {
+              console.log(j);
               alert('저장 실패: '+(j && j.message ? j.message : ''));
             }
           })

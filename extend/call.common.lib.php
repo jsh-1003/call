@@ -126,6 +126,30 @@ function billing_is_company_paid($company_id, $mb_no = null) {
     ];
 }
 
+function get_company_info(int $mb_no) {
+    $sql = "SELECT * FROM g5_member WHERE mb_no = '{$mb_no}' ";
+    $row = sql_fetch($sql);
+    if($row) {
+        unset($row['mb_password']);
+    }
+    return $row;
+}
+
+/**
+ * 접수db 상세 정보 불러오기
+ */
+function get_aftercall_db_info(int $target_id) {
+    $return = array();
+    
+    $sql = "SELECT * FROM call_aftercall_db_info WHERE target_id = {$target_id} ";
+    $row = sql_fetch($sql);
+    $return['detail'] = $row;
+    
+    $sql = "SELECT * FROM call_target WHERE target_id = {$target_id} ";
+    $row = sql_fetch($sql);
+    $return['basic'] = $row;
+    return $return;
+}
 
 /**
  * 블랙리스트 등록(회사 공통 적용)

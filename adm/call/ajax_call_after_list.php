@@ -142,7 +142,7 @@ if (isset($_POST['ajax']) && $_POST['ajax']==='save') {
 
     header('Content-Type: application/json; charset=utf-8');
 
-    if ($campaign_id<=0 || $mb_group<=0 || $target_id<=0) { echo json_encode(['success'=>false,'message'=>'invalid']); exit; }
+    if ($campaign_id<=0 || $mb_group<=0 || $target_id<=0) { echo json_encode(['success'=>false,'message'=>'invalid','tmp'=>$_POST]); exit; }
     if ($mb_level == 7 && $mb_group !== $my_group) { echo json_encode(['success'=>false,'message'=>'denied/1']); exit; }
     if ($mb_level == 8) {
         $own_grp = sql_fetch("SELECT 1 FROM {$member_table} WHERE mb_no={$mb_group} AND mb_level=7 AND company_id='{$my_company_id}' LIMIT 1");

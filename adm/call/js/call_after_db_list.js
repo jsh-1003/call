@@ -8,6 +8,7 @@ var AC_SETTINGS = {
         closeBtn: 'acClose',
         cancelBtn: 'acCancel',
         form: 'acForm',
+        detailForm: 'acDetailForm',
         timeline: 'f_timeline',
         detailSection: 'acDetailSection',
 
@@ -45,8 +46,8 @@ var AC_SETTINGS = {
         detail_age: 'detail_age',
         detail_sex: 'detail_sex',
         detail_hp: 'detail_hp',
-        detail_premium: 'detail_premium',
-        detail_visit_at: 'detail_visit_at',
+        detail_month_pay: 'detail_month_pay',
+        detail_scheduled_at: 'detail_scheduled_at',
         detail_addr_etc: 'detail_addr_etc',
         detail_memo: 'detail_memo'
     },
@@ -151,37 +152,59 @@ function after_db_renderTimeline(history, notes) {
 }
 
 /**
- * 더미 비동기 함수: 상세정보 사용 여부 및 데이터 조회
- * (나중에 실제 API 호출로 대체 예정)
+ * 2차콜 상세정보 조회 (실제 AJAX 호출 버전)
+ * - GET ./ajax_call_after_db_list.php?ajax=get&target_id=...
+ * - 응답은 JSON 가정
  */
-function after_db_mockFetchDetailInfo(targetId) {
-    return new Promise(function (resolve) {
-        setTimeout(function () {
-            // 임시 로직: 테스트용으로 무조건 true 반환
-            var useDetail = true;
-            var dummyData = null;
+function after_db_FetchDetailInfo(targetId) {
 
-            if (useDetail) {
-                dummyData = {
-                    name: '홍길동',
-                    birth: '1990-01-01',
-                    age: 34,
-                    sex: 1,
-                    hp: '010-1234-5678',
-                    premium: '100,000',
-                    visit_at: '2023-12-25T14:00',
-                    region1: '서울',
-                    region2: '강남구',
-                    addr_etc: '역삼동 123-45',
-                    memo: '테스트 메모입니다.'
-                };
-            }
+    // targetId 방어
+    if (!targetId) {
+        return Promise.resolve({
+            use_detail: false,
+            data: null
+        });
+    }
 
-            resolve({
-                use_detail: useDetail,
-                data: dummyData
-            });
-        }, 300);
+    var params = new URLSearchParams();
+    params.set('ajax', 'get');
+    params.set('target_id', targetId);
+
+    return fetch('./ajax_call_after_db_list.php?' + params.toString(), {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(function (response) {
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        return response.json();
+    })
+    .then(function (j) {
+        // 서버 응답 형식에 맞게 정규화
+        // 예: { success:true, use_detail:1, data:{...} } 혹은 { use_detail:true, data:{...} }
+        var useDetail =
+            j && (
+                j.use_detail === true ||
+                j.use_detail === 1 ||
+                j.use_detail === '1'
+            );
+
+        return {
+            use_detail: useDetail,
+            data: j && j.data ? j.data : null
+        };
+    })
+    .catch(function (err) {
+        console.error('after_db_FetchDetailInfo error:', err);
+        // 에러 시에도 기존 구조 유지
+        return {
+            use_detail: false,
+            data: null
+        };
     });
 }
 
@@ -264,6 +287,8 @@ function after_db_resetPopupForm(campaign_id, mb_group, target_id, state_id) {
  */
 function after_db_fillDetailSection(data) {
     if (!data) return;
+    
+    document.querySelector('input[name="target_id"]').value = data.target_id;
 
     if (data.name) document.querySelector('input[name="' + AC_SETTINGS.names.detail_name + '"]').value = data.name;
     if (data.birth) document.querySelector('input[name="' + AC_SETTINGS.names.detail_birth + '"]').value = data.birth;
@@ -273,8 +298,8 @@ function after_db_fillDetailSection(data) {
         if (r) r.checked = true;
     }
     if (data.hp) document.querySelector('input[name="' + AC_SETTINGS.names.detail_hp + '"]').value = data.hp;
-    if (data.premium) document.querySelector('input[name="' + AC_SETTINGS.names.detail_premium + '"]').value = data.premium;
-    if (data.visit_at) document.querySelector('input[name="' + AC_SETTINGS.names.detail_visit_at + '"]').value = data.visit_at;
+    if (data.month_pay) document.querySelector('input[name="' + AC_SETTINGS.names.detail_month_pay + '"]').value = data.month_pay;
+    if (data.scheduled_at) document.querySelector('input[name="' + AC_SETTINGS.names.detail_scheduled_at + '"]').value = data.scheduled_at;
 
     if (data.region1) {
         var r1 = document.querySelector('select[name="' + AC_SETTINGS.names.detail_region1 + '"]');
