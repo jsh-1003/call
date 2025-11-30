@@ -287,7 +287,7 @@ function after_db_resetPopupForm(campaign_id, mb_group, target_id, state_id) {
  */
 function after_db_fillDetailSection(data) {
     if (!data) return;
-    
+    console.log(data);
     document.querySelector('input[name="target_id"]').value = data.target_id;
 
     if (data.name) document.querySelector('input[name="' + AC_SETTINGS.names.detail_name + '"]').value = data.name;
@@ -310,6 +310,7 @@ function after_db_fillDetailSection(data) {
     }
     if (data.addr_etc) document.querySelector('input[name="' + AC_SETTINGS.names.detail_addr_etc + '"]').value = data.addr_etc;
     if (data.memo) document.querySelector('textarea[name="' + AC_SETTINGS.names.detail_memo + '"]').value = data.memo;
+    if (data.recording) document.getElementById('ac_recording').innerHTML = data.recording;
 }
 
 /**

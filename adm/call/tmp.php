@@ -10,8 +10,8 @@ if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
     alert('접근 권한이 없습니다.');
 }
 
-echo date("1aaa983-10-03");
-exit;
+// echo date("1aaa983-10-03");
+// exit;
 $info = get_aftercall_db_info(149194);
 print_r2($info);
 $company_id = 5;

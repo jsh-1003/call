@@ -7,6 +7,7 @@
 .ac-col { flex:1; display:flex; flex-direction:column; gap:2px; }
 .ac-col label { font-size:11px; color:#666; font-weight:bold; }
 .full-width { width:100%; box-sizing:border-box; }
+#ac_recording audio {width:100%;height:45px;}
 </style>
     <!-- 상세 정보 입력 섹션 -->
     <div id="acDetailSection" hidden style="background:#f9fafb; padding:10px; border:1px solid #e5e7eb; border-radius:4px; margin-bottom:15px;">
@@ -98,6 +99,10 @@
             <!-- <button type="button" class="btn btn_02" id="acCancel">닫기</button> -->
         </div>
         </form>
+        <div class="ac-field" style="margin:8px 0">
+            <label>1차녹취</label>
+            <div id="ac_recording"></div>
+        </div>        
     </div>
 
 <script>

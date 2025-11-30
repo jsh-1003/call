@@ -78,9 +78,9 @@ $SORT_MAP = [
     'call_hp'           => 'b.call_hp',
     'ac_state'          => 's.sort_order, s.state_id',
     'scheduled_at'      => 'tk.scheduled_at',
-    'ac_updated_at'     => 'tk.updated_at',
+    'created_at'        => 'info.created_at',
 ];
-if (!isset($SORT_MAP[$cur_sort])) $cur_sort = 'scheduled_at';
+if (!isset($SORT_MAP[$cur_sort])) $cur_sort = 'created_at';
 $DIR_SQL = strtoupper($cur_dir);
 $__parts = array_map('trim', explode(',', $SORT_MAP[$cur_sort]));
 $__orders = [];
@@ -216,14 +216,14 @@ $total_count = (int)($row_cnt['cnt'] ?? 0);
    상세 목록 (중복 제거: rn=1만)
    ========================== */
 $sql_list = "SELECT
-    b.call_id, b.mb_group, b.campaign_id, b.target_id, b.mb_no AS agent_id,
+    b.call_id, b.mb_group as b_mb_group, b.campaign_id, b.target_id as b_target_id, b.mb_no AS agent_id,
     b.call_status, b.call_start, b.call_end, b.call_time, b.call_hp,
 
     m.mb_name AS agent_name, m.mb_id AS agent_mb_id,
     COALESCE(NULLIF(m.mb_name,''), m.mb_id) AS agent_sort,
     sc.name_ko AS status_label,
 
-    t.name AS target_name, t.birth_date, t.meta_json, t.sex, 
+    t.name AS target_name, t.birth_date, t.meta_json,
     CASE
       WHEN t.birth_date IS NULL THEN NULL
       ELSE TIMESTAMPDIFF(YEAR, t.birth_date, CURDATE())
@@ -245,7 +245,9 @@ $sql_list = "SELECT
     ma.mb_name AS after_agent_name,
     ma.mb_id   AS after_agent_mb_id,
     COALESCE(NULLIF(ma.mb_name,''), ma.mb_id) AS after_agent_sort,
-    COALESCE(ma.is_after_call,0) AS after_is_on
+    COALESCE(ma.is_after_call,0) AS after_is_on,
+    /* 디테일 정보 */
+    info.*
   FROM (
     SELECT l.*,
            ROW_NUMBER() OVER (PARTITION BY l.mb_group, l.campaign_id, l.target_id
@@ -267,6 +269,7 @@ $sql_list = "SELECT
   JOIN call_campaign cc ON cc.campaign_id=b.campaign_id AND cc.mb_group=b.mb_group
   LEFT JOIN call_aftercall_ticket tk
     ON tk.campaign_id=b.campaign_id AND tk.mb_group=b.mb_group AND tk.target_id=b.target_id
+  LEFT JOIN call_aftercall_db_info info ON info.target_id=tk.target_id
   LEFT JOIN call_aftercall_state_code s ON s.state_id=COALESCE(tk.state_id,0)
   LEFT JOIN {$member_table} ma ON ma.mb_no = tk.assigned_after_mb_no
   WHERE b.rn=1
@@ -436,17 +439,24 @@ a.ac-edit-btn {font-weight:700;color:#253aaf}
         <thead>
             <tr>
                 <th>P_No.</th>
+                <th>업체명</th>
                 <th>지점명</th>
                 <th><?php echo sort_th('agent_name','상담원명'); ?></th>
                 <!-- <th>통화결과</th> -->
                 <th><?php echo sort_th('target_name','고객명'); ?></th>
                 <th>생년월일</th>
-                <th><?php echo sort_th('man_age','만나이'); ?></th>
-                <th>추가정보</th>
                 <th><?php echo sort_th('call_hp','전화번호'); ?></th>
-                <th><?php echo sort_th('after_agent_name','2차담당자'); ?></th>
-                <th><?php echo sort_th('scheduled_at','일정'); ?></th>
-                <th><?php echo sort_th('ac_updated_at','최근처리시간'); ?></th>
+                <th>주소1</th>
+                <th>주소2</th>
+                <th>성별</th>
+                <th>만나이</th>
+                <th>납입보험료</th>
+                <th>DB권역</th>
+                <th>DB유형</th>
+                <th>통화희망일시</th>
+                <th>방문희망일시</th>
+                <th><?php echo sort_th('after_agent_name','2차팀장'); ?></th>
+                <th><?php echo sort_th('created_at','생성일'); ?></th>
                 <th>작업</th>
             </tr>
         </thead>
@@ -475,7 +485,7 @@ a.ac-edit-btn {font-weight:700;color:#253aaf}
                 if ((int)$row['sex'] === 1) $sex_txt = '남성';
                 elseif ((int)$row['sex'] === 2) $sex_txt = '여성';
 
-                $meta_txt = $sex_txt;
+                $meta_txt = '';
                 $meta_json = $row['meta_json'];
                 if (is_string($meta_json)) {
                     $j = json_decode($meta_json, true);
@@ -488,24 +498,25 @@ a.ac-edit-btn {font-weight:700;color:#253aaf}
 
                 $after_label = '-';
                 if (!empty($row['assigned_after_mb_no'])) {
-                    $nm = $row['after_agent_name'] ? $row['after_agent_name'] : $row['after_agent_mb_id'];
-                    $badge = (int)$row['after_is_on']===1 ? '<span class="ac-badge on">ON</span>' : '<span class="ac-badge off">OFF</span>';
-                    $after_label = get_text($nm).' '.$badge;
+                    $after_label = $row['after_agent_name'] ? $row['after_agent_name'] : $row['after_agent_mb_id'];
                 }
 
-                $ac_time  = $row['ac_updated_at'] ? fmt_datetime(get_text($row['ac_updated_at']), 'mdhis') : '-';
+                $sc_time  = $row['db_scheduled_at'] ? fmt_datetime(get_text($row['db_scheduled_at']), 'mdhis') : '-';
+                $ac_time  = $row['created_at'] ? fmt_datetime(get_text($row['created_at']), 'mdhis') : '-';
                 $schedule_disp = format_schedule_display($row['ac_scheduled_at'], $row['ac_schedule_note']);
+                $db_area = $db_type = '';
                 ?>
                 <tr>
                     <td class="p_no"><?php echo $p_no; ?></td>
-                    <td><?php echo get_group_name_cached($row['mb_group']); ?></td>
+                    <td><?php echo get_company_name_from_group_id_cached($row['b_mb_group']); ?></td>
+                    <td><?php echo get_group_name_cached($row['b_mb_group']); ?></td>
                     <td><?php echo get_text($agent); ?></td>
                     <!-- <td class="status-col status-<?php echo get_text($ui_call); ?>"><?php echo get_text($status_label); ?></td> -->
                     <td>
                           <a href="#this" class="ac-edit-btn"
                                 data-campaign-id="<?php echo (int)$row['campaign_id'];?>"
-                                data-mb-group="<?php echo (int)$row['mb_group'];?>"
-                                data-target-id="<?php echo (int)$row['target_id'];?>"
+                                data-mb-group="<?php echo (int)$row['b_mb_group'];?>"
+                                data-target-id="<?php echo (int)$row['b_target_id'];?>"
                                 data-target-name="<?php echo get_text($row['target_name'] ?: '-');?>"
                                 data-call-hp="<?php echo get_text($hp_fmt);?>"
                                 data-state-id="<?php echo (int)$row['ac_state_id'];?>"
@@ -516,18 +527,24 @@ a.ac-edit-btn {font-weight:700;color:#253aaf}
                           ><?php echo get_text($row['target_name'] ?: '-'); ?></a>
                     </td>
                     <td><?php echo $bday; ?></td>
-                    <td><?php echo $man_age; ?></td>
-                    <td><?php echo cut_str($meta_txt, 12); ?></td>
                     <td class="td_mini_hp"><?php echo get_text($hp_fmt); ?></td>             <!-- 전화번호 -->
-                    <td><?php echo $after_label; ?></td>                  <!-- 2차담당자 -->
-                    <td class="small_txt"><?php echo $schedule_disp; ?></td>
+                    <td><?php echo get_text($row['area1']); ?></td>
+                    <td><?php echo get_text($row['area2']); ?></td>
+                    <td><?php echo $sex_txt; ?></td>
+                    <td><?php echo $man_age; ?></td>
+                    <td><?php echo number_format($row['month_pay']); ?></td>
+                    <td><?php echo get_db_area_from_area1($row['area1']); ?></td>
+                    <td><?php echo get_db_type_from_man_age((int)$man_age); ?></td>
+                    <td><?php echo $schedule_disp; ?></td>
+                    <td class="td_mdhi"><?php echo $sc_time; ?></td>
+                    <td><?php echo $after_label; ?></td>                  <!-- 2차팀장 -->
                     <td class="td_mdhi"><?php echo $ac_time; ?></td>
                     <td class="btn_one">
                         <button type="button"
                                 class="btn btn_02 ac-edit-btn"
                                 data-campaign-id="<?php echo (int)$row['campaign_id'];?>"
-                                data-mb-group="<?php echo (int)$row['mb_group'];?>"
-                                data-target-id="<?php echo (int)$row['target_id'];?>"
+                                data-mb-group="<?php echo (int)$row['b_mb_group'];?>"
+                                data-target-id="<?php echo (int)$row['b_target_id'];?>"
                                 data-target-name="<?php echo get_text($row['target_name'] ?: '-');?>"
                                 data-call-hp="<?php echo get_text($hp_fmt);?>"
                                 data-state-id="<?php echo (int)$row['ac_state_id'];?>"

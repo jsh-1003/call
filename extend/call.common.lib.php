@@ -2,6 +2,41 @@
 if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 
 /**
+ * DB권역
+ */
+function get_db_area_from_area1($area1) {
+    if(in_array($area1, ['서울','경기','인천']))
+        return '수도권';
+    if(in_array($area1, ['대전','충남']))
+        return '충남권';
+    if(in_array($area1, ['충북']))
+        return '충북권';
+    if(in_array($area1, ['광주','전남']))
+        return '전남권';
+    if(in_array($area1, ['전북']))
+        return '전북권';
+    if(in_array($area1, ['대구','경북']))
+        return '경북권';
+    if(in_array($area1, ['부산','울산','경남']))
+        return '경남권';
+    if(in_array($area1, ['강원']))
+        return '강원권';
+    if(in_array($area1, ['제주']))
+        return '제주권';  
+}
+/**
+ * DB타입
+ */
+function get_db_type_from_man_age(int $man_age) {
+    if($man_age < 62)
+        return '일반DB';
+    return '실버DB';
+}
+
+// 프록시(사인 URL/스트리밍)
+function make_recording_url($recording_id){ return './rec_proxy.php?rid='.(int)$recording_id; }
+
+/**
  * 현재월 기준 회사/개인 잠금 여부 빠른판정 (APCu 60s 캐시)
  * true  = 사용 허용(언락)
  * false = 차단(락)
@@ -148,6 +183,14 @@ function get_aftercall_db_info(int $target_id) {
     $sql = "SELECT * FROM call_target WHERE target_id = {$target_id} ";
     $row = sql_fetch($sql);
     $return['basic'] = $row;
+
+    $sql = "SELECT r.recording_id, r.s3_key, r.content_type
+        FROM call_recording as r 
+        JOIN call_log as l ON l.call_id=r.call_id
+        WHERE l.target_id = {$target_id} 
+        ORDER BY l.call_id DESC";
+    $row = sql_fetch($sql);
+    $return['recording'] = $row;
     return $return;
 }
 

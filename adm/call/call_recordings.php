@@ -267,8 +267,6 @@ $token = get_token();
 $g5['title'] = '녹취확인';
 include_once(G5_ADMIN_PATH.'/admin.head.php');
 $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목록</a>';
-// 프록시(사인 URL/스트리밍)
-function make_recording_url($row){ return './rec_proxy.php?rid='.(int)$row['recording_id']; }
 ?>
 <style>
 audio {max-width:260px;max-height:30px;}
@@ -448,7 +446,7 @@ audio {max-width:260px;max-height:30px;}
                 $ui       = !empty($status_ui[$row['call_status']]) ? $status_ui[$row['call_status']] : 'secondary';
                 $status_class = 'status-col status-'.get_text($ui);
 
-                $dl_url   = make_recording_url($row);
+                $dl_url   = make_recording_url($row['recording_id']);
                 $mime     = guess_audio_mime($row['s3_key'], $row['content_type']);
                 ?>
                 <tr>

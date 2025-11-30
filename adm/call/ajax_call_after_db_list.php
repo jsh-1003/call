@@ -73,6 +73,12 @@ if (isset($_GET['ajax']) && $_GET['ajax']==='get') {
     $detail['region2'] = !empty($info['detail']['area2']) ? $info['detail']['area2'] : '';
     $detail['addr_etc'] = !empty($info['detail']['area3']) ? $info['detail']['area3'] : '';
     $detail['memo'] = !empty($info['detail']['memo']) ? get_text($info['detail']['memo']) : '';
+    $detail['recording'] = '';
+    if(!empty($info['recording']['recording_id'])) {
+        $dl_url   = make_recording_url($info['recording']['recording_id']);
+        $mime     = guess_audio_mime($info['recording']['s3_key'], $info['recording']['content_type']);
+        $detail['recording'] = '<audio controls preload="none" class="audio"><source src="'.$dl_url.'" type="'.get_text($mime).'"></audio>';
+    }
     echo json_encode(['success'=>true,'use_detail'=>$useDetail,'data'=>$detail], JSON_UNESCAPED_UNICODE); exit;
 }
 
@@ -120,7 +126,7 @@ if (isset($_POST['ajax']) && $_POST['ajax']==='save') {
     if (!($d && $d->format('Y-m-d') === $db_birth_date)) {
         $db_birth_date = ''; // 잘못된 날짜인 경우 삭제 처리
     }
-    $sex = (int)$_POST['detail_hp'];
+    $sex = (int)$_POST['detail_sex'];
     $month_pay = (int)$_POST['detail_month_pay'];
     $db_scheduled_at = sql_escape_string($_POST['detail_scheduled_at']);
     $area1 = sql_escape_string($_POST['detail_region1']);
