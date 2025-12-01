@@ -160,7 +160,7 @@ function parse_birth_and_sex($s) {
         // yymmdd
         if (strlen($digits) === 6) {
             $yy=(int)substr($digits,0,2);
-            $y=($yy>=70)?(1900+$yy):(2000+$yy);
+            $y=($yy>=40)?(1900+$yy):(2000+$yy);
             $m=(int)substr($digits,2,2);
             $d=(int)substr($digits,4,2);
             if (checkdate($m,$d,$y)) return [sprintf('%04d-%02d-%02d',$y,$m,$d), 0];
@@ -174,7 +174,7 @@ function parse_birth_and_sex($s) {
             // 세기 결정
             if (in_array($x, [1,2,5,6,7,8], true)) $y = 1900 + $yy;
             elseif (in_array($x, [3,4,7,8], true)) $y = 2000 + $yy; // 7,8은 외국인 코드(세부 구분 무시)
-            else $y = ($yy>=70)?(1900+$yy):(2000+$yy); // fallback
+            else $y = ($yy>=40)?(1900+$yy):(2000+$yy); // fallback
             $sex = ($x===1 || $x===3 || $x===5 || $x===7) ? 1 : (($x===2 || $x===4 || $x===6 || $x===8) ? 2 : 0);
             if (checkdate($m,$d,$y)) return [sprintf('%04d-%02d-%02d',$y,$m,$d), $sex];
         }
@@ -187,7 +187,7 @@ function parse_birth_and_sex($s) {
     $parts = array_values(array_filter(explode('-', $s2), fn($v)=>$v!==''));
     if (count($parts) === 3) {
         $y=(int)$parts[0]; $m=(int)$parts[1]; $d=(int)$parts[2];
-        if ($y < 100) $y = ($y>=70)?(1900+$y):(2000+$y);
+        if ($y < 100) $y = ($y>=40)?(1900+$y):(2000+$y);
         if (checkdate($m,$d,$y)) return [sprintf('%04d-%02d-%02d',$y,$m,$d), 0];
     }
     return [null, 0];
