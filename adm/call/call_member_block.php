@@ -15,7 +15,7 @@ $action = isset($_GET['action']) ? trim($_GET['action']) : '';
 $mb_id  = isset($_GET['mb_id'])  ? trim($_GET['mb_id'])  : '';
 $ret    = isset($_GET['_ret'])   ? (string)$_GET['_ret'] : './call_member_list.php';
 
-if ($mb_id === '' || !in_array($action, ['block','unblock', 'delete'], true)) {
+if ($mb_id === '' || !in_array($action, ['agree','block','unblock','delete'], true)) {
     alert('잘못된 요청입니다.');
 }
 
@@ -71,7 +71,11 @@ if ($my_level == 8) {
 // -----------------------------
 $safe_mb_id = sql_escape_string($mb_id);
 
-if ($action === 'block') {
+if ($action === 'agree' && $target['mb_level']==2 && $member['mb_level'] > 8) {
+    sql_query("UPDATE {$g5['member_table']}
+                  SET mb_level = 3, pay_start_date='".G5_TIME_YMD."'
+                WHERE mb_id = '{$safe_mb_id}'");
+} else if ($action === 'block') {
     // 탈퇴 회원은 대상 제외
     if (!empty($target['mb_leave_date'])) {
         alert('탈퇴 회원은 차단할 수 없습니다.');

@@ -32,8 +32,8 @@ $my_company_name = (string)($member['company_name'] ?? '');
 // 역할 라디오 필터
 $role_filter = isset($_GET['role_filter']) ? trim($_GET['role_filter']) : 'all';
 $allowed_role_filters = ($my_level >= 9)
-    ? ['all','company','leader','member', 'member-after']
-    : (($my_level >= 8) ? ['all','leader','member', 'member-after'] : ['all']);
+    ? ['all','company','leader','member','member-before','member-after']
+    : (($my_level >= 8) ? ['all','leader','member','member-before', 'member-after'] : ['all']);
 if (!in_array($role_filter, $allowed_role_filters, true)) $role_filter = 'all';
 
 // -------------------------------------------
@@ -60,7 +60,8 @@ function role_label_and_class($lv){
     if ($lv >= 8)  return ['대표이사','badge-company'];
     if ($lv == 7)  return ['지점장','badge-leader'];
     if ($lv == 5)  return ['2차팀장','badge-member-after'];
-    return ['상담원','badge-member'];
+    if ($lv == 3)  return ['상담원','badge-member'];
+    return ['상담원_승인전','badge-member-before'];
 }
 
 // 특정 타깃 회원을 토글할 수 있는지 권한/범위 체크
@@ -176,6 +177,8 @@ if ($my_level >= 8) {
         $where[] = "(m.mb_level = 7)";
     } elseif ($role_filter === 'member') {
         $where[] = "(m.mb_level = 3)";
+    } elseif ($role_filter === 'member-before') {
+        $where[] = "(m.mb_level = 2)";
     } elseif ($role_filter === 'member-after') {
         $where[] = "(m.mb_level = 5)";
     }
@@ -258,7 +261,7 @@ include_once (G5_ADMIN_PATH.'/admin.head.php');
 $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목록</a>';
 
 // 컬럼수: 권한(8+만 보임) + 회사 + 조직명 + 이름 + 아이디 + 2차콜담당 + 최근발신번호 + 상태 + 등록일 + 최종접속일 + 수정 + 차단 + 삭제
-$colspan = ($my_level >= 8) ? 12 : 11;
+$colspan = ($my_level >= 8) ? 16 : 15;
 
 $csrf_token = get_token();
 $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_filter={$role_filter}&is_blocked={$is_blocked}&sfl={$sfl}&stx={$stx}";
@@ -273,6 +276,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
 .badge-company { background:#2563eb; }
 .badge-leader  { background:#059669; }
 .badge-member  { background:#6b7280; }
+.badge-member-before  { background:#d73bb0; }
 .badge-member-after  { background:#df612a; }
 .badge-admin   { background:#7c3aed; }
 
@@ -342,6 +346,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
             <label><input type="radio" name="role_filter" value="leader" <?php echo $role_filter==='leader'?'checked':''; ?>> 지점장</label>
             <label><input type="radio" name="role_filter" value="member-after" <?php echo $role_filter==='member-after'?'checked':''; ?>> 2차팀장</label>
             <label><input type="radio" name="role_filter" value="member" <?php echo $role_filter==='member'?'checked':''; ?>> 상담원</label>
+            <label><input type="radio" name="role_filter" value="member-before" <?php echo $role_filter==='member'?'checked':''; ?>> 상담원_승인전</label>
         </span>
     <?php } else { ?>
         <input type="hidden" name="role_filter" value="all">
@@ -456,7 +461,14 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                     <td class="td_mbstat"><?php echo $status_label; ?></td>
                     <td class="td_date"><?php echo $reg_date; ?></td>
                     <td class="td_date"><?php echo $last_login; ?></td>
-                    <td class="td_date"><?php echo $pay_start_date; ?></td>
+                    <td class="td_date">
+                        <?php
+                        echo $pay_start_date;
+                        if($member['mb_level'] > 8 && $row['mb_level']==2) {
+                            echo '<a href="./call_member_block.php?action=agree&amp;mb_id='.urlencode($row['mb_id']).'&amp;'.http_build_query(['_ret'=>$_SERVER['REQUEST_URI']]).'" class="btn btn_02" onclick="return confirm(\'해당 회원을 승인하시겠습니까?\');" style="background:#d73bb0 !important;color:#fff !important">승인</a>';
+                        }
+                        ?>
+                    </td>
                     <td class="td_mng td_mng_s">
                         <?php if (empty($row['mb_leave_date'])) { ?>    
                         <a href="./call_member_form.php?w=u&amp;mb_id=<?php echo urlencode($row['mb_id']); ?>" class="btn btn_03">수정</a>

@@ -30,6 +30,7 @@ function role_to_level($role) {
         case 'leader':          return 7;  // 지점장
         case 'member-after':    return 5;  // 상담원
         case 'member':          return 3;  // 상담원
+        case 'member-before':   return 2;  // 상담원-승인전
         case 'admin':           return 10; // (UI 미노출) 플랫폼 슈퍼관리자
         default:                return 0;
     }
@@ -39,14 +40,15 @@ function level_to_role($lv) {
     if ($lv >= 8)  return 'company';
     if ($lv == 7)  return 'leader';
     if ($lv == 5)  return 'member-after';
-    return 'member';
+    if ($lv == 3)  return 'member';
+    return 'member-before';
 }
 
 // 내가 생성/수정 시 허용되는 역할(신규일 때만 의미, 수정은 고정)
 $allowed_roles = [];
-if     ($my_level >= 10) $allowed_roles = ['company','leader','member','member-after'];
-elseif ($my_level >= 8)  $allowed_roles = ['leader','member','member-after'];
-else                     $allowed_roles = ['member','member-after'];
+if     ($my_level >= 10) $allowed_roles = ['company','leader','member','member-before','member-after'];
+elseif ($my_level >= 8)  $allowed_roles = ['leader','member','member-before','member-after'];
+else                     $allowed_roles = ['member','member-before','member-after'];
 
 // -----------------------------
 // 회사 스코프 체크
@@ -176,18 +178,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $post_level = (int)$target_for_role['mb_level'];
         $post_role  = level_to_role($post_level);
     } else {
-        if ($my_level >= 8) $post_role = isset($_POST['role']) ? trim($_POST['role']) : 'member';
+        if ($my_level >= 9) $post_role = isset($_POST['role']) ? trim($_POST['role']) : 'member';
+        else if ($my_level >= 8) $post_role = isset($_POST['role']) ? trim($_POST['role']) : 'member-before';
         else if($_POST['role'] == 'member-after') {
             $post_role = 'member-after';
         } else {
-            $post_role = 'member';
+            $post_role = 'member-before';
         }
         $post_level = role_to_level($post_role);
         // 허용 역할 검증(신규에서만 체크)
         if (!in_array($post_role, $allowed_roles, true)) {
             if ($post_role === 'company') alert('대표이사 추가는 플랫폼관리자만 가능합니다.');
             if ($post_role === 'leader')  alert('지점장 추가는 레벨 8 이상만 가능합니다.');
-            if ($post_role === 'member')  alert('상담원 추가는 레벨 7 이상만 가능합니다.');
+            if ($post_role === 'member' || $post_role === 'member-before')  alert('상담원 추가는 레벨 7 이상만 가능합니다.');
             if ($post_role === 'member-after')  alert('2차팀장 추가는 레벨 7 이상만 가능합니다.');
             alert('권한이 없습니다.');
         }
@@ -440,7 +443,7 @@ if (!$is_new) {
                                 2차팀장
                             </label>
                             <label class="mgr12">
-                                <input type="radio" name="role" value="member" <?php echo ($default_role==='member'?'checked':''); ?>>
+                                <input type="radio" name="role" value="member-before" <?php echo ($default_role==='member'?'checked':''); ?>>
                                 상담원
                             </label>
                             <div class="help">※ 지점 선택은 ‘상담원’일 때만 표시됩니다.</div>
@@ -597,10 +600,10 @@ if (!$is_new) {
     function syncVisibility(){
         var role = selectedRole();
         if (myLevel >= 10) {
-            show(rowCompanyPicker, (role==='member'||role==='leader'));
+            show(rowCompanyPicker, ((role==='member' || role==='member-before')||role==='leader'));
             show(rowCompanyName, (role==='company'));
         }
-        show(rowGroupPicker, (role==='member' && myLevel >= 8));
+        show(rowGroupPicker, ((role==='member' || role==='member-before') && myLevel >= 8));
         show(rowGroupName, (role==='leader'));
     }
     roleInputs.forEach(function(r){ r.addEventListener('change', syncVisibility); });
