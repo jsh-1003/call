@@ -9,7 +9,7 @@ if(defined('G5_COMMUNITY_USE') && G5_COMMUNITY_USE === false) {
 
     define('_SHOP_', true);
 }
-if($is_member) {
+if($is_member && $member['mb_level'] > 2) {
     define('G5_IS_ADMIN', true);
     include_once(G5_ADMIN_PATH.'/admin.lib.php');
 }
