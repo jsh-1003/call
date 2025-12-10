@@ -9,7 +9,7 @@ function get_db_area_from_area1($area1) {
         return '수도권';
     if(in_array($area1, ['대전','충남']))
         return '충남권';
-    if(in_array($area1, ['충북']))
+    if(in_array($area1, ['충북','세종']))
         return '충북권';
     if(in_array($area1, ['광주','전남']))
         return '전남권';
@@ -22,7 +22,8 @@ function get_db_area_from_area1($area1) {
     if(in_array($area1, ['강원']))
         return '강원권';
     if(in_array($area1, ['제주']))
-        return '제주권';  
+        return '제주권';
+    return '-';
 }
 /**
  * DB타입

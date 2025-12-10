@@ -5,11 +5,18 @@
 // 실행: 브라우저에서 1회 실행하고 삭제 권장
 // 환경: 그누보드5, PHPExcel(내장)
 require_once './_common.php';
+require_once G5_LIB_PATH.'/call.assign.lib.php';
 
 if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
     alert('접근 권한이 없습니다.');
 }
+$mb_group = 101;
+$cands = aftercall_list_candidates($mb_group); // => [mb_no, ...]
+var_dump($cands);
+$res = aftercall_pick_next_agent($mb_group);
+var_dump($res);
 
+exit;
 // echo date("1aaa983-10-03");
 // exit;
 $info = get_aftercall_db_info(149194);

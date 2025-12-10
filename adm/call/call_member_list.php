@@ -169,6 +169,9 @@ if ($my_level == 7) {
     if ($sel_mb_group > 0)   $where[] = "m.mb_group = '{$sel_mb_group}'";
 }
 
+// 포캐스크이엔엠 모니터링 아이디는 제거
+$where[] = "m.mb_no <> 363";
+
 // 역할 라디오 필터
 if ($my_level >= 8) {
     if ($role_filter === 'company' && $my_level >= 9) {

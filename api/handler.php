@@ -564,6 +564,9 @@ function handle_login(): void {
 
     // 1) 회원 조회
     $mb = get_member($mb_id); // g5 기본 함수
+    if($mb['mb_level'] < 3) {
+        send_json(['success' => false, 'message' => '승인전 회원입니다.'], 401);
+    }
 
     // 2) 비밀번호 검증 (소셜/예외처리 없이 심플하게)
     if (!isset($mb['mb_id']) || !$mb['mb_id'] || !login_password_check($mb, $mb_passwd, $mb['mb_password'])) {
