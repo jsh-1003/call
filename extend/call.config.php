@@ -14,6 +14,8 @@ define('API_SESSION_TTL_SECONDS', 60*60*24*1); // 1일
 define('AWS_REGION', 'ap-northeast-2'); // 서울 리전
 define('S3_BUCKET',  'call-save');
 
+define('CALL_SHOP_API_TOKEN', 'a7df2c6e9b814f0dac3f5c12990e4fd8c5bfc79ab3e64d69f0a2b771c8d93451'); // SHOP API 토큰 키
+
 if($is_admin != 'super') {
     unset($auth);
     if($member['mb_level'] >= 9) {

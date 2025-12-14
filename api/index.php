@@ -18,6 +18,7 @@ require_once './_common.php';
 require_once G5_LIB_PATH.'/call.lib.php';
 require_once G5_LIB_PATH.'/call.assign.lib.php';
 require_once './handler.php';
+require_once './call_shop_handler.php'; // ← 콜샵 API 전용 핸들러
 
 
 // ---- 공통 헤더 ----
@@ -57,6 +58,11 @@ switch ($path) {
     // 상태값 조회
     case '/api/call/statusCodes':
         handle_get_call_status_codes();
+        break;
+
+        // 콜샵 주문 등록
+    case '/api/callShop/order':
+        handle_call_shop_order();
         break;
 
     default:
