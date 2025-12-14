@@ -55,6 +55,7 @@ function build_scope_group_cond($alias='c') {
  */
 function update_campaign_status(array $ids, $status, $is_delete=false) {
     if (empty($ids)) return;
+    global $my_level;
 
     $ids_csv = implode(',', array_map('intval', $ids));
     $scope   = build_scope_group_cond('c'); // call_campaign 별칭을 c로 가정
@@ -68,6 +69,9 @@ function update_campaign_status(array $ids, $status, $is_delete=false) {
              WHERE c.campaign_id IN ({$ids_csv})
              {$scope}
         ";
+        if($my_level < 9) {
+            $sql .= " AND c.is_open_number = 1 ";
+        }
     } else {
         $status = (int)$status;
         if (!in_array($status, [0,1], true)) return; // 안전장치

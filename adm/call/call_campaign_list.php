@@ -428,7 +428,15 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
                     <?php } else { ?>
                         <button type="button" class="btn btn_02 btn-xs btn-inline" onclick="rowAction('deactivate', <?php echo $cid; ?>);">비활성</button>
                     <?php } ?>
-                    <button type="button" class="btn btn_03 btn-xs btn-inline" onclick="rowAction('delete', <?php echo $cid; ?>);">삭제</button>
+                    <?php 
+                    if ((int)$r['is_open_number'] === 0) {
+                        if($member['mb_level'] > 8) {
+                            echo '<button type="button" class="btn btn_03 btn-xs btn-inline" onclick="rowAction(\'delete\', '.$cid.'; ?>);">삭제</button>';
+                        }
+                    } else {
+                        echo '<button type="button" class="btn btn_03 btn-xs btn-inline" onclick="rowAction(\'delete\', '.$cid.'; ?>);">삭제</button>';
+                    }
+                    ?>
                 </td>
             </tr>
             <?php
