@@ -136,6 +136,12 @@ function handle_call_upload(): void {
 
     // 필수 파라미터: target_id, call_status, phoneNumber
     $mode         = isset($in['mode'])        ? trim((string)$in['mode'])        : 'auto';
+    if ($mode === 'manual') {
+        handle_manual_call_log($in, $mb_group, $mb_no);
+        return;        
+        // send_json(['success'=>true, 'message'=>'ok_no_job']);
+    }
+
     $target_id    = isset($in['targetId'])    ? (int)$in['targetId']             : -1;
     $call_status  = isset($in['callStatus'])  ? (int)$in['callStatus']           : 0;
     $call_start   = isset($in['callStart'])   ? trim((string)$in['callStart'])   : null;
@@ -149,10 +155,6 @@ function handle_call_upload(): void {
         send_json(['success'=>false, 'message'=>'targetId나 callStatus나 phoneNumber가 없습니다.'
             .' / 타겟:'.$target_id.' / 스테이터스값:'.$call_status.' / phoneNumber:'.$hp
         ], 400);
-    }
-
-    if ($mode === 'manual') {
-        send_json(['success'=>true, 'message'=>'ok_no_job']);
     }
 
     // 2) 대상 검증/조회 (권한: mb_group 일치)
@@ -409,6 +411,183 @@ function handle_call_upload(): void {
         // 'ac_result'  => $ac_result, // 필요시 디버깅용으로 사용
     ]);
 }
+
+
+/**
+ * 수동 통화 기록 전용 (+S3 녹취 업로드)
+ * - 타겟/캠페인/통계/상태연동 없음
+ * - 녹취는 S3 업로드 진행, 성공 시 call_manual_recording 기록
+ */
+function handle_manual_call_log(array $in, int $mb_group, int $mb_no): void
+{
+    // ===== 입력 =====
+    $call_status  = array_key_exists('callStatus', $in) ? (int)$in['callStatus'] : null;
+
+    $call_start   = isset($in['callStart'])   ? trim((string)$in['callStart'])   : null;
+    $call_end     = isset($in['callEnd'])     ? trim((string)$in['callEnd'])     : null;
+    $memo         = isset($in['memo'])        ? trim((string)$in['memo'])        : null;
+    $duration_sec = isset($in['durationSec']) ? (int)$in['durationSec']          : null;
+
+    $hp    = isset($in['phoneNumber'])   ? preg_replace('/\D+/', '', (string)$in['phoneNumber']) : '';
+    $my_hp = isset($in['myPhoneNumber']) ? preg_replace('/\D+/', '', (string)$in['myPhoneNumber']) : '';
+
+    if ($hp === '') {
+        send_json(['success'=>false, 'message'=>'phoneNumber가 없습니다.'], 400);
+    }
+
+    // ===== 시간 보정 =====
+    $now = date('Y-m-d H:i:s');
+    if (!$call_start) $call_start = $now;
+
+    if ($call_end && strcmp($call_end, $call_start) < 0) {
+        $call_end = $call_start;
+    }
+
+    $call_time = 0;
+    if (!empty($call_end)) {
+        $ts_start = strtotime($call_start);
+        $ts_end   = strtotime($call_end);
+        if ($ts_start !== false && $ts_end !== false) {
+            $call_time = max(0, $ts_end - $ts_start);
+        }
+    }
+
+    // ===== 멱등키 =====
+    $req_uid = substr(hash('sha256', implode('|', [
+        'manual',
+        $mb_group,
+        $mb_no,
+        $hp,
+        (string)$my_hp,
+        (string)$call_start,
+        (string)$call_end,
+        (string)($call_status ?? 'null'),
+        (string)$duration_sec,
+    ])), 0, 36);
+
+    $call_end_sql    = $call_end ? ("'".sql_escape_string($call_end)."'") : "NULL";
+    $call_status_sql = ($call_status === null) ? "NULL" : (string)((int)$call_status);
+    $memo_sql        = ($memo === null || $memo === '') ? "NULL" : "'".sql_escape_string($memo)."'";
+    $duration_sql    = ($duration_sec === null) ? "NULL" : (string)((int)$duration_sec);
+    $agent_sql       = ($my_hp === '') ? "NULL" : "'".sql_escape_string($my_hp)."'";
+
+    // ===== 1) 수동 로그 DB 저장 (트랜잭션) =====
+    sql_query("START TRANSACTION");
+
+    $q = "
+        INSERT INTO call_manual_log
+            (mb_group, mb_no, call_hp, agent_phone, call_status, call_start, call_end, call_time, duration_sec, memo, req_uid, created_at)
+        VALUES
+            ({$mb_group}, {$mb_no}, '".sql_escape_string($hp)."', {$agent_sql}, {$call_status_sql},
+             '".sql_escape_string($call_start)."', {$call_end_sql}, {$call_time}, {$duration_sql}, {$memo_sql},
+             '".sql_escape_string($req_uid)."', NOW())
+        ON DUPLICATE KEY UPDATE
+            manual_id = LAST_INSERT_ID(manual_id),
+            call_end     = VALUES(call_end),
+            call_time    = VALUES(call_time),
+            duration_sec = VALUES(duration_sec),
+            memo         = VALUES(memo),
+            call_status  = VALUES(call_status)
+    ";
+    $ok = sql_query($q, true);
+    if (!$ok) {
+        sql_query("ROLLBACK");
+        send_json(['success'=>false, 'message'=>'failed to upsert call_manual_log'], 500);
+    }
+    $manual_id = (int)sql_insert_id();
+
+    sql_query("COMMIT");
+
+    // ===== 2) S3 업로드(선택) + call_manual_recording 적재 =====
+    $manual_recording_id = null;
+    $s3_key = null;
+
+    // AWS SDK 로드: 기존 핸들러에서 로드했다면 중복 require 괜찮지만,
+    // 여기 함수가 단독 호출될 수 있으면 방어적으로 로드
+    $vendor = dirname(__DIR__) . '/vendor/autoload.php';
+    if (file_exists($vendor)) {
+        require_once $vendor;
+    }
+
+    if (is_multipart() && isset($_FILES['file']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
+        if (!class_exists(\Aws\S3\S3Client::class)) {
+            error_log('[s3] aws sdk not installed');
+        } else {
+            $tmp_path  = $_FILES['file']['tmp_name'];
+            $orig_name = $_FILES['file']['name'] ?? 'call_audio';
+            $ctype     = $_FILES['file']['type'] ?? 'application/octet-stream';
+            $fsize     = (int)($_FILES['file']['size'] ?? 0);
+
+            // 키 규칙(수동): group/{mb_group}/manual/{YYYY}/{MM}/{DD}/{hp}_{manual_id}.ext
+            $dt  = new DateTime($call_start);
+            $ext = get_file_ext_for_s3($orig_name, $ctype);
+
+            $f_name = $hp.'_'.$manual_id;
+            $f_name = s3_safe_filename($f_name);
+
+            $key = sprintf(
+                "group/%d/manual/%s/%s/%s/%s%s",
+                $mb_group,
+                $dt->format('Y'),
+                $dt->format('m'),
+                $dt->format('d'),
+                $f_name,
+                $ext
+            );
+
+            try {
+                $s3 = new \Aws\S3\S3Client(['version'=>'latest','region'=>AWS_REGION]);
+                $s3->putObject([
+                    'Bucket'      => S3_BUCKET,
+                    'Key'         => $key,
+                    'SourceFile'  => $tmp_path,
+                    'ContentType' => $ctype,
+                    'ACL'         => 'private',
+                ]);
+                $s3_key = $key;
+
+                // 업로드 성공 시에만 call_manual_recording 기록
+                $qrec = "
+                    INSERT INTO call_manual_recording
+                        (mb_group, manual_id, s3_bucket, s3_key, content_type, file_size, duration_sec, created_at)
+                    VALUES
+                        ({$mb_group}, {$manual_id},
+                         '".sql_escape_string(S3_BUCKET)."', '".sql_escape_string($key)."',
+                         '".sql_escape_string($ctype)."', {$fsize},
+                         ".($duration_sec !== null ? (int)$duration_sec : "NULL").", NOW())
+                    ON DUPLICATE KEY UPDATE
+                        manual_recording_id = LAST_INSERT_ID(manual_recording_id),
+                        s3_bucket    = VALUES(s3_bucket),
+                        s3_key       = VALUES(s3_key),
+                        content_type = VALUES(content_type),
+                        file_size    = VALUES(file_size),
+                        duration_sec = VALUES(duration_sec)
+                ";
+                $ok = sql_query($qrec);
+                if ($ok) {
+                    $manual_recording_id = (int)sql_insert_id();
+                } else {
+                    error_log('[s3] call_manual_recording insert failed (but upload ok)');
+                }
+
+            } catch (\Throwable $e) {
+                error_log('[s3 upload failed] '.$e->getMessage());
+                // 실패해도 수동로그는 이미 남았으니 그대로 진행
+            }
+        }
+    }
+
+    // ===== 3) 응답 =====
+    send_json([
+        'success'             => true,
+        'message'             => 'ok_manual_logged',
+        'manual_id'           => $manual_id,
+        'manual_recording_id' => $manual_recording_id,
+        's3_key'              => $s3_key,
+        'agent_phone'         => ($my_hp !== '' ? $my_hp : null),
+    ]);
+}
+
 
 /** =========================
  *  작업할 정보 리스트 반환 (기존 흐름 + meta_json decode)
