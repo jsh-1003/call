@@ -4,7 +4,7 @@ $sub_menu = '700420';
 require_once './_common.php';
 
 // 접근 권한: 관리자 레벨 5 이상
-if ($is_admin !== 'super' && (int)$member['mb_level'] < 10) {
+if ($is_admin !== 'super' && ((int)$member['mb_level'] < 8 || !$member['is_after_db_use'])) {
     alert('접근 권한이 없습니다~!'.$member['mb_level']);
 }
 

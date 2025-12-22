@@ -431,10 +431,10 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
                     <?php 
                     if ((int)$r['is_open_number'] === 0) {
                         if($member['mb_level'] > 8) {
-                            echo '<button type="button" class="btn btn_03 btn-xs btn-inline" onclick="rowAction(\'delete\', '.$cid.'; ?>);">삭제</button>';
+                            echo '<button type="button" class="btn btn_03 btn-xs btn-inline" onclick="rowAction(\'delete\', '.$cid.');">삭제</button>';
                         }
                     } else {
-                        echo '<button type="button" class="btn btn_03 btn-xs btn-inline" onclick="rowAction(\'delete\', '.$cid.'; ?>);">삭제</button>';
+                        echo '<button type="button" class="btn btn_03 btn-xs btn-inline" onclick="rowAction(\'delete\', '.$cid.');">삭제</button>';
                     }
                     ?>
                 </td>

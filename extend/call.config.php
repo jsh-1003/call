@@ -57,3 +57,14 @@ if($member['mb_id'] == 'admin_pay') {
     );
     $is_admin_pay = true;
 }
+
+$is_shop_api_view = false;
+if ( isset($member['mb_no']) && in_array($member['mb_no'], array(363,48)) ) {
+    $is_shop_api_view = true;
+    $auth['700930'] = 'r';
+}
+
+
+if(isset($member['is_after_db_use']) && $member['is_after_db_use']) {
+    $auth['700500'] = 'rw';
+}

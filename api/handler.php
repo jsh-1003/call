@@ -176,7 +176,7 @@ function handle_call_upload(): void {
     }
 
     // 2-1) 업로드 시작 시 내 배정건이면 진행중(2) + 짧은 리스 연장
-    $aff = sql_query("UPDATE call_target
+    sql_query("UPDATE call_target
         SET assigned_status = 2,
             assign_lease_until = DATE_ADD(NOW(), INTERVAL 240 SECOND)
         WHERE target_id = {$target_id}
@@ -185,7 +185,7 @@ function handle_call_upload(): void {
         AND assigned_status = 1
         LIMIT 1
     ");
-    sql_query($aff);
+    // sql_query($aff);
 
 
     // (정책에 따라 내 배정건만 허용하려면 아래 주석 해제)

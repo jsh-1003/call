@@ -35,6 +35,7 @@ $q              = _g('q','');
 $q_type         = _g('q_type',''); // name|last4|full
 $f_dnc          = _g('dnc','');    // '', '0','1'
 $f_asgn         = _g('as','');     // '', '0','1','2','3','4'
+$f_status       = _g('status','');
 $rows           = max(10, min(200, (int)_g('rows','50')));
 $page           = max(1, (int)_g('page','1'));
 $offset         = ($page - 1) * $rows;
@@ -120,6 +121,12 @@ if ($mode === 'screen' || $mode === 'condition') {
     if ($f_asgn !== '' && in_array($f_asgn, ['0','1','2','3','4'], true)) {
         $where[] = "t.assigned_status = ".(int)$f_asgn;
     }
+    
+    if($f_status) {
+        $f_status = (int)$f_status;
+        $where[] = "t.last_result = ".(int)$f_status;
+    }
+
 }
 
 // ★ 삭제 캠페인 제외
