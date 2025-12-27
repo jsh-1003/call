@@ -697,9 +697,9 @@ try {
 
         // 스테이징 적재
         $sql = "INSERT INTO call_stg_target_upload
-                (batch_id, campaign_id, mb_group, call_hp, name, birth_date, sex, meta_json, created_at)
+                (batch_id, campaign_id, company_id, mb_group, call_hp, name, birth_date, sex, meta_json, created_at)
                 VALUES
-                ('{$batch_id}', '{$campaign_id}', '{$mb_group}', '{$call_hp}', ".sql_quote_or_null($name).", ".sql_quote_or_null($birth_date).", '{$sex}', ".sql_quote_or_null($meta_json).", NOW())";
+                ('{$batch_id}', '{$campaign_id}', '{$company_id}', '{$mb_group}', '{$call_hp}', ".sql_quote_or_null($name).", ".sql_quote_or_null($birth_date).", '{$sex}', ".sql_quote_or_null($meta_json).", NOW())";
         $res = sql_query($sql, false);
         if ($res) $stg_count++;
         else {
@@ -720,8 +720,8 @@ try {
     // 최종 적재 (블랙리스트 제외)
     $ins_sql = "
     INSERT IGNORE INTO call_target
-    (campaign_id, mb_group, call_hp, name, birth_date, sex, meta_json, created_at, updated_at)
-    SELECT s.campaign_id, s.mb_group, s.call_hp, s.name, s.birth_date, s.sex, s.meta_json, NOW(), NOW()
+    (campaign_id, company_id, mb_group, call_hp, name, birth_date, sex, meta_json, created_at, updated_at)
+    SELECT s.campaign_id, s.company_id, s.mb_group, s.call_hp, s.name, s.birth_date, s.sex, s.meta_json, NOW(), NOW()
         FROM call_stg_target_upload s
     WHERE s.batch_id   = '{$batch_id}'
         AND s.mb_group   = '{$mb_group}'

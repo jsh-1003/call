@@ -463,7 +463,7 @@ a.ac-edit-btn {font-weight:700;color:#253aaf}
         <tbody>
         <?php
         if ($total_count === 0) {
-            echo '<tr><td colspan="18" class="empty_table">데이터가 없습니다.</td></tr>';
+            echo '<tr><td colspan="19" class="empty_table">데이터가 없습니다.</td></tr>';
         } else {
             $p_no = 0;
             while ($row = sql_fetch_array($res_list)) {

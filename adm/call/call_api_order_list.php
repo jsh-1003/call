@@ -269,7 +269,7 @@ $csv_url = "{$_SERVER['SCRIPT_NAME']}?{$qstr}&sst={$sst}&sod={$sod}&export=csv";
         </thead>
         <tbody>
         <?php
-        $colspan = 14;
+        $colspan = 13;
         for ($i=0; $row = sql_fetch_array($result); $i++) {
             $bg = 'bg'.($i%2);
 

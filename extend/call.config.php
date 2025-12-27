@@ -17,6 +17,12 @@ define('S3_BUCKET',  'call-save');
 define('CALL_SHOP_API_TOKEN', 'a7df2c6e9b814f0dac3f5c12990e4fd8c5bfc79ab3e64d69f0a2b771c8d93451'); // SHOP API 토큰 키
 
 if($is_admin != 'super') {
+    define('G5_DEBUG', false);
+} else if($is_admin == 'super' && !empty($_GET['is_debug'])){
+    define('G5_DEBUG', true);
+}
+
+if($is_admin != 'super') {
     unset($auth);
     if($member['mb_level'] >= 9) {
         $is_admin = 'super';
