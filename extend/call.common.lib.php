@@ -525,10 +525,11 @@ function count_groups_by_company_cached($company_id) {
     if (isset($cache[$cid])) return $cache[$cid];
 
     global $g5;
-    $row = sql_fetch("
-        SELECT COUNT(*) AS c
+    $row = sql_fetch("SELECT COUNT(*) AS c
         FROM {$g5['member_table']}
         WHERE mb_level = 7 AND company_id = '{$cid}'
+            AND IFNULL(mb_leave_date,'') = ''
+            AND IFNULL(mb_intercept_date,'') = ''
     ");
     $cache[$cid] = (int)($row['c'] ?? 0);
     return $cache[$cid];
@@ -542,8 +543,7 @@ function count_members_by_group_cached($group_id) {
     if (isset($cache[$gid])) return $cache[$gid];
 
     global $g5;
-    $row = sql_fetch("
-        SELECT COUNT(*) AS c
+    $row = sql_fetch("SELECT COUNT(*) AS c
         FROM {$g5['member_table']}
         WHERE mb_level = 3
           AND mb_group = '{$gid}'
@@ -604,7 +604,10 @@ function build_org_select_options($sel_company_id=0, $sel_mb_group=0) {
        -------------------------- */
     $group_options = [];
     if ($mb_level >= 8) {
-        $where_g = " WHERE m.mb_level = 7 ";
+        $where_g = " WHERE m.mb_level = 7
+                AND IFNULL(m.mb_leave_date,'') = ''
+                AND IFNULL(m.mb_intercept_date,'') = ''
+        ";
         if ($mb_level >= 9) {
             if ((int)$sel_company_id > 0) $where_g .= " AND m.company_id = '".(int)$sel_company_id."' ";
         } else {

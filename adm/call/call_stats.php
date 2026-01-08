@@ -3,30 +3,42 @@
 $sub_menu = '700200';
 require_once './_common.php';
 
-// -----------------------------
-// 접근 권한: 레벨 7 미만 금지
-// -----------------------------
+/**
+ * ============================================================
+ * call_stats.php (Refactor-friendly version)
+ * - 기존 첨부 코드 기준 유지 + 구조 리팩토링
+ * - 핵심 개선:
+ *   1) WHERE/권한/검색 조건을 “빌더”로 분리
+ *   2) 통계 쿼리용 JOIN 정책(build_common_joins) 유지
+ *   3) 상세목록 쿼리: (중요) call_log에서 먼저 50건(call_id) 확정 후 JOIN
+ *      -> 슈퍼관리자에서 대량 스캔 + JOIN 폭증 문제 방지
+ *   4) 총건수(count) 쿼리도 “필요한 JOIN만”으로 일관성 유지
+ * ============================================================
+ */
+
+/* -----------------------------------------------------------
+ * 0) 권한
+ * --------------------------------------------------------- */
 if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
     alert('접근 권한이 없습니다.');
 }
 
-// --------------------------------------------------
-// 기본/입력 파라미터
-// --------------------------------------------------
+/* -----------------------------------------------------------
+ * 1) 기본 파라미터
+ * --------------------------------------------------------- */
 $mb_no         = (int)($member['mb_no'] ?? 0);
 $mb_level      = (int)($member['mb_level'] ?? 0);
 $my_group      = (int)($member['mb_group'] ?? 0);
 $my_company_id = (int)($member['company_id'] ?? 0);
 $member_table  = $g5['member_table']; // g5_member
 
-$today         = date('Y-m-d');
 $default_start = date('Y-m-d').'T08:00';
 $default_end   = date('Y-m-d').'T19:00';
 
 $start_date = _g('start', $default_start);
 $end_date   = _g('end',   $default_end);
 
-// ★ 권한 스코프에 따른 회사/지점/담당자 선택값
+// 회사/지점/담당자 선택값(권한 스코프)
 if ($mb_level >= 9) {
     $sel_company_id = (int)($_GET['company_id'] ?? 0); // 0=전체 회사
 } else {
@@ -37,15 +49,253 @@ $sel_agent_no = (int)($_GET['agent'] ?? 0);
 
 // 검색/필터
 $q         = _g('q', '');
-$q_type    = _g('q_type', '');           // name | last4 | full | all
+$q_type    = _g('q_type', '');                    // name | last4 | full | all
 $f_status  = isset($_GET['status']) ? (int)$_GET['status'] : 0;  // 0=전체
 $page      = max(1, (int)(_g('page', '1')));
-$page_rows = 50; // 상세 리스트 50건 고정
+$page_rows = 50;
 $offset    = ($page - 1) * $page_rows;
 
-// --------------------------------------------------
-// 전역: 상태코드 목록 (1차 콜 상태)
-// --------------------------------------------------
+/* -----------------------------------------------------------
+ * 2) 공통 유틸
+ * --------------------------------------------------------- */
+function fmt_rate($num, $den){
+    $n = (int)$num; $d = (int)$den;
+    if ($d <= 0 || $n <= 0) return '-';
+    return number_format($n * 100 / $d, 1) . '%';
+}
+
+function build_common_joins($member_table, $need_member_filter, $need_target_join_for_stats) {
+    // 통계에서 t JOIN은 필요할 때만
+    $join_target = $need_target_join_for_stats ? "JOIN call_target t ON t.target_id = l.target_id" : "";
+    // 통계에서 company 필터가 있으면 m JOIN 필요(최적화: INNER)
+    if ($need_member_filter) {
+        $join_member = "JOIN {$member_table} m ON m.mb_no = l.mb_no";
+    } else {
+        $join_member = ""; // company 필터 없으면 통계에서 m JOIN 제거
+    }
+    return [$join_target, $join_member];
+}
+
+/**
+ * where 빌더: "조건 문자열(where_sql)"을 만들되,
+ * - 어떤 JOIN이 필요한지 플래그도 함께 반환
+ * - (주의) 기존 코드의 where_sql은 l/t/m 혼합 가능 => 그에 맞춰 flags 반환
+ */
+function build_where_and_flags($params) {
+    $member_table = $params['member_table'];
+    $mb_level = (int)$params['mb_level'];
+    $mb_no = (int)$params['mb_no'];
+    $my_group = (int)$params['my_group'];
+    $my_company_id = (int)$params['my_company_id'];
+
+    $sel_company_id = (int)$params['sel_company_id'];
+    $sel_mb_group = (int)$params['sel_mb_group'];
+    $sel_agent_no = (int)$params['sel_agent_no'];
+
+    $start_date = $params['start_date'];
+    $end_date   = $params['end_date'];
+
+    $q = $params['q'];
+    $q_type = $params['q_type'];
+    $f_status = (int)$params['f_status'];
+
+    $where = [];
+    $start_esc = sql_escape_string($start_date);
+    $end_esc   = sql_escape_string($end_date);
+    $where[]   = "l.call_start BETWEEN '{$start_esc}' AND '{$end_esc}'";
+
+    if ($f_status > 0) {
+        $where[] = "l.call_status = {$f_status}";
+    }
+
+    // 플래그: 통계/카운트에서 call_target JOIN 필요한지
+    $need_target_join = false;
+
+    if ($q !== '' && $q_type !== '') {
+        if ($q_type === 'name') {
+            $q_esc = sql_escape_string($q);
+            $where[] = "t.name LIKE '%{$q_esc}%'";
+            $need_target_join = true;
+        } elseif ($q_type === 'last4') {
+            $q4 = preg_replace('/\D+/', '', $q);
+            $q4 = substr($q4, -4);
+            if ($q4 !== '') {
+                $q4_esc = sql_escape_string($q4);
+                $where[] = "t.hp_last4 = '{$q4_esc}'";
+                $need_target_join = true;
+            }
+        } elseif ($q_type === 'full') {
+            $hp = preg_replace('/\D+/', '', $q);
+            if ($hp !== '') {
+                $hp_esc = sql_escape_string($hp);
+                $where[] = "l.call_hp = '{$hp_esc}'";
+            }
+        } elseif ($q_type === 'all') {
+            $q_esc = sql_escape_string($q);
+            $q4    = substr(preg_replace('/\D+/', '', $q), -4);
+            $hp    = preg_replace('/\D+/', '', $q);
+            $conds = ["t.name LIKE '%{$q_esc}%'"];
+            $need_target_join = true;
+            if ($q4 !== '') $conds[] = "t.hp_last4 = '".sql_escape_string($q4)."'";
+            if ($hp !== '') $conds[] = "l.call_hp = '".sql_escape_string($hp)."'";
+            if ($conds) $where[] = '(' . implode(' OR ', $conds) . ')';
+        }
+    }
+
+    // 권한/선택 스코프
+    if ($mb_level == 7) {
+        $where[] = "l.mb_group = {$my_group}";
+    } elseif ($mb_level < 7) {
+        $where[] = "l.mb_no = {$mb_no}";
+    } else {
+        // 8/9+ 회사필터는 m.company_id라서 member join 필요
+        if ($mb_level == 8) {
+            $where[] = "m.company_id = {$my_company_id}";
+        } elseif ($mb_level >= 9 && $sel_company_id > 0) {
+            $where[] = "m.company_id = {$sel_company_id}";
+        }
+        if ($sel_mb_group > 0) $where[] = "l.mb_group = {$sel_mb_group}";
+    }
+    if ($sel_agent_no > 0) {
+        $where[] = "l.mb_no = {$sel_agent_no}";
+    }
+
+    $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
+
+    // company 조건이 있으면 member join 필요
+    $need_member_filter = (strpos($where_sql, 'm.company_id') !== false);
+
+    return [
+        'where_sql' => $where_sql,
+        'need_member_filter' => $need_member_filter,
+        'need_target_join_for_stats' => $need_target_join,
+    ];
+}
+
+/**
+ * 상세목록/COUNT를 위해 "필요한 JOIN만" 만드는 헬퍼
+ * - where_sql이 t/m을 참조할 수 있으므로, 플래그 기반으로 JOIN을 추가한다.
+ */
+function build_scope_joins_for_where($member_table, $need_member_filter, $need_target_join) {
+    $j = [];
+    if ($need_target_join) {
+        $j[] = "JOIN call_target t ON t.target_id = l.target_id";
+    }
+    if ($need_member_filter) {
+        // where에서 m.company_id 필터를 쓰기 위해 필요
+        $j[] = "JOIN {$member_table} m ON m.mb_no = l.mb_no";
+    }
+    return implode("\n", $j);
+}
+
+/**
+ * 상세목록 최적화 쿼리:
+ * 1) (서브쿼리) call_log에서 call_id 50건(정렬+LIMIT) 먼저 확정
+ * 2) 확정된 call_id만 가지고 필요한 JOIN(t/cc/sc/rec/m)을 수행
+ *
+ * - 매우 중요: 슈퍼관리자(범위 넓음)일 때도 JOIN 폭발을 막음
+ * - where 조건에 t/m이 있으면 서브쿼리에서 해당 JOIN을 포함해야 함
+ */
+function build_list_sql_optimized($args) {
+    $member_table = $args['member_table'];
+    $where_sql = $args['where_sql'];
+    $offset = (int)$args['offset'];
+    $page_rows = (int)$args['page_rows'];
+
+    $need_member_filter = (bool)$args['need_member_filter'];
+    $need_target_join = (bool)$args['need_target_join_for_stats']; // where에 t가 필요할 때
+
+    // 서브쿼리 JOIN(검색/회사필터를 만족시키기 위한 최소 JOIN)
+    $sub_joins = build_scope_joins_for_where($member_table, $need_member_filter, $need_target_join);
+
+    // 서브쿼리에서 ORDER/LIMIT으로 call_id만 뽑는다.
+    // 인덱스 힌트는 환경마다 다를 수 있어 강제하지 않음(필요시 FORCE INDEX 추가 가능)
+    $sub = "
+        SELECT
+            l.call_id
+        FROM call_log l
+        {$sub_joins}
+        {$where_sql}
+        ORDER BY l.call_start DESC, l.call_id DESC
+        LIMIT {$offset}, {$page_rows}
+    ";
+
+    // 바깥에서 확정된 call_id만 JOIN
+    $sql = "
+        SELECT
+            l.call_id,
+            l.mb_group,
+            l.mb_no                                                        AS agent_id,
+            m.mb_name                                                      AS agent_name,
+            m.mb_id                                                        AS agent_mb_id,
+            m.company_id                                                   AS agent_company_id,
+            l.call_status,
+            sc.name_ko                                                     AS status_label,
+            sc.is_after_call                                               AS sc_is_after_call,
+            l.campaign_id,
+            l.target_id,
+            l.call_start,
+            l.call_end,
+            l.call_time,
+            l.agent_phone,
+            rec.duration_sec                                               AS talk_time,
+            t.name                                                         AS target_name,
+            t.birth_date,
+            CASE
+              WHEN t.birth_date IS NULL THEN NULL
+              ELSE TIMESTAMPDIFF(YEAR, t.birth_date, CURDATE())
+                   - (DATE_FORMAT(CURDATE(),'%m%d') < DATE_FORMAT(t.birth_date,'%m%d'))
+            END AS man_age,
+            l.call_hp,
+            t.meta_json,
+            cc.name                                                        AS campaign_name,
+            cc.is_open_number                                              AS cc_is_open_number
+        FROM (
+            {$sub}
+        ) pick
+        JOIN call_log l
+          ON l.call_id = pick.call_id
+        JOIN call_target t
+          ON t.target_id = l.target_id
+        LEFT JOIN {$member_table} m
+          ON m.mb_no = l.mb_no
+        LEFT JOIN call_status_code sc
+          ON sc.call_status = l.call_status AND sc.mb_group = 0
+        LEFT JOIN call_recording rec
+          ON rec.call_id = l.call_id
+         AND rec.mb_group = l.mb_group
+         AND rec.campaign_id = l.campaign_id
+        JOIN call_campaign cc
+          ON cc.campaign_id = l.campaign_id
+         AND cc.mb_group = l.mb_group
+        ORDER BY l.call_start DESC, l.call_id DESC
+    ";
+
+    return $sql;
+}
+
+/**
+ * COUNT 쿼리(페이징용):
+ * - where에서 t/m 참조 시 JOIN 포함
+ * - 그렇지 않으면 call_log만 COUNT
+ */
+function build_count_sql($member_table, $where_sql, $need_member_filter, $need_target_join_for_stats) {
+    $joins = build_scope_joins_for_where($member_table, $need_member_filter, $need_target_join_for_stats);
+
+    // call_target JOIN은 "검색 조건" 때문에 필요할 때만 들어감
+    // member JOIN은 "company filter" 때문에 필요할 때만 들어감
+    $sql = "
+        SELECT COUNT(*) AS cnt
+          FROM call_log l
+          {$joins}
+          {$where_sql}
+    ";
+    return $sql;
+}
+
+/* -----------------------------------------------------------
+ * 3) 코드/메타 로딩 (기존 유지)
+ * --------------------------------------------------------- */
 $codes = [];
 $rc = sql_query("
     SELECT call_status, name_ko, status, ui_type
@@ -55,7 +305,7 @@ $rc = sql_query("
 ");
 while ($r = sql_fetch_array($rc)) $codes[] = $r;
 
-// ★ 단일 after-call 코드 조회 (is_after_call=1, status=1 우선)
+// 단일 after-call 코드
 $after_code_row = sql_fetch("
     SELECT call_status, name_ko
       FROM call_status_code
@@ -66,9 +316,7 @@ $after_code_row = sql_fetch("
 $AFTER_STATUS = (int)($after_code_row['call_status'] ?? 0);
 $AFTER_LABEL  = $after_code_row['name_ko'] ?? '접수(후처리)';
 
-// --------------------------------------------------
-// 2차콜 상태코드 목록 (대기/접수/예약/보류/취소/기타 포함)
-// --------------------------------------------------
+// 2차콜 상태코드 목록
 $ac_code_list = [];
 $qr_ac = sql_query("
     SELECT state_id, name_ko, ui_type, status
@@ -83,16 +331,12 @@ while ($r = sql_fetch_array($qr_ac)) {
         'ui_type'  => $r['ui_type'] ?: 'secondary'
     ];
 }
-// ★ DB전환(10)이 코드테이블에 없으면 컬럼 표시를 위해 동적으로 추가
 if (!isset($ac_code_list[10])) {
     $ac_code_list[10] = ['state_id'=>10, 'name_ko'=>'DB전환', 'ui_type'=>'success'];
 }
 
-// ==================================================
-// (최적화) call_status_code 메타를 한번에 캐시
-//  - result_group(성공/실패 분류), is_after_call 등
-// ==================================================
-$STATUS_META = []; // [call_status] => ['result_group'=>0/1, 'is_after_call'=>0/1]
+// call_status_code 메타 캐시
+$STATUS_META = [];
 $qr_meta = sql_query("
     SELECT call_status,
            COALESCE(result_group, CASE WHEN call_status BETWEEN 200 AND 299 THEN 1 ELSE 0 END) AS result_group,
@@ -108,9 +352,9 @@ while ($r = sql_fetch_array($qr_meta)) {
     ];
 }
 
-// ===============================
-// AJAX: 접수(후처리)로 변경 (기존 기능 유지)
-// ===============================
+/* -----------------------------------------------------------
+ * 4) AJAX: 접수(후처리)로 변경 (기존 유지)
+ * --------------------------------------------------------- */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['mode'] ?? '') === 'convert_to_after') {
     header('Content-Type: application/json; charset=utf-8');
     require_once G5_LIB_PATH.'/call.assign.lib.php';
@@ -130,7 +374,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['mode'] ?? '') === 'convert
         echo json_encode(['ok'=>false,'message'=>'잘못된 요청값']); exit;
     }
 
-    // 대상 로드 + 권한 스코프 확인
     $row = sql_fetch("
         SELECT l.call_id, l.mb_group, l.mb_no, l.campaign_id, l.target_id,
                l.call_status AS cur_status,
@@ -147,7 +390,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['mode'] ?? '') === 'convert
     ");
     if (!$row) { echo json_encode(['ok'=>false,'message'=>'대상을 찾을 수 없습니다.']); exit; }
 
-    // 권한 스코프
     if ($mb_level < 9) {
         if ($mb_level == 8) {
             if ((int)$row['cur_company_id'] !== $my_company_id) {
@@ -160,61 +402,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['mode'] ?? '') === 'convert
         }
     }
 
-    // 이미 after-call 상태면 불가
     if ((int)$row['cur_is_after'] === 1) {
         echo json_encode(['ok'=>false,'message'=>'이미 접수(후처리) 상태입니다.']); exit;
     }
 
-    // 트랜잭션
     sql_query("START TRANSACTION");
     try {
         $target_id     = (int)$row['target_id'];
-        $mb_group      = (int)$row['mb_group'];
+        $mb_group2     = (int)$row['mb_group'];
         $campaign_id   = (int)$row['campaign_id'];
 
-        // 이전/이후 상태와 라벨 준비
         $before_status = (int)$row['cur_status'];
         $before_label  = get_text($row['status_label'] ?? '');
         $after_status  = $AFTER_STATUS;
         $after_label   = $AFTER_LABEL;
 
-        $before_label_esc = sql_escape_string($before_label);
-        $after_label_esc  = sql_escape_string($after_label);
-
-        $operator_name    = get_text($member['mb_name'] ?? $member['mb_id'] ?? '');
-        $operator_name_esc= sql_escape_string($operator_name);
-        $operator_no      = (int)$mb_no;
+        $operator_name     = get_text($member['mb_name'] ?? $member['mb_id'] ?? '');
+        $operator_name_esc = sql_escape_string($operator_name);
+        $operator_no       = (int)$mb_no;
 
         $memo_line = "[상태변경 ".date('Y-m-d H:i:s')." by {$operator_no}/{$operator_name}] "
                 . "{$before_status}({$before_label}) → {$after_status}({$after_label})";
 
-        // 업데이트
         sql_query("
-        UPDATE call_log
-           SET call_status    = {$after_status},
-               call_updatedat = NOW(),
-               memo           = CONCAT_WS('\n','".sql_escape_string($memo_line)."', IFNULL(memo,''))
-         WHERE call_id = {$call_id}
+            UPDATE call_log
+               SET call_status    = {$after_status},
+                   call_updatedat = NOW(),
+                   memo           = CONCAT_WS('\\n','".sql_escape_string($memo_line)."', IFNULL(memo,''))
+             WHERE call_id = {$call_id}
         ");
 
-        sql_query("UPDATE call_target
-                      SET last_result={$AFTER_STATUS}, updated_at=NOW()
-                    WHERE target_id={$target_id}
-                      AND mb_group={$mb_group}
-                      AND campaign_id={$campaign_id}");
+        sql_query("
+            UPDATE call_target
+               SET last_result={$AFTER_STATUS}, updated_at=NOW()
+             WHERE target_id={$target_id}
+               AND mb_group={$mb_group2}
+               AND campaign_id={$campaign_id}
+        ");
 
-        // aftercall 티켓 발급 + 배정
         $initial_after_state = 1;
         $ac_result = aftercall_issue_and_assign_one(
             $campaign_id,
-            $mb_group,
+            $mb_group2,
             $target_id,
             $initial_after_state,
-            $mb_no,          // 조작자
-            null,            // scheduled_at
-            null,            // schedule_note
+            $mb_no,
+            null,
+            null,
             '[SYSTEM] 1차 상담 전환 - 관리자 상태 변경',
-            false            // force_reassign
+            false
         );
 
         sql_query("COMMIT");
@@ -228,84 +464,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['mode'] ?? '') === 'convert
             'ac_result'=>$ac_result
         ]);
         exit;
+
     } catch (Throwable $e) {
         sql_query("ROLLBACK");
         echo json_encode(['ok'=>false,'message'=>'DB 오류: '.$e->getMessage()]); exit;
     }
 }
 
-// --------------------------------------------------
-// WHERE 구성 (company/group/agent/기간/검색)
-//  - (최적화) t 조건이 없으면 call_target JOIN을 통계 쿼리에서 생략 가능
-//  - (최적화) m 조건(company)이 있으면 JOIN g5_member를 INNER로
-// --------------------------------------------------
-$where = [];
-$start_esc = sql_escape_string($start_date);
-$end_esc   = sql_escape_string($end_date);
-$where[]   = "l.call_start BETWEEN '{$start_esc}' AND '{$end_esc}'";
+/* -----------------------------------------------------------
+ * 5) WHERE & flags 생성
+ * --------------------------------------------------------- */
+$wf = build_where_and_flags([
+    'member_table' => $member_table,
+    'mb_level' => $mb_level,
+    'mb_no' => $mb_no,
+    'my_group' => $my_group,
+    'my_company_id' => $my_company_id,
+    'sel_company_id' => $sel_company_id,
+    'sel_mb_group' => $sel_mb_group,
+    'sel_agent_no' => $sel_agent_no,
+    'start_date' => $start_date,
+    'end_date' => $end_date,
+    'q' => $q,
+    'q_type' => $q_type,
+    'f_status' => $f_status,
+]);
 
-if ($f_status > 0) {
-    $where[] = "l.call_status = {$f_status}";
-}
+$where_sql = $wf['where_sql'];
+$need_member_filter = $wf['need_member_filter'];
+$need_target_join_for_stats = $wf['need_target_join_for_stats'];
 
-// 통계 쿼리에서 call_target JOIN이 필요한지(검색이 t 컬럼을 참조하는지)
-$need_target_join_for_stats = false;
-
-if ($q !== '' && $q_type !== '') {
-    if ($q_type === 'name') {
-        $q_esc = sql_escape_string($q);
-        $where[] = "t.name LIKE '%{$q_esc}%'";
-        $need_target_join_for_stats = true;
-    } elseif ($q_type === 'last4') {
-        $q4 = preg_replace('/\D+/', '', $q);
-        $q4 = substr($q4, -4);
-        if ($q4 !== '') {
-            $q4_esc = sql_escape_string($q4);
-            $where[] = "t.hp_last4 = '{$q4_esc}'";
-            $need_target_join_for_stats = true;
-        }
-    } elseif ($q_type === 'full') {
-        $hp = preg_replace('/\D+/', '', $q);
-        if ($hp !== '') {
-            $hp_esc = sql_escape_string($hp);
-            $where[] = "l.call_hp = '{$hp_esc}'";
-        }
-    } elseif ($q_type === 'all') {
-        $q_esc = sql_escape_string($q);
-        $q4    = substr(preg_replace('/\D+/', '', $q), -4);
-        $hp    = preg_replace('/\D+/', '', $q);
-        $conds = ["t.name LIKE '%{$q_esc}%'"];
-        $need_target_join_for_stats = true;
-        if ($q4 !== '') $conds[] = "t.hp_last4 = '".sql_escape_string($q4)."'";
-        if ($hp !== '') $conds[] = "l.call_hp = '".sql_escape_string($hp)."'";
-        if ($conds) $where[] = '(' . implode(' OR ', $conds) . ')';
-    }
-}
-
-// 권한/선택 스코프
-if ($mb_level == 7) {
-    $where[] = "l.mb_group = {$my_group}";
-} elseif ($mb_level < 7) {
-    $where[] = "l.mb_no = {$mb_no}";
-} else {
-    if ($mb_level == 8) {
-        $where[] = "m.company_id = {$my_company_id}";
-    } elseif ($mb_level >= 9 && $sel_company_id > 0) {
-        $where[] = "m.company_id = {$sel_company_id}";
-    }
-    if ($sel_mb_group > 0) $where[] = "l.mb_group = {$sel_mb_group}";
-}
-if ($sel_agent_no > 0) {
-    $where[] = "l.mb_no = {$sel_agent_no}";
-}
-$where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
-
-// m.company_id 조건이 있으면 member JOIN은 INNER로 (최적화)
-$need_member_filter = (strpos($where_sql, 'm.company_id') !== false);
-
-// --------------------------------------------------
-// 코드 리스트(요약 헤더용)
-// --------------------------------------------------
+/* -----------------------------------------------------------
+ * 6) 코드 리스트(요약 헤더용) (기존 유지)
+ * --------------------------------------------------------- */
 $code_list = get_code_list($sel_mb_group);
 $code_list_status = [];
 $status_ui = [];
@@ -314,43 +505,23 @@ foreach($code_list as $v) {
     $status_ui[(int)$v['call_status']] = $v['ui_type'] ?? 'secondary';
 }
 
-/**
- * (공통) JOIN 절 빌더
- * - 통계용에서 call_target JOIN은 필요할 때만 사용
- * - g5_member JOIN은 company filter 존재 여부에 따라 INNER/LEFT
- */
-function build_common_joins($member_table, $need_member_filter, $need_target_join_for_stats) {
-    $join_target = $need_target_join_for_stats ? "JOIN call_target t ON t.target_id = l.target_id" : "";
-    if ($need_member_filter) {
-        $join_member = "JOIN {$member_table} m ON m.mb_no = l.mb_no";
-    } else {
-        $join_member = ""; // ★ 슈퍼관리자/회사필터 없으면 JOIN 자체 제거
-    }
-    return [$join_target, $join_member];
-}
-
-// --------------------------------------------------
-// (공통) 통계 계산 함수  ← ★ 성능 최적화 버전
-//      - 1차 상태 집계: 콜 건수 기반 (기존 유지)
-//      - 2차 상태/DB전환: 고유 target_id 기반 (기존 유지하되 PHP DISTINCT 제거, EXISTS 제거)
-// --------------------------------------------------
+/* -----------------------------------------------------------
+ * 7) 통계 계산 함수 (기존 첨부 코드 유지)
+ * --------------------------------------------------------- */
 function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $sel_mb_group, $after_status, $ac_code_list, $status_meta, $need_member_filter, $need_target_join_for_stats) {
     $result = [
-        // 1) 1차 콜 상태 집계
         'top_sum_by_status' => [],
         'success_total' => 0,
         'fail_total' => 0,
         'grand_total' => 0,
         'after_total' => 0,
 
-        // 2) 차원 피벗
         'dim_mode' => 'group',
         'matrix' => [],
         'dim_totals' => [],
         'dim_labels' => [],
         'dim_after_totals' => [],
 
-        // 3) 지점 미선택 섹션
         'group_agent_matrix' => [],
         'group_agent_totals' => [],
         'group_totals' => [],
@@ -359,20 +530,17 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         'group_after_totals' => [],
         'group_agent_after_totals' => [],
 
-        // 4) 2차 상태/DB전환 (고유 target 기준)
         'ac_state_labels' => [],
         'ac_state_totals' => [],
         'dbconv_total'    => 0,
         'dim_ac_state_totals' => [],
         'dim_dbconv_totals'   => [],
 
-        // 지점 미선택 섹션용
         'group_ac_state_totals' => [],
         'group_dbconv_totals'   => [],
         'group_agent_ac_state_totals' => [],
         'group_agent_dbconv_totals'   => [],
 
-        // 고유 대상 수(분모)
         'distinct_target_count' => 0,
         'dim_distinct_target_count' => [],
         'group_distinct_target_count' => [],
@@ -386,9 +554,7 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
     // JOIN 빌드
     [$join_target, $join_member] = build_common_joins($member_table, $need_member_filter, $need_target_join_for_stats);
 
-    // -----------------------------
     // A) 1차 콜 상태 총합(콜 건수 기반)
-    // -----------------------------
     $sql_top_sum = "
         SELECT l.call_status, COUNT(*) AS cnt
           FROM call_log l
@@ -412,9 +578,7 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         }
     }
 
-    // -----------------------------
     // B) 피벗(콜 건수 기반)
-    // -----------------------------
     $dim_mode = ($mb_level >= 8 && $sel_mb_group === 0) ? 'group'
               : (($sel_mb_group > 0) ? 'agent' : 'group');
     $result['dim_mode'] = $dim_mode;
@@ -461,9 +625,7 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         }
     }
 
-    // -----------------------------
     // C) 지점 미선택 시: 지점-상담자 (콜 건수 기반)
-    // -----------------------------
     if ($sel_mb_group === 0) {
         $sql_ga = "
             SELECT l.mb_group AS gid, l.mb_no AS agent_id, l.call_status, COUNT(*) AS cnt
@@ -523,13 +685,7 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         }
     }
 
-    // ============================================================
     // D) 2차 상태/DB전환 집계(고유 target_id 기준)
-    //  - (최적화) DISTINCT target_id를 PHP로 끌고오지 않고 COUNT(DISTINCT) 사용
-    //  - (최적화) aftercall 집계는 EXISTS 제거, DISTINCT 서브쿼리 + JOIN 사용
-    // ============================================================
-
-    // 1) 전체 고유 대상 수
     $row_dt = sql_fetch("
         SELECT COUNT(DISTINCT l.target_id) AS cnt
           FROM call_log l
@@ -539,10 +695,10 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
     ");
     $result['distinct_target_count'] = (int)($row_dt['cnt'] ?? 0);
 
-    // 2) 차원별 고유 대상 수
-    $dim_select = ($result['dim_mode']==='group') ? 'l.mb_group' : 'l.mb_no';
+    // 차원별 고유 대상 수
+    $dim_select2 = ($result['dim_mode']==='group') ? 'l.mb_group' : 'l.mb_no';
     $sql_dim_dt_cnt = "
-        SELECT {$dim_select} AS dim_id, COUNT(DISTINCT l.target_id) AS cnt
+        SELECT {$dim_select2} AS dim_id, COUNT(DISTINCT l.target_id) AS cnt
           FROM call_log l
           {$join_target}
           {$join_member}
@@ -555,7 +711,7 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         $result['dim_distinct_target_count'][$did] = (int)$r['cnt'];
     }
 
-    // 3) 지점-상담자별 고유 대상 수
+    // 지점-상담자별 고유 대상 수
     if ($sel_mb_group === 0) {
         $sql_ga_dt_cnt = "
             SELECT l.mb_group AS gid, l.mb_no AS aid, COUNT(DISTINCT l.target_id) AS cnt
@@ -577,9 +733,8 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         }
     }
 
-    // -------- 전체 분포 / DB전환
+    // 전체 2차 분포 / DB전환
     if ($result['distinct_target_count'] > 0) {
-        // (주의) 기존 로직과 동일하게 target_id 기준으로만 tk를 붙임 (캠페인/지점까지 엄밀히 묶고 싶으면 tuple로 바꿔야 함)
         $sql_ac_all = "
             SELECT tk.state_id, COUNT(*) AS cnt
               FROM call_aftercall_ticket tk
@@ -600,11 +755,11 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         }
     }
 
-    // -------- 차원별 분포 / DB전환
+    // 차원별 분포 / DB전환
     $sql_ac_dim = "
         SELECT dt.dim_id, tk.state_id, COUNT(*) AS cnt
           FROM (
-                SELECT {$dim_select} AS dim_id, l.target_id
+                SELECT {$dim_select2} AS dim_id, l.target_id
                   FROM call_log l
                   {$join_target}
                   {$join_member}
@@ -628,7 +783,7 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
         }
     }
 
-    // -------- 지점-상담자 분포 / DB전환
+    // 지점-상담자 분포 / DB전환
     if ($sel_mb_group === 0) {
         $sql_ac_ga = "
             SELECT gadt.gid, gadt.aid, tk.state_id, COUNT(*) AS cnt
@@ -671,79 +826,28 @@ function build_stats($where_sql, $member_table, $code_list_status, $mb_level, $s
     return $result;
 }
 
-// --------------------------------------------------
-// 총 건수 (상세 리스트 페이징용) - 콜 건수
-//  - (주의) 상세 리스트는 t 컬럼이 필요하므로 JOIN 유지
-// --------------------------------------------------
-if($need_member_filter) {
-    $sql_cnt = "SELECT COUNT(*) AS cnt
-        FROM call_log l FORCE INDEX (idx_log_start_group_agent_status)
-        JOIN call_target t ON t.target_id = l.target_id
-    LEFT JOIN {$member_table} m ON m.mb_no = l.mb_no
-        {$where_sql}
-    ";
-} else {
-    $sql_cnt = "SELECT COUNT(*) AS cnt
-        FROM call_log l FORCE INDEX (idx_call_log_start_status)
-        {$where_sql}
-    ";
-}
+/* -----------------------------------------------------------
+ * 8) COUNT / LIST (리팩토링 + 성능 개선 적용)
+ * --------------------------------------------------------- */
+// COUNT
+$sql_cnt = build_count_sql($member_table, $where_sql, $need_member_filter, $need_target_join_for_stats);
 $row_cnt = sql_fetch($sql_cnt);
 $total_count = (int)($row_cnt['cnt'] ?? 0);
 
-// --------------------------------------------------
-// 상세 목록 쿼리 (기존 유지: t/cc/sc/rec 필요)
-// --------------------------------------------------
-$sql_list = "
-    SELECT
-        l.call_id,
-        l.mb_group,
-        l.mb_no                                                        AS agent_id,
-        m.mb_name                                                      AS agent_name,
-        m.mb_id                                                        AS agent_mb_id,
-        m.company_id                                                   AS agent_company_id,
-        l.call_status,
-        sc.name_ko                                                     AS status_label,
-        sc.is_after_call                                               AS sc_is_after_call,
-        l.campaign_id,
-        l.target_id,
-        l.call_start,
-        l.call_end,
-        l.call_time,
-        l.agent_phone,
-        rec.duration_sec                                               AS talk_time,
-        t.name                                                         AS target_name,
-        t.birth_date,
-        CASE
-          WHEN t.birth_date IS NULL THEN NULL
-          ELSE TIMESTAMPDIFF(YEAR, t.birth_date, CURDATE())
-               - (DATE_FORMAT(CURDATE(),'%m%d') < DATE_FORMAT(t.birth_date,'%m%d'))
-        END AS man_age,
-        l.call_hp,
-        t.meta_json,
-        cc.name                                                        AS campaign_name,
-        cc.is_open_number                                              AS cc_is_open_number
-    FROM call_log l
-    JOIN call_target t  ON t.target_id = l.target_id
- LEFT JOIN {$member_table} m ON m.mb_no = l.mb_no
- LEFT JOIN call_status_code sc
-        ON sc.call_status = l.call_status AND sc.mb_group = 0
- LEFT JOIN call_recording rec
-        ON rec.call_id = l.call_id
-       AND rec.mb_group = l.mb_group
-       AND rec.campaign_id = l.campaign_id
-  JOIN call_campaign cc
-        ON cc.campaign_id = l.campaign_id
-       AND cc.mb_group = l.mb_group
-    {$where_sql}
-    ORDER BY l.call_start DESC, l.call_id DESC
-    LIMIT {$offset}, {$page_rows}
-";
+// LIST (최적화: 먼저 call_id 50건 확정 후 JOIN)
+$sql_list = build_list_sql_optimized([
+    'member_table' => $member_table,
+    'where_sql' => $where_sql,
+    'offset' => $offset,
+    'page_rows' => $page_rows,
+    'need_member_filter' => $need_member_filter,
+    'need_target_join_for_stats' => $need_target_join_for_stats,
+]);
 $res_list = sql_query($sql_list);
 
-// --------------------------------------------------
-// 통계 계산 (상단/피벗/지점별담당자 + 2차/DB전환)
-// --------------------------------------------------
+/* -----------------------------------------------------------
+ * 9) 통계 계산
+ * --------------------------------------------------------- */
 $stats = build_stats(
     $where_sql,
     $member_table,
@@ -757,14 +861,12 @@ $stats = build_stats(
     $need_target_join_for_stats
 );
 
-// 1차 콜 상태 요약
 $top_sum_by_status = $stats['top_sum_by_status'];
 $success_total = $stats['success_total'];
 $fail_total = $stats['fail_total'];
 $grand_total = $stats['grand_total'];
 $after_total = $stats['after_total'];
 
-// 2차 상태/DB전환(고유 대상 기준)
 $ac_state_labels  = $stats['ac_state_labels'];
 unset($ac_state_labels[10]);
 $ac_state_totals  = $stats['ac_state_totals'];
@@ -786,12 +888,10 @@ $agent_labels        = $stats['agent_labels'];
 $group_after_totals        = $stats['group_after_totals'];
 $group_agent_after_totals  = $stats['group_agent_after_totals'];
 
-// 2차/DB전환 차원별
 $dim_ac_state_totals = $stats['dim_ac_state_totals'];
 $dim_dbconv_totals   = $stats['dim_dbconv_totals'];
 $dim_distinct_target_count = $stats['dim_distinct_target_count'];
 
-// 2차/DB전환 지점-상담자별
 $group_ac_state_totals = $stats['group_ac_state_totals'];
 $group_dbconv_totals   = $stats['group_dbconv_totals'];
 $group_agent_ac_state_totals = $stats['group_agent_ac_state_totals'];
@@ -799,24 +899,16 @@ $group_agent_dbconv_totals   = $stats['group_agent_dbconv_totals'];
 $group_distinct_target_count = $stats['group_distinct_target_count'];
 $group_agent_distinct_target_count = $stats['group_agent_distinct_target_count'];
 
-/* ===============================
- * 캠페인별 통계 계산 (최적화)
- *  - (중요) $res_camp_calls = sql_query($sql_camp_calls); 이 부분 최적화
- *  - call_target JOIN 제거(통계에서 필요없음)
- *  - 먼저 call_log에서 집계 후 call_campaign에 조인(이름은 마지막에)
- *  - member 조인은 company filter 있을 때 INNER로
- * =============================== */
-
-// 캠페인별 1차 콜 상태 집계
+/* -----------------------------------------------------------
+ * 10) 캠페인별 통계 (기존 코드 유지)
+ * --------------------------------------------------------- */
 $camp_totals          = [];
 $camp_after_totals    = [];
-$camp_status_matrix   = [];   // [campaign_id][call_status] => cnt
-$camp_labels          = [];   // [campaign_id] => name
+$camp_status_matrix   = [];
+$camp_labels          = [];
 
-// 통계용 JOIN 빌드(캠페인 집계도 t는 필요할 때만)
 [$join_target_stats, $join_member_stats] = build_common_joins($member_table, $need_member_filter, $need_target_join_for_stats);
 
-// ★ 1) 캠페인별 1차 상태 집계: 먼저 집계 후 캠페인명 조인
 $sql_camp_calls = "
     SELECT
         x.campaign_id,
@@ -859,8 +951,7 @@ while ($r = sql_fetch_array($res_camp_calls)) {
     }
 }
 
-// ★ 2) 캠페인별 고유 대상 수 (DB전환 분모) - COUNT(DISTINCT)로 최적화
-$camp_distinct_target_count = []; // [campaign_id] => cnt
+$camp_distinct_target_count = [];
 $sql_camp_dt = "
     SELECT l.campaign_id, COUNT(DISTINCT l.target_id) AS cnt
       FROM call_log l
@@ -875,9 +966,8 @@ while ($r = sql_fetch_array($res_camp_dt)) {
     $camp_distinct_target_count[$cid] = (int)$r['cnt'];
 }
 
-// ★ 3) 캠페인별 2차 상태 / DB전환(state_id=10) - EXISTS 제거 + DISTINCT 서브쿼리 조인
-$camp_ac_state_totals = [];   // [campaign_id][state_id] => cnt
-$camp_dbconv_totals   = [];   // [campaign_id] => cnt(state_id=10)
+$camp_ac_state_totals = [];
+$camp_dbconv_totals   = [];
 
 $sql_ac_camp = "
     SELECT
@@ -912,24 +1002,17 @@ while ($r = sql_fetch_array($res_ac_camp)) {
     }
 }
 
-// ★ 전환율 포맷터
-$fmt_rate = function($num, $den){
-    $n = (int)$num; $d = (int)$den;
-    if ($d <= 0 || $n <= 0) return '-';
-    return number_format($n * 100 / $d, 1) . '%';
-};
-
-// ========================
-// 조직 드롭다운 옵션
-// ========================
+/* -----------------------------------------------------------
+ * 11) 조직 드롭다운 옵션
+ * --------------------------------------------------------- */
 $build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
 $company_options = $build_org_select_options['company_options'];
 $group_options   = $build_org_select_options['group_options'];
 $agent_options   = $build_org_select_options['agent_options'];
 
-// --------------------------------------------------
-// 화면 출력
-// --------------------------------------------------
+/* -----------------------------------------------------------
+ * 12) 화면 출력 (이하 HTML은 첨부 코드 최대 유지)
+ * --------------------------------------------------------- */
 $token = get_token();
 $g5['title'] = '통계확인';
 include_once(G5_ADMIN_PATH.'/admin.head.php');
@@ -1072,13 +1155,13 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
     &nbsp;/&nbsp;
     실패: <span class="badge badge-fail"><span id="stat_fail_total"><?php echo number_format($fail_total);?></span></span>
     &nbsp;|&nbsp;
-    접수전환율: <b><?php echo $fmt_rate($after_total, $grand_total); ?></b>
+    접수전환율: <b><?php echo fmt_rate($after_total, $grand_total); ?></b>
     &nbsp;|&nbsp;
     대상수: <b><?php echo number_format($distinct_targets); ?></b> 건
     &nbsp;|&nbsp;
     DB전환수: <b><?php echo number_format($dbconv_total); ?></b> 건
     &nbsp;|&nbsp;
-    DB전환율: <b><?php echo $fmt_rate($dbconv_total, $distinct_targets); ?></b>
+    DB전환율: <b><?php echo fmt_rate($dbconv_total, $distinct_targets); ?></b>
 </p>
 
 <!-- 피벗 요약 테이블 -->
@@ -1103,7 +1186,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
         <tr style="background:#fafafa;font-weight:bold;">
             <td>합계</td>
             <td><?php echo number_format($grand_total); ?></td>
-            <td><?php echo $fmt_rate($after_total, $grand_total); ?></td>
+            <td><?php echo fmt_rate($after_total, $grand_total); ?></td>
             <?php
             foreach ($code_list_status as $k => $item) {
                 $cnt = !empty($top_sum_by_status[$k]) ? number_format($top_sum_by_status[$k]) : '-';
@@ -1113,7 +1196,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
             ?>
             <td style="background:#eef7ff"><?php echo number_format($distinct_targets); ?></td>
             <td style="background:#eef7ff"><?php echo number_format($dbconv_total); ?></td>
-            <td style="background:#eef7ff"><?php echo $fmt_rate($dbconv_total, $distinct_targets); ?></td>
+            <td style="background:#eef7ff"><?php echo fmt_rate($dbconv_total, $distinct_targets); ?></td>
             <?php
             foreach ($ac_state_labels as $sid=>$nm) {
                 $cnt = isset($ac_state_totals[$sid]) ? number_format($ac_state_totals[$sid]) : '-';
@@ -1138,7 +1221,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                 echo '<tr>';
                 echo '<td>'.get_text($label).'</td>';
                 echo '<td>'.number_format($row_total).'</td>';
-                echo '<td>'.$fmt_rate($row_after, $row_total).'</td>';
+                echo '<td>'.fmt_rate($row_after, $row_total).'</td>';
                 foreach ($code_list_status as $k => $item) {
                     $cnt = isset($rowset[$k]) ? number_format($rowset[$k]) : '-';
                     $ui = $item['ui_type'] ?? 'secondary';
@@ -1146,7 +1229,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                 }
                 echo '<td style="background:#eef7ff">'.($d_distinct?number_format($d_distinct):'-').'</td>';
                 echo '<td style="background:#eef7ff">'.($d_dbconv?number_format($d_dbconv):'-').'</td>';
-                echo '<td style="background:#eef7ff">'.$fmt_rate($d_dbconv, $d_distinct).'</td>';
+                echo '<td style="background:#eef7ff">'.fmt_rate($d_dbconv, $d_distinct).'</td>';
 
                 foreach ($ac_state_labels as $sid=>$nm) {
                     $cnt = isset($dim_ac_state_totals[$did][$sid]) ? number_format($dim_ac_state_totals[$did][$sid]) : '-';
@@ -1206,7 +1289,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                 echo '<tr>';
                 echo '<td title="'.get_text($label_full).'" class="td_left">'.get_text($label_short).'</td>';
                 echo '<td>'.($row_total?number_format($row_total):'-').'</td>';
-                echo '<td>'.$fmt_rate($row_after, $row_total).'</td>';
+                echo '<td>'.fmt_rate($row_after, $row_total).'</td>';
 
                 foreach ($code_list_status as $st => $item) {
                     $cnt = isset($status_row[$st]) ? number_format($status_row[$st]) : '-';
@@ -1216,7 +1299,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 
                 echo '<td style="background:#eef7ff">'.($dist_cnt?number_format($dist_cnt):'-').'</td>';
                 echo '<td style="background:#eef7ff">'.($dbconv_cnt?number_format($dbconv_cnt):'-').'</td>';
-                echo '<td style="background:#eef7ff">'.$fmt_rate($dbconv_cnt, $dist_cnt).'</td>';
+                echo '<td style="background:#eef7ff">'.fmt_rate($dbconv_cnt, $dist_cnt).'</td>';
 
                 foreach ($ac_state_labels as $sid => $nm) {
                     $cnt = isset($state_row[$sid]) ? number_format($state_row[$sid]) : '-';
@@ -1263,7 +1346,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                         <td><?php echo get_text($group_labels[$gid] ?? ('지점 '.$gid)); ?> 합계</td>
                         <?php $g_total = (int)($group_totals[$gid] ?? 0); ?>
                         <td><?php echo number_format($g_total); ?></td>
-                        <td><?php echo $fmt_rate((int)($group_after_totals[$gid] ?? 0), $g_total); ?></td>
+                        <td><?php echo fmt_rate((int)($group_after_totals[$gid] ?? 0), $g_total); ?></td>
                         <?php
                         $status_sum = [];
                         foreach ($agents as $aid => $rowset) {
@@ -1282,7 +1365,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                         $g_dbconv   = (int)($group_dbconv_totals[$gid] ?? 0);
                         echo '<td style="background:#eef7ff">'.($g_distinct?number_format($g_distinct):'-').'</td>';
                         echo '<td style="background:#eef7ff">'.($g_dbconv?number_format($g_dbconv):'-').'</td>';
-                        echo '<td style="background:#eef7ff">'.$fmt_rate($g_dbconv, $g_distinct).'</td>';
+                        echo '<td style="background:#eef7ff">'.fmt_rate($g_dbconv, $g_distinct).'</td>';
 
                         $g_state_sum = [];
                         if (!empty($group_ac_state_totals[$gid])) $g_state_sum = $group_ac_state_totals[$gid];
@@ -1306,7 +1389,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                         echo '<tr>';
                         echo '<td>'.get_text($alabel).'</td>';
                         echo '<td>'.number_format($row_total).'</td>';
-                        echo '<td>'.$fmt_rate($row_after, $row_total).'</td>';
+                        echo '<td>'.fmt_rate($row_after, $row_total).'</td>';
                         foreach ($code_list_status as $k => $item) {
                             $cnt = isset($rowset[$k]) ? number_format($rowset[$k]) : '-';
                             $ui = $item['ui_type'] ?? 'secondary';
@@ -1315,7 +1398,7 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 
                         echo '<td style="background:#eef7ff">'.($ga_distinct?number_format($ga_distinct):'-').'</td>';
                         echo '<td style="background:#eef7ff">'.($ga_dbconv?number_format($ga_dbconv):'-').'</td>';
-                        echo '<td style="background:#eef7ff">'.$fmt_rate($ga_dbconv, $ga_distinct).'</td>';
+                        echo '<td style="background:#eef7ff">'.fmt_rate($ga_dbconv, $ga_distinct).'</td>';
 
                         foreach ($ac_state_labels as $sid=>$nm) {
                             $cnt = isset($group_agent_ac_state_totals[$gid][$aid][$sid]) ? number_format($group_agent_ac_state_totals[$gid][$aid][$sid]) : '-';
@@ -1380,7 +1463,6 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
                 $ui = !empty($status_ui[$row['call_status']]) ? $status_ui[$row['call_status']] : 'secondary';
                 $class = 'status-col status-'.get_text($ui);
 
-                // 전화번호 숨김 규칙
                 if ((int)$row['cc_is_open_number'] === 0 && (int)$row['sc_is_after_call'] !== 1 && $mb_level < 9) {
                     $hp_display = '(숨김처리)';
                 } else {
@@ -1456,9 +1538,7 @@ $base = './call_stats.php?'.http_build_query($qstr);
 </div>
 
 <script>
-// ===============================
 // 회사→지점 셀렉트 자동 전송
-// ===============================
 (function(){
     var companySel = document.getElementById('company_id');
     var groupSel   = document.getElementById('mb_group');
@@ -1493,9 +1573,7 @@ $base = './call_stats.php?'.http_build_query($qstr);
 </script>
 
 <script>
-// ===============================
 // 접수로 변경 버튼 처리 (기존)
-// ===============================
 (function(){
   const table = document.querySelector('table.table-fixed');
   if (!table) return;

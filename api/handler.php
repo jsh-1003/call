@@ -251,12 +251,14 @@ function handle_call_upload(): void {
     //     send_json(['success'=>false, 'message'=>'failed to insert call_log'], 500);
     // }
 
-    $qlog = "
-        INSERT INTO call_log
-            (campaign_id, mb_group, target_id, mb_no, call_hp, agent_phone, call_status, call_start, call_end, call_time, memo, req_uid)
+    $qlog = "INSERT INTO call_log
+            (campaign_id, mb_group, target_id, mb_no, 
+            call_hp, agent_phone, call_status, 
+            call_start, call_end, call_time, memo, req_uid)
         VALUES
-            ({$campaign_id}, {$mb_group}, {$target_id}, {$mb_no}, '".sql_escape_string($call_hp)."', '".sql_escape_string($my_hp)."',
-            {$call_status}, '".sql_escape_string($call_start)."', {$call_end_sql}, {$call_time}, {$memo_sql}, '".sql_escape_string($req_uid)."')
+            ({$campaign_id}, {$mb_group}, {$target_id}, {$mb_no}, 
+            '".sql_escape_string($call_hp)."', '".sql_escape_string($my_hp)."', {$call_status}, 
+            '".sql_escape_string($call_start)."', {$call_end_sql}, {$call_time}, {$memo_sql}, '".sql_escape_string($req_uid)."')
         ON DUPLICATE KEY UPDATE
             call_id = LAST_INSERT_ID(call_id)
     ";
@@ -293,11 +295,10 @@ function handle_call_upload(): void {
         }
     }
 
-    $uq = "
-        UPDATE call_target
-           SET ".implode(', ', $set)."
-         WHERE target_id = {$target_id} AND mb_group = {$mb_group}
-         LIMIT 1
+    $uq = "UPDATE call_target
+        SET ".implode(', ', $set)."
+        WHERE target_id = {$target_id} AND mb_group = {$mb_group}
+        LIMIT 1
     ";
     $ok = sql_query($uq, true);
     if (!$ok) {
@@ -384,8 +385,8 @@ function handle_call_upload(): void {
                         (campaign_id, mb_group, call_id, s3_bucket, s3_key, content_type, file_size, duration_sec, created_at)
                     VALUES
                         ({$campaign_id}, {$mb_group}, {$call_id},
-                         '".sql_escape_string(S3_BUCKET)."', '".sql_escape_string($key)."', '".sql_escape_string($ctype)."',
-                         {$fsize}, ".($duration_sec !== null ? (int)$duration_sec : "NULL").", NOW())
+                        '".sql_escape_string(S3_BUCKET)."', '".sql_escape_string($key)."', '".sql_escape_string($ctype)."',
+                        {$fsize}, ".($duration_sec !== null ? (int)$duration_sec : "NULL").", NOW())
                 ";
                 $ok = sql_query($qrec);
                 if ($ok) {
@@ -474,13 +475,12 @@ function handle_manual_call_log(array $in, int $mb_group, int $mb_no): void
     // ===== 1) 수동 로그 DB 저장 (트랜잭션) =====
     sql_query("START TRANSACTION");
 
-    $q = "
-        INSERT INTO call_manual_log
+    $q = "INSERT INTO call_manual_log
             (mb_group, mb_no, call_hp, agent_phone, call_status, call_start, call_end, call_time, duration_sec, memo, req_uid, created_at)
         VALUES
             ({$mb_group}, {$mb_no}, '".sql_escape_string($hp)."', {$agent_sql}, {$call_status_sql},
-             '".sql_escape_string($call_start)."', {$call_end_sql}, {$call_time}, {$duration_sql}, {$memo_sql},
-             '".sql_escape_string($req_uid)."', NOW())
+            '".sql_escape_string($call_start)."', {$call_end_sql}, {$call_time}, {$duration_sql}, {$memo_sql},
+            '".sql_escape_string($req_uid)."', NOW())
         ON DUPLICATE KEY UPDATE
             manual_id = LAST_INSERT_ID(manual_id),
             call_end     = VALUES(call_end),
@@ -547,14 +547,13 @@ function handle_manual_call_log(array $in, int $mb_group, int $mb_no): void
                 $s3_key = $key;
 
                 // 업로드 성공 시에만 call_manual_recording 기록
-                $qrec = "
-                    INSERT INTO call_manual_recording
+                $qrec = "INSERT INTO call_manual_recording
                         (mb_group, manual_id, s3_bucket, s3_key, content_type, file_size, duration_sec, created_at)
                     VALUES
                         ({$mb_group}, {$manual_id},
-                         '".sql_escape_string(S3_BUCKET)."', '".sql_escape_string($key)."',
-                         '".sql_escape_string($ctype)."', {$fsize},
-                         ".($duration_sec !== null ? (int)$duration_sec : "NULL").", NOW())
+                        '".sql_escape_string(S3_BUCKET)."', '".sql_escape_string($key)."',
+                        '".sql_escape_string($ctype)."', {$fsize},
+                        ".($duration_sec !== null ? (int)$duration_sec : "NULL").", NOW())
                     ON DUPLICATE KEY UPDATE
                         manual_recording_id = LAST_INSERT_ID(manual_recording_id),
                         s3_bucket    = VALUES(s3_bucket),
@@ -762,6 +761,12 @@ function handle_login(): void {
     if (!empty($mb['mb_leave_date']) && $mb['mb_leave_date'] <= date("Ymd", G5_SERVER_TIME)) {
         send_json(['success' => false, 'message' => 'Leaved account'], 403);
     }
+
+    if (!is_unlocked_fast($mb['company_id'], $mb['mb_no'])) {
+        // 403으로 명확히 차단
+        send_json(['success' => false, 'message' => '결제 전 회원입니다.'], 403);
+    }
+
     /*
     // 메일 인증 사용 중이면 인증 확인
     if (function_exists('is_use_email_certify') && is_use_email_certify()) {

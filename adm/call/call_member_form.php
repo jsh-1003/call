@@ -28,7 +28,7 @@ function role_to_level($role) {
     switch ($role) {
         case 'company':         return 8;  // 대표이사
         case 'leader':          return 7;  // 지점장
-        case 'member-after':    return 5;  // 상담원
+        case 'member-after':    return 5;  // 2차팀장
         case 'member':          return 3;  // 상담원
         case 'member-before':   return 2;  // 상담원-승인전
         case 'admin':           return 10; // (UI 미노출) 플랫폼 슈퍼관리자
@@ -75,6 +75,8 @@ if (!$is_new) {
     }
     $is_after_db_use = $mb['is_after_db_use'];
 }
+if(empty($mb['pay_start_date'])) $mb['pay_start_date'] = '';
+if(empty($mb['is_paid_db'])) $mb['is_paid_db'] = 0;
 
 // -----------------------------
 // 회사(=대표이사) 목록, 지점장 목록
@@ -275,6 +277,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $set[] = "mb_group='".(int)$post_mb_group."'";
             $set[] = "mb_group_name=''";
         }
+        if ($post_level == 3) {
+            $set[] = "is_paid_db='".(int)$is_paid_db."'";
+            $set[] = "paid_db_billing_type='".(int)$paid_db_billing_type."'";
+        }
 
         if(!empty($is_admin_pay) && $is_admin_pay) {
             if(!empty($pay_start_date)) {
@@ -366,6 +372,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
                 if ($post_mb_group > 0) $set[] = "mb_group='".(int)$post_mb_group."'";
+
+                if ((int)$target['mb_level'] == 3) {
+                    $set[] = "is_paid_db='".(int)$is_paid_db."'";
+                    $set[] = "paid_db_billing_type='".(int)$paid_db_billing_type."'";
+                }
+                
             }
             $set[] = "mb_group_name=''";
         }
@@ -400,6 +412,9 @@ if (!$is_new) {
     else $stat_label = '정상';
 }
 ?>
+<style>
+.tbl_frm01 td {width:35%}
+</style>
 <form name="fmember" id="fmember" action="./call_member_form.php" method="post" autocomplete="off">
     <input type="hidden" name="w" value="<?php echo $is_new ? '' : 'u'; ?>">
 
@@ -463,14 +478,14 @@ if (!$is_new) {
                     <?php if ($my_level >= 9) { ?>
                     <th scope="row">접수DB상세</th>
                     <td>
-                            <label class="mgr12">
-                                <input type="radio" name="is_after_db_use" value="1" <?php echo ($is_after_db_use==1?'checked':''); ?>>
-                                사용
-                            </label>
-                            <label class="mgr12">
-                                <input type="radio" name="is_after_db_use" value="0" <?php echo ($is_after_db_use==0?'checked':''); ?>>
-                                미사용
-                            </label>
+                        <label class="mgr12">
+                            <input type="radio" name="is_after_db_use" value="1" <?php echo ($is_after_db_use==1?'checked':''); ?>>
+                            사용
+                        </label>
+                        <label class="mgr12">
+                            <input type="radio" name="is_after_db_use" value="0" <?php echo ($is_after_db_use==0?'checked':''); ?>>
+                            미사용
+                        </label>
                     </td>
                     <?php } ?>
                 </tr>
@@ -484,11 +499,10 @@ if (!$is_new) {
                 </tr>
                 <?php if($is_admin_pay) { ?>
                 <tr>
-                    <th scope="row"><label for="mb_name">유료시작일</label></th>
+                    <th scope="row"><label for="pay_start_date">유료시작일</label></th>
                     <td colspan="3">유료시작일 : <input type="date" id="pay_start_date" name="pay_start_date" value="<?php echo $mb['pay_start_date'] ?>" class="frm_input"></td>
                 </tr>
                 <?php } ?>
-
                 <!-- 회사 섹션 -->
                 <?php if ($my_level >= 10) { ?>
                 <tr id="row_company_picker" style="display:<?php echo (($is_new && ($default_role==='member' || $default_role==='leader')) || (!$is_new && ($default_role==='member' || $default_role==='leader'))) ? '' : 'none'; ?>;">
@@ -555,6 +569,33 @@ if (!$is_new) {
                     </td>
                 </tr>
 
+                <?php if($my_level >= 8) { ?>
+                <tr id="row_only_member" style="display:none;">
+                    <th scope="row"><label for="mb_name">유료DB 사용</label></th>
+                    <td>
+                        <label class="mgr12">
+                            <input type="radio" name="is_paid_db" value="0" <?php echo ($mb['is_paid_db']==0?'checked':''); ?>>
+                            미사용
+                        </label>
+                        <label class="mgr12">
+                            <input type="radio" name="is_paid_db" value="1" <?php echo ($mb['is_paid_db']==1?'checked':''); ?>>
+                            사용
+                        </label>
+                    </td>
+                    <th scope="row"><label for="mb_name">과금 방식 선택</label></th>
+                    <td>
+                        <label class="mgr12">
+                            <input type="radio" name="paid_db_billing_type" value="1" <?php echo (!$mb['paid_db_billing_type'] || $mb['paid_db_billing_type']==1?'checked':''); ?>>
+                            통화 10초부터 과금(150원)
+                        </label>
+                        <label class="mgr12">
+                            <input type="radio" name="paid_db_billing_type" value="2" <?php echo ($mb['paid_db_billing_type']==2?'checked':''); ?>>
+                            연결당 과금(80원)
+                        </label>
+                    </td>
+                </tr>
+                <?php } ?>
+
                 <!-- 지점장 전용: 지점명 -->
                 <tr id="row_group_name" style="display:<?php echo ($default_role==='leader' ? '' : 'none'); ?>;">
                     <th scope="row"><label for="mb_group_name">지점</label></th>
@@ -586,7 +627,7 @@ if (!$is_new) {
     function selectedRole(){
         if (!isNew) return defaultRole; // 수정 시 고정
         var el = document.querySelector('input[name="role"]:checked');
-        if(el.value == 'member-after') return 'member';
+        // if(el.value == 'member-after') return 'member';
         return el ? el.value : defaultRole || 'member';
     }
     function show(el, on){ if(!el) return; el.style.display = on ? '' : 'none'; }
@@ -595,15 +636,17 @@ if (!$is_new) {
     var rowCompanyPicker   = document.getElementById('row_company_picker');   // 10레벨: 회사 선택(리더/상담원)
     var rowCompanyName     = document.getElementById('row_company_name_input'); // 10레벨: 회사명 입력(대표이사)
     var rowGroupPicker     = document.getElementById('row_group_picker');     // 상담원 전용
+    var rowOnlyMember      = document.getElementById('row_only_member');      // 상담원 전용
     var rowGroupName       = document.getElementById('row_group_name');       // 리더 전용(지점명)
 
     function syncVisibility(){
         var role = selectedRole();
         if (myLevel >= 10) {
-            show(rowCompanyPicker, ((role==='member' || role==='member-before')||role==='leader'));
+            show(rowCompanyPicker, ((role==='member' || role==='member-before' || role==='member-after') || role==='leader'));
             show(rowCompanyName, (role==='company'));
         }
-        show(rowGroupPicker, ((role==='member' || role==='member-before') && myLevel >= 8));
+        show(rowGroupPicker, ((role==='member' || role==='member-before' || role==='member-after') && myLevel >= 8));
+        show(rowOnlyMember, ((role==='member' || role==='member-before') && myLevel >= 8));
         show(rowGroupName, (role==='leader'));
     }
     roleInputs.forEach(function(r){ r.addEventListener('change', syncVisibility); });

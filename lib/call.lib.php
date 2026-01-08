@@ -101,7 +101,8 @@ function get_group_info($token=null) {
     // ★ 매 리퀘스트 락 검사 (APCu 60s 캐시)
     $company_id = (int)$row['company_id'];
     $mb_no      = (int)$row['mb_no'];
-    if (!is_unlocked_fast($company_id, $mb_no) && $company_id == 9) {
+    // if (!is_unlocked_fast($company_id, $mb_no) && $company_id == 9) {
+    if (!is_unlocked_fast($company_id, $mb_no)) {
         // 403으로 명확히 차단
         send_json([
             'success' => false,
