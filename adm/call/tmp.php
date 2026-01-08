@@ -5,36 +5,77 @@
 // 실행: 브라우저에서 1회 실행하고 삭제 권장
 // 환경: 그누보드5, PHPExcel(내장)
 require_once './_common.php';
-require_once G5_LIB_PATH.'/call.assign.lib.php';
+require_once G5_LIB_PATH.'/call.lib.php';
 
-if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
-    alert('접근 권한이 없습니다.');
+$tmp = rand01();
+var_dump($tmp);
+// $t = paid_db_use(11, 149119, 246411, null, 18);
+// var_dump($t);
+// $tmp = get_member_from_mb_no(48);
+// var_dump($tmp);
+
+
+// ===== 생년월일(+성별) 파싱 =====
+// 반환: [birth_date|null, sex(0/1/2)]
+function parse_birth_and_sex($s) {
+    $s = trim((string)$s);
+    if ($s === '') return [null, 0];
+
+    // Excel serial number
+    if (is_numeric($s) && strlen($s) == 5) {
+        $ival = (int)$s;
+        if ($ival > 10000 && $ival < 90000) {
+            $base = new DateTime('1899-12-30');
+            $base->modify("+{$ival} days");
+            return [$base->format('Y-m-d'), 0];
+        }
+    }
+
+    // 주민번호형 yymmddX 또는 yymmdd-X (예: 8310031, 831003-1)
+    $digits = preg_replace('/\D+/', '', $s); // 하이픈 제거
+    if ($digits !== '') {
+        // yyyymmdd
+        if (strlen($digits) === 8) {
+            $y=(int)substr($digits,0,4);
+            $m=(int)substr($digits,4,2);
+            $d=(int)substr($digits,6,2);
+            if (checkdate($m,$d,$y)) return [sprintf('%04d-%02d-%02d',$y,$m,$d), 0];
+        }
+        // yymmdd
+        if (strlen($digits) === 6) {
+            $yy=(int)substr($digits,0,2);
+            $y=($yy>=40)?(1900+$yy):(2000+$yy);
+            $m=(int)substr($digits,2,2);
+            $d=(int)substr($digits,4,2);
+            if (checkdate($m,$d,$y)) return [sprintf('%04d-%02d-%02d',$y,$m,$d), 0];
+        }
+        // yymmddX (7자리) -> 성별 포함 패턴
+        if (strlen($digits) === 7) {
+            $yy=(int)substr($digits,0,2);
+            $m =(int)substr($digits,2,2);
+            $d =(int)substr($digits,4,2);
+            $x =(int)substr($digits,6,1); // 성별/세기 코드
+            // 세기 결정
+            if (in_array($x, [1,2,5,6,7,8], true)) $y = 1900 + $yy;
+            elseif (in_array($x, [3,4,7,8], true)) $y = 2000 + $yy; // 7,8은 외국인 코드(세부 구분 무시)
+            else $y = ($yy>=40)?(1900+$yy):(2000+$yy); // fallback
+            $sex = ($x===1 || $x===3 || $x===5 || $x===7) ? 1 : (($x===2 || $x===4 || $x===6 || $x===8) ? 2 : 0);
+            if (checkdate($m,$d,$y)) return [sprintf('%04d-%02d-%02d',$y,$m,$d), $sex];
+        }
+        // 6+1 with hyphen은 위에서 하이픈 제거로 동일 처리
+    }
+
+    // 일반 구분자 파싱(yyyy-mm-dd / yy-mm-dd / yyyy.mm.dd 등)
+    $s2 = str_replace(['.','년','월','일'], ['-','','-',''], $s);
+    $s2 = preg_replace('/[\/\.]/','-',$s2);
+    $parts = array_values(array_filter(explode('-', $s2), fn($v)=>$v!==''));
+    if (count($parts) === 3) {
+        $y=(int)$parts[0]; $m=(int)$parts[1]; $d=(int)$parts[2];
+        if ($y < 100) $y = ($y>=40)?(1900+$y):(2000+$y);
+        if (checkdate($m,$d,$y)) return [sprintf('%04d-%02d-%02d',$y,$m,$d), 0];
+    }
+    return [null, 0];
 }
-$mb_group = 101;
-$cands = aftercall_list_candidates($mb_group); // => [mb_no, ...]
-var_dump($cands);
-$res = aftercall_pick_next_agent($mb_group);
-var_dump($res);
 
-exit;
-// echo date("1aaa983-10-03");
-// exit;
-$info = get_aftercall_db_info(149194);
-print_r2($info);
-$company_id = 5;
-$company_info = get_company_info($company_id, 'is_after_db_use');
-var_dump($company_info);
-    $detail = array();
-    $detail['name'] = !empty($info['detail']['db_name']) ? $info['detail']['db_name'] : $info['basic']['name'];
-    $detail['birth'] = !empty($info['detail']['db_birth_date']) ? $info['detail']['db_birth_date'] : $info['basic']['birth_date'];
-    $detail['age'] = calc_age_years($detail['birth']);
-    $detail['sex'] = !empty($info['detail']['sex']) ? $info['detail']['sex'] : $info['basic']['sex'];
-    $hp = !empty($info['detail']['db_hp']) ? $info['detail']['db_hp'] : $info['basic']['call_hp'];
-    $detail['hp'] = format_korean_phone($hp);
-    $detail['month_pay'] = !empty($info['detail']['month_pay']) ? $info['detail']['month_pay'] : '';
-    $detail['visit_at'] = !empty($info['detail']['db_scheduled_at']) ? $info['detail']['db_scheduled_at'] : '';
-    $detail['region1'] = !empty($info['detail']['area1']) ? $info['detail']['area1'] : '';
-    $detail['region2'] = !empty($info['detail']['area2']) ? $info['detail']['area2'] : '';
-    $detail['addr_etc'] = !empty($info['detail']['area3']) ? $info['detail']['area3'] : '';
-    $detail['memo'] = !empty($info['detail']['memo']) ? get_text($info['detail']['memo']) : '';
-print_r2($detail);
+var_dump(parse_birth_and_sex(10279));
+//var_dump(parse_birth_and_sex('30592'));

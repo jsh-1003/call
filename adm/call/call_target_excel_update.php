@@ -138,9 +138,9 @@ function parse_birth_and_sex($s) {
     if ($s === '') return [null, 0];
 
     // Excel serial number
-    if (is_numeric($s)) {
+    if (is_numeric($s) && strlen($s) == 5) {
         $ival = (int)$s;
-        if ($ival > 30000 && $ival < 90000) {
+        if ($ival > 10000 && $ival < 90000) {
             $base = new DateTime('1899-12-30');
             $base->modify("+{$ival} days");
             return [$base->format('Y-m-d'), 0];
@@ -476,6 +476,7 @@ if ($step === 'preview') {
             'reason'      => $reason,
             'extra'       => $extra_str,   // ★ 추가
         ];
+        // var_dump($preview_rows);
     }
 
     $g5['title'] = '엑셀 등록 사전 검증';
@@ -694,12 +695,24 @@ try {
             }
         }
         $meta_json = $meta ? json_encode($meta, JSON_UNESCAPED_UNICODE) : null;
-
+        // 만나이 계산후 타입 지정
+        $db_age_type = 0;
+        if($birth_date) {
+            $man_age = calc_age_years($birth_date);
+            if($man_age < 62 && $man_age > 10) {
+                $db_age_type = 1;
+            } else if($man_age <= 70 && $man_age >= 62) {
+                $db_age_type = 2;
+            }
+        }
+        $rand_score = rand01();
         // 스테이징 적재
         $sql = "INSERT INTO call_stg_target_upload
-                (batch_id, campaign_id, company_id, mb_group, call_hp, name, birth_date, sex, meta_json, created_at)
+                (batch_id, rand_score, campaign_id, company_id, mb_group, call_hp, name, 
+                birth_date, db_age_type, sex, meta_json, created_at)
                 VALUES
-                ('{$batch_id}', '{$campaign_id}', '{$company_id}', '{$mb_group}', '{$call_hp}', ".sql_quote_or_null($name).", ".sql_quote_or_null($birth_date).", '{$sex}', ".sql_quote_or_null($meta_json).", NOW())";
+                ('{$batch_id}', '{$rand_score}', '{$campaign_id}', '{$company_id}', '{$mb_group}', '{$call_hp}', ".sql_quote_or_null($name).", 
+                ".sql_quote_or_null($birth_date).", '{$db_age_type}', '{$sex}', ".sql_quote_or_null($meta_json).", NOW())";
         $res = sql_query($sql, false);
         if ($res) $stg_count++;
         else {
@@ -720,8 +733,8 @@ try {
     // 최종 적재 (블랙리스트 제외)
     $ins_sql = "
     INSERT IGNORE INTO call_target
-    (campaign_id, company_id, mb_group, call_hp, name, birth_date, sex, meta_json, created_at, updated_at)
-    SELECT s.campaign_id, s.company_id, s.mb_group, s.call_hp, s.name, s.birth_date, s.sex, s.meta_json, NOW(), NOW()
+    (rand_score, campaign_id, company_id, mb_group, call_hp, name, birth_date, db_age_type, sex, meta_json, created_at, updated_at)
+    SELECT s.rand_score, s.campaign_id, s.company_id, s.mb_group, s.call_hp, s.name, s.birth_date, s.db_age_type, s.sex, s.meta_json, NOW(), NOW()
         FROM call_stg_target_upload s
     WHERE s.batch_id   = '{$batch_id}'
         AND s.mb_group   = '{$mb_group}'

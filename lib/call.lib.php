@@ -15,8 +15,7 @@ function get_call_status_meta(int $call_status, int $mb_group = 0): array {
     $mb_group    = (int)$mb_group;
 
     // 조직 우선(= mb_group = ?), 없으면 기본(=0)
-    $sql = "
-        SELECT call_status, mb_group, result_group, is_do_not_call, is_after_call, ui_type, sort_order
+    $sql = "SELECT call_status, mb_group, result_group, is_do_not_call, is_after_call, ui_type, sort_order
           FROM call_status_code
          WHERE status = 1
            AND call_status = {$call_status}
@@ -68,13 +67,14 @@ function get_group_info($token=null) {
     }
 
     $hash = hash('sha256', $token);
-    $row = sql_fetch("
-        SELECT 
+    $row = sql_fetch("SELECT 
             s.user_id AS mb_no,
             s.mb_group,
             s.expires_at,
             s.revoked_at,
-            m.company_id,          -- ★ 추가: 회사ID
+            m.company_id,
+            m.is_paid_db,
+            m.paid_db_billing_type,
             m.call_api_count,
             m.call_lease_min
         FROM api_sessions s
@@ -103,17 +103,17 @@ function get_group_info($token=null) {
     $mb_no      = (int)$row['mb_no'];
     // if (!is_unlocked_fast($company_id, $mb_no) && $company_id == 9) {
     if (!is_unlocked_fast($company_id, $mb_no)) {
-        // 403으로 명확히 차단
-        send_json([
-            'success' => false,
-            'message' => 'account locked for current month'
-        ], 403);
+        send_json(['success' => false, 'message' => '결제 전 회원입니다.'], 403);
     }
+    $is_paid_db = (int)$row['is_paid_db'];
+    $paid_db_billing_type = (int)$row['paid_db_billing_type'];
 
     return [
         'mb_group'       => (int)$row['mb_group'],
         'mb_no'          => $mb_no,
         'company_id'     => $company_id,     // ★ 유용하니 함께 반환
+        'is_paid_db'     => $is_paid_db,
+        'paid_db_billing_type'     => $paid_db_billing_type,
         'call_api_count' => $call_api_count,
         'campaign_id'    => 0,
         'call_lease_min' => $call_lease_min,

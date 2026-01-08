@@ -24,8 +24,7 @@ function handle_get_call_status_codes(): void {
     $grp_in = implode(',', $groups);
 
     // 2) 간단 쿼리: 필요한 컬럼만, 정렬은 sort_order만
-    $sql = "
-        SELECT
+    $sql = "SELECT
             call_status,
             mb_group,
             name_ko,
@@ -34,8 +33,7 @@ function handle_get_call_status_codes(): void {
             ui_type,
             sort_order
         FROM call_status_code
-        WHERE status = 1
-          AND mb_group IN ($grp_in)
+        WHERE status = 1 AND mb_group IN ($grp_in)
         ORDER BY sort_order ASC, call_status ASC
     ";
     $res = sql_query($sql);
@@ -120,8 +118,10 @@ function handle_call_upload(): void {
     // 0) 인증 → 지점/사용자
     $token = get_bearer_token_from_headers();
     $info  = get_group_info($token);
-    $mb_group = (int)$info['mb_group'];
-    $mb_no    = (int)$info['mb_no'];
+    $mb_group               = (int)$info['mb_group'];
+    $mb_no                  = (int)$info['mb_no'];
+    $is_paid_db             = (int)$info['is_paid_db'];
+    $paid_db_billing_type   = (int)$info['paid_db_billing_type'];
 
     // 1) 입력 파싱 (multipart | json | x-www-form-urlencoded)
     $in = [];
@@ -158,11 +158,10 @@ function handle_call_upload(): void {
     }
 
     // 2) 대상 검증/조회 (권한: mb_group 일치)
-    $t = sql_fetch("
-        SELECT t.target_id, t.campaign_id, t.mb_group, t.call_hp, t.name, t.assigned_mb_no, t.attempt_count
-          FROM call_target t
-         WHERE t.target_id = {$target_id} AND t.mb_group = {$mb_group}
-         LIMIT 1
+    $t = sql_fetch("SELECT t.target_id, t.campaign_id, t.mb_group, t.call_hp, t.name, t.assigned_mb_no, t.attempt_count, t.db_age_type
+        FROM call_target t
+        WHERE t.target_id = {$target_id} AND t.mb_group = {$mb_group}
+        LIMIT 1
     ");
     if (!$t) {
         send_json(['success'=>false, 'message'=>'잘못된 정보 입니다.'], 404);
@@ -170,7 +169,7 @@ function handle_call_upload(): void {
     $campaign_id   = (int)$t['campaign_id'];
     $call_hp       = $t['call_hp'];
     $attempt_count = (int)$t['attempt_count'];
-
+    $db_age_type   = (int)$t['db_age_type'];
     if ($hp != $call_hp && $mb_group != 10) {
         send_json(['success'=>false,'message'=>'전화번호가 다릅니다.'], 403);
     }
@@ -253,10 +252,12 @@ function handle_call_upload(): void {
 
     $qlog = "INSERT INTO call_log
             (campaign_id, mb_group, target_id, mb_no, 
+            is_paid_db, paid_db_billing_type, db_age_type, duration_sec,
             call_hp, agent_phone, call_status, 
             call_start, call_end, call_time, memo, req_uid)
         VALUES
             ({$campaign_id}, {$mb_group}, {$target_id}, {$mb_no}, 
+            $is_paid_db, $paid_db_billing_type, $db_age_type, '{$duration_sec}',
             '".sql_escape_string($call_hp)."', '".sql_escape_string($my_hp)."', {$call_status}, 
             '".sql_escape_string($call_start)."', {$call_end_sql}, {$call_time}, {$memo_sql}, '".sql_escape_string($req_uid)."')
         ON DUPLICATE KEY UPDATE
@@ -265,6 +266,9 @@ function handle_call_upload(): void {
     $ok = sql_query($qlog, true);
     if (!$ok) { sql_query("ROLLBACK"); send_json(['success'=>false,'message'=>'failed to upsert call_log'], 500); }
     $call_id = (int)sql_insert_id();
+
+    // 5-2) 유료DB 비용 처리
+    paid_db_use($mb_no, $target_id, $call_id, $call_time, $duration_sec);
 
     // 6) 대상 상태 업데이트
     $set = [];

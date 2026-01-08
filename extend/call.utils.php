@@ -5,6 +5,12 @@ function _g($key, $def='') { return isset($_GET[$key]) ? trim((string)$_GET[$key
 function _p($key, $def='') { return isset($_POST[$key]) ? trim((string)$_POST[$key]) : $def; }
 function _h($s){ return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 
+function rand01(): float {
+    $max = 9007199254740991; // 2^53 - 1
+    return random_int(0, $max) / $max;
+}
+// $rand01 = rand01();
+
 function s3_safe_filename(string $name): string {
     // 앞뒤 공백 제거, 제어문자 제거
     $name = trim($name);
@@ -152,7 +158,7 @@ function format_korean_phone(string $hp_raw): string {
     return $hp;
 }
 
-/** 만 나이(생년월일 Y-m-d) */
+/** 만나이(생년월일 Y-m-d) */
 function calc_age_years($birth_date){
     if (!$birth_date) return null;
     $today = new DateTime('today');
