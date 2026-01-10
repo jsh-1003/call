@@ -1,4 +1,5 @@
 <?php
+if($member['member_type'] ==0 && $member['mb_level'] < 10) return;
 if($member['mb_level'] > 10) {
     $menu['menu200'] = array(
         array('200000', '회원관리', G5_ADMIN_URL . '/member_list.php', 'member'),
@@ -12,3 +13,9 @@ if($member['mb_level'] > 10) {
         array('200900', '투표관리', G5_ADMIN_URL . '/poll_list.php', 'mb_poll')
     );
 }
+
+$menu['menu200'] = array(
+    array('200000', '매체사관리', G5_ADMIN_URL . '/paid/paid_member_list.php', 'member'),
+    array('200710', '회원관리', G5_ADMIN_URL . '/paid/paid_member_list.php', 'mb_list'),
+    array('200750', '사용통계', G5_ADMIN_URL . '/paid/paid_stats.php', 'paid_stats'),    
+);

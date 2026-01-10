@@ -116,14 +116,15 @@ body, #hd_top, #wrapper {min-width:1100px}
 #logo img {height:50px;}
 .top_after_badge {float:right;padding:14px;}
 /* 토글 버튼 */
-.toggle-after {
+.toggle-is-paid-db, .toggle-after {
     display:inline-flex; align-items:center; justify-content:center;
     min-width:54px; padding:2px 8px; border-radius:12px; font-size:12px; line-height:1.6;
     cursor:pointer; border:0; color:#fff;
 }
-.toggle-after.on  { background:#16a34a; } /* green */
-.toggle-after.off { background:#9ca3af; } /* gray */
-.toggle-after[disabled] { opacity:.5; cursor:not-allowed; }
+.toggle-is-paid-db.on, .toggle-after.on  { background:#16a34a; } /* green */
+.toggle-is-paid-db.off, .toggle-after.off { background:#9ca3af; } /* gray */
+.toggle-is-paid-db[disabled], .toggle-after[disabled] { opacity:.5; cursor:not-allowed; }
+
 </style>
 <?php if(empty($is_popup_page)) { ?>
 

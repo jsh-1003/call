@@ -1,4 +1,5 @@
 <?php
+if($member['member_type'] !=0 && $member['mb_level'] < 10) return;
 $menu["menu700"] = array(
     array('700400', '접수관리', '' . G5_ADMIN_URL.'/call/call_after_list.php', 'call'),
     array('700400', '접수관리', '' . G5_ADMIN_URL.'/call/call_after_list.php', 'call'),

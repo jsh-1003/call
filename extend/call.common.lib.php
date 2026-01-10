@@ -1,45 +1,6 @@
 <?php
 if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 
-/** 
- * 유료대상 통화인지 확인
- */
-function paid_db_use($mb_no, $target_id, $call_id, $call_time, $call_duration) {
-    // 1초 이하면 무효로 판단
-    if( $call_time < 1 || $call_duration < 1 ) return 0;
-
-    $paid_info = get_member_from_mb_no($mb_no, 'company_id, is_paid_db, paid_db_billing_type');
-    
-    // 유료DB 사용이 아니면 리턴
-    if(!$paid_info['is_paid_db']) return 0;
-    
-    $company_info = get_member_from_mb_no($paid_info['company_id'], 'mb_id');
-    $mb_id = $company_info['mb_id'];
-    $paid_db_billing_type = $paid_info['paid_db_billing_type'];
-
-    if($paid_db_billing_type == 1 && $call_duration > 9.9) {
-        // 1번 : 통화10초시 과금, 150원
-        $rel_table = '@paid1';
-        $paid_price = 150;
-        $content = '통화과금/'.$target_id.'/'.$paid_price;
-    } else if($paid_db_billing_type == 2) {
-        // 2번 : 통화당 과금
-        $rel_table = '@paid2';
-        $paid_price = 80;
-        $content = '연결과금/'.$target_id.'/'.$paid_price;
-    } else {
-        return 0;
-    }
-    $point = $paid_price*-1;
-    // 대표ID에서 포인트 차감
-    insert_point($mb_id, $point, $content, $rel_table, $mb_no, $call_id);
-    
-    // 차감 정보 업데이트
-    $sql = "UPDATE call_log SET is_paid = '{$paid_db_billing_type}', paid_price = '{$paid_price}' WHERE call_id = '{$call_id}' ";
-    sql_query($sql);
-    return 1;
-}
-
 /**
  * DB권역
  */
@@ -617,13 +578,14 @@ function count_members_by_group_cached($group_id) {
  * @param null|str $member_table   g5 member 테이블명 (null이면 $g5['member_table'])
  * @return array{company_options: array<int, array>, group_options: array<int, array>, agent_options: array<int, array>}
  */
-function build_org_select_options($sel_company_id=0, $sel_mb_group=0) {
+function build_org_select_options($sel_company_id=0, $sel_mb_group=0, $member_type=0) {
     global $member, $g5;
 
     $member_table   = $g5['member_table'];
     $mb_level       = (int)($member['mb_level'] ?? 0);
     $my_group       = isset($member['mb_group']) ? (int)$member['mb_group'] : 0;
     $my_company_id  = isset($member['company_id']) ? (int)$member['company_id'] : 0;
+    $my_member_type = (int)$member_type;
 
     /* --------------------------
        회사 옵션(9+)
@@ -633,7 +595,8 @@ function build_org_select_options($sel_company_id=0, $sel_mb_group=0) {
         $res = sql_query("
             SELECT m.mb_no AS company_id
               FROM {$member_table} m
-             WHERE m.mb_level = 8
+             WHERE m.member_type = '{$my_member_type}'
+                AND m.mb_level = 8
                 AND IFNULL(mb_leave_date,'') = ''
                 AND IFNULL(mb_intercept_date,'') = ''
              ORDER BY COALESCE(NULLIF(m.company_name,''), CONCAT('회사-', m.mb_no)) ASC, m.mb_no ASC
@@ -655,7 +618,7 @@ function build_org_select_options($sel_company_id=0, $sel_mb_group=0) {
        -------------------------- */
     $group_options = [];
     if ($mb_level >= 8) {
-        $where_g = " WHERE m.mb_level = 7
+        $where_g = " WHERE m.member_type = '{$my_member_type}' and m.mb_level = 7
                 AND IFNULL(m.mb_leave_date,'') = ''
                 AND IFNULL(m.mb_intercept_date,'') = ''
         ";
@@ -707,7 +670,7 @@ function build_org_select_options($sel_company_id=0, $sel_mb_group=0) {
         $aw[] = "mb_group = ".(int)$my_group;
     }
     $aw[] = " mb_level = 3 AND IFNULL(mb_leave_date,'') = '' AND IFNULL(mb_intercept_date,'') = '' ";
-    $aw_sql = 'WHERE '.implode(' AND ', $aw);
+    $aw_sql = 'WHERE m.member_type = '.$my_member_type.implode(' AND ', $aw);
 
     $ar = sql_query("SELECT mb_no, mb_name, company_id, mb_group FROM {$member_table} {$aw_sql} ORDER BY company_id ASC, mb_group ASC, mb_name ASC, mb_no ASC");
     while ($r = sql_fetch_array($ar)) {
@@ -733,6 +696,205 @@ function build_org_select_options($sel_company_id=0, $sel_mb_group=0) {
     ];
 }
 
+/**
+ * 유료DB 상담사(is_paid_db=1) 존재 조직 셀렉트 옵션(회사/지점/상담사) 생성
+ * - 공통조건: member_type=0
+ * - 노출조건: is_paid_db=1 인 레벨3 상담사가 "존재"하는 회사/지점/상담사만
+ *
+ * @param int $sel_company_id 선택한 회사ID (9+만 의미, 나머지는 회사 고정)
+ * @param int $sel_mb_group   선택한 지점ID (0=전체)
+ * @param int $member_type    member_type (기본 0)
+ * @return array{company_options: array<int, array>, group_options: array<int, array>, agent_options: array<int, array>}
+ */
+function build_org_select_options_paid_db($sel_company_id=0, $sel_mb_group=0, $member_type=0) {
+    global $member, $g5;
+
+    $member_table   = $g5['member_table'];
+    $mb_level       = (int)($member['mb_level'] ?? 0);
+    $my_group       = (int)($member['mb_group'] ?? 0);
+    $my_company_id  = (int)($member['company_id'] ?? 0);
+    $my_member_type = (int)$member_type;
+
+    // 공통: "정상" 회원 조건
+    $alive_cond = "IFNULL(mb_leave_date,'') = '' AND IFNULL(mb_intercept_date,'') = ''";
+
+    /* --------------------------
+       회사 옵션(9+): "유료DB 상담사" 존재 회사만
+       -------------------------- */
+    $company_options = [];
+    if ($mb_level >= 9) {
+        $sql = "
+            SELECT m.mb_no AS company_id
+              FROM {$member_table} m
+             WHERE m.member_type = '{$my_member_type}'
+               AND m.mb_level = 8
+               AND {$alive_cond}
+               AND EXISTS (
+                    SELECT 1
+                      FROM {$member_table} ag
+                      JOIN {$member_table} gr
+                        ON gr.mb_no = ag.mb_group
+                       AND gr.mb_level = 7
+                       AND gr.company_id = m.mb_no
+                       AND gr.member_type = '{$my_member_type}'
+                       AND IFNULL(gr.mb_leave_date,'') = ''
+                       AND IFNULL(gr.mb_intercept_date,'') = ''
+                     WHERE ag.mb_level = 3
+                       AND ag.is_paid_db = 1
+                       AND ag.member_type = '{$my_member_type}'
+                       AND IFNULL(ag.mb_leave_date,'') = ''
+                       AND IFNULL(ag.mb_intercept_date,'') = ''
+               )
+             ORDER BY COALESCE(NULLIF(m.company_name,''), CONCAT('회사-', m.mb_no)) ASC, m.mb_no ASC
+        ";
+        $res = sql_query($sql);
+        while ($r = sql_fetch_array($res)) {
+            $cid   = (int)$r['company_id'];
+            $cname = get_company_name_cached($cid);
+            $gcnt  = count_groups_by_company_cached($cid);
+            $company_options[] = [
+                'company_id'   => $cid,
+                'company_name' => $cname,
+                'group_count'  => $gcnt,
+            ];
+        }
+    }
+
+    /* --------------------------
+       지점 옵션(8+): "유료DB 상담사" 존재 지점만
+       -------------------------- */
+    $group_options = [];
+    if ($mb_level >= 8) {
+        $where_g = [];
+        $where_g[] = "m.member_type = '{$my_member_type}'";
+        $where_g[] = "m.mb_level = 7";
+        $where_g[] = "IFNULL(m.mb_leave_date,'') = ''";
+        $where_g[] = "IFNULL(m.mb_intercept_date,'') = ''";
+
+        // 권한별 회사 범위
+        if ($mb_level >= 9) {
+            if ((int)$sel_company_id > 0) $where_g[] = "m.company_id = '".(int)$sel_company_id."'";
+        } else {
+            $where_g[] = "m.company_id = '".(int)$my_company_id."'";
+        }
+
+        // ✅ 유료DB 상담사 존재 지점만
+        $where_g[] = "
+            EXISTS (
+                SELECT 1
+                  FROM {$member_table} ag
+                 WHERE ag.mb_group = m.mb_no
+                   AND ag.mb_level = 3
+                   AND ag.is_paid_db = 1
+                   AND ag.member_type = '{$my_member_type}'
+                   AND IFNULL(ag.mb_leave_date,'') = ''
+                   AND IFNULL(ag.mb_intercept_date,'') = ''
+            )
+        ";
+
+        $where_g_sql = " WHERE ".implode(" AND ", $where_g);
+
+        $res = sql_query("
+            SELECT m.mb_no AS mb_group, m.company_id
+              FROM {$member_table} m
+              {$where_g_sql}
+             ORDER BY m.company_id ASC,
+                      COALESCE(NULLIF(m.mb_group_name,''), CONCAT('지점-', m.mb_no)) ASC,
+                      m.mb_no ASC
+        ");
+        while ($r = sql_fetch_array($res)) {
+            $gid   = (int)$r['mb_group'];
+            $cid   = (int)$r['company_id'];
+            $gname = get_group_name_cached($gid);
+            $cname = get_company_name_cached($cid);
+            $mcnt  = count_members_by_group_cached($gid);
+
+            $group_options[] = [
+                'mb_group'      => $gid,
+                'company_id'    => $cid,
+                'company_name'  => $cname,
+                'mb_group_name' => $gname,
+                'member_count'  => $mcnt,
+            ];
+        }
+    }
+
+    /* --------------------------
+       상담사 옵션: 레벨3 + is_paid_db=1 (회사/지점 필터 반영)
+       -------------------------- */
+    $agent_options = [];
+    $aw = [];
+
+    if ($mb_level >= 8) {
+        if ((int)$sel_mb_group > 0) {
+            $aw[] = "m.mb_group = ".(int)$sel_mb_group;
+        } else {
+            if ($mb_level >= 9 && (int)$sel_company_id > 0) {
+                $aw[] = "m.mb_group IN (
+                            SELECT mb_no
+                              FROM {$member_table}
+                             WHERE mb_level = 7
+                               AND company_id = '".(int)$sel_company_id."'
+                               AND member_type = '{$my_member_type}'
+                               AND IFNULL(mb_leave_date,'') = ''
+                               AND IFNULL(mb_intercept_date,'') = ''
+                         )";
+            } elseif ($mb_level == 8) {
+                $aw[] = "m.mb_group IN (
+                            SELECT mb_no
+                              FROM {$member_table}
+                             WHERE mb_level = 7
+                               AND company_id = '".(int)$my_company_id."'
+                               AND member_type = '{$my_member_type}'
+                               AND IFNULL(mb_leave_date,'') = ''
+                               AND IFNULL(mb_intercept_date,'') = ''
+                         )";
+            } else {
+                $aw[] = "m.mb_group > 0";
+            }
+        }
+    } else { // 7 이하(여기선 7을 의미)
+        $aw[] = "m.mb_group = ".(int)$my_group;
+    }
+
+    // ✅ 핵심 조건
+    $aw[] = "m.mb_level = 3";
+    $aw[] = "m.is_paid_db = 1";
+    $aw[] = "m.member_type = '{$my_member_type}'";
+    $aw[] = "IFNULL(m.mb_leave_date,'') = ''";
+    $aw[] = "IFNULL(m.mb_intercept_date,'') = ''";
+
+    $aw_sql = " WHERE ".implode(" AND ", $aw);
+
+    $ar = sql_query("
+        SELECT m.mb_no, m.mb_name, m.company_id, m.mb_group
+          FROM {$member_table} m
+          {$aw_sql}
+         ORDER BY m.company_id ASC, m.mb_group ASC, m.mb_name ASC, m.mb_no ASC
+    ");
+
+    while ($r = sql_fetch_array($ar)) {
+        $cid   = (int)$r['company_id'];
+        $gid   = (int)$r['mb_group'];
+        $cname = get_company_name_cached($cid);
+        $gname = get_group_name_cached($gid);
+
+        $agent_options[] = [
+            'mb_no'         => (int)$r['mb_no'],
+            'mb_name'       => get_text($r['mb_name']),
+            'company_id'    => $cid,
+            'company_name'  => $cname,
+            'mb_group'      => $gid,
+            'mb_group_name' => $gname,
+        ];
+    }
+
+    return [
+        'company_options' => $company_options,
+        'group_options'   => $group_options,
+        'agent_options'   => $agent_options,
+    ];
+}
 
 // --------------------------------------------------------
 // 상태코드 헤더 구성

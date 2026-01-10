@@ -1,14 +1,14 @@
 <?php
-// /adm/call_member_list.php
-$sub_menu = '700750';
+// /adm/paid/paid_member_list.php
+$sub_menu = '200710';
 include_once('./_common.php');
 
 auth_check_menu($auth, $sub_menu, 'r');
 
 // -------------------------------------------
-// 접근 권한: 레벨 5 미만 차단
+// 접근 권한: 레벨 7 미만 차단
 // -------------------------------------------
-if ((int)$member['mb_level'] < 5) {
+if ((int)$member['mb_level'] < 7) {
     alert('접근 권한이 없습니다.');
 }
 
@@ -47,9 +47,9 @@ if ($my_level >= 9) {
 }
 
 if ($my_level >= 8) {
-    $sel_mb_group = (int)($_GET['mb_group'] ?? 0); // 0=전체 지점
+    $sel_mb_group = (int)($_GET['mb_group'] ?? 0); // 0=전체 매체사
 } else {
-    $sel_mb_group = $my_mb_no; // 7은 자기 지점(본인 mb_no)
+    $sel_mb_group = $my_mb_no; // 7은 자기 매체사(본인 mb_no)
 }
 
 // -------------------------------------------
@@ -57,22 +57,20 @@ if ($my_level >= 8) {
 // -------------------------------------------
 function role_label_and_class($lv){
     if ($lv >= 10) return ['플랫폼관리자','badge-admin'];
-    if ($lv >= 8)  return ['대표이사','badge-company'];
-    if ($lv == 7)  return ['지점장','badge-leader'];
-    if ($lv == 5)  return ['2차팀장','badge-member-after'];
-    if ($lv == 3)  return ['상담원','badge-member'];
-    return ['상담원_승인전','badge-member-before'];
+    if ($lv >= 8)  return ['에이전시','badge-company'];
+    if ($lv == 7)  return ['매체사','badge-leader'];
+    return ['-','badge-member-before'];
 }
 
 // 특정 타깃 회원을 토글할 수 있는지 권한/범위 체크
-function can_toggle_aftercall($me_level, $me_company_id, $me_mb_no, $target_row) {
+function can_toggle_is_paid_db($me_level, $me_company_id, $me_mb_no, $target_row) {
     $t_level   = (int)$target_row['mb_level'];
     $t_company = (int)$target_row['company_id'];
     $t_group   = (int)$target_row['mb_group'];
     $t_mb_no   = (int)$target_row['mb_no'];
 
-    // 레벨 5 또는 7만 토글 대상
-    if (!in_array($t_level, [5,7], true)) return false;
+    // 레벨 7 또는 8만 토글 대상
+    if (!in_array($t_level, [7,8], true)) return false;
 
     if ($me_level >= 9) {
         return true; // 전역
@@ -80,25 +78,23 @@ function can_toggle_aftercall($me_level, $me_company_id, $me_mb_no, $target_row)
         return ($me_company_id > 0 && $me_company_id === $t_company);
     } elseif ($me_level == 7) {
         return ($t_group === $me_mb_no) || ($t_mb_no === $me_mb_no);
-    } elseif ($me_level == 5) {
-        return ($t_mb_no === $me_mb_no);
     }
     return false;
 }
 
 /**
  * ========================
- * 회사/지점 드롭다운 옵션
+ * 회사/매체사 드롭다운 옵션
  * ========================
  */
-$build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
+$build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group, 1);
 $company_options = $build_org_select_options['company_options'];
 $group_options   = $build_org_select_options['group_options'];
 
 // ===============================
-// AJAX: 2차콜담당 ON/OFF 토글
+// AJAX: 진행 유무 ON/OFF 토글
 // ===============================
-if (isset($_POST['ajax']) && $_POST['ajax'] === 'toggle_after') {
+if (isset($_POST['ajax']) && $_POST['ajax'] === 'toggle_is_paid' && $my_level >= 9) {
     header('Content-Type: application/json; charset=utf-8');
 
     $target_mb_no = (int)($_POST['mb_no'] ?? 0);
@@ -109,7 +105,7 @@ if (isset($_POST['ajax']) && $_POST['ajax'] === 'toggle_after') {
     }
 
     // 대상 회원 조회
-    $rowT = sql_fetch("SELECT mb_no, mb_id, mb_name, mb_level, company_id, mb_group, IFNULL(is_after_call,0) AS is_after_call
+    $rowT = sql_fetch("SELECT mb_no, mb_id, mb_name, mb_level, company_id, mb_group, is_paid_db
                          FROM {$g5['member_table']} 
                         WHERE mb_no={$target_mb_no}
                         LIMIT 1");
@@ -118,18 +114,18 @@ if (isset($_POST['ajax']) && $_POST['ajax'] === 'toggle_after') {
     }
 
     // 권한/범위 검증
-    if (!can_toggle_aftercall($my_level, $my_company_id, $my_mb_no, $rowT)) {
+    if (!can_toggle_is_paid_db($my_level, $my_company_id, $my_mb_no, $rowT)) {
         echo json_encode(['success'=>false,'message'=>'권한 없음'], JSON_UNESCAPED_UNICODE); exit;
     }
 
     // 변경 불필요
-    if ((int)$rowT['is_after_call'] === $want) {
+    if ((int)$rowT['is_paid_db'] === $want) {
         echo json_encode(['success'=>true,'changed'=>false,'value'=>$want]); exit;
     }
 
     // 실제 업데이트
     $ok = sql_query("UPDATE {$g5['member_table']} 
-                        SET is_after_call={$want}
+                        SET is_paid_db={$want}
                       WHERE mb_no={$target_mb_no}
                       LIMIT 1", true);
 
@@ -144,7 +140,7 @@ if (isset($_POST['ajax']) && $_POST['ajax'] === 'toggle_after') {
             (mb_no, company_id, mb_group, old_value, new_value, changed_by, changed_ip)
         VALUES
             ({$target_mb_no}, {$rowT['company_id']}, {$rowT['mb_group']},
-            {$rowT['is_after_call']}, {$want}, {$my_mb_no}, '{$ip_bin}')
+            {$rowT['is_paid_db']}, {$want}, {$my_mb_no}, '{$ip_bin}')
     ");
     
     echo json_encode(['success'=>true,'changed'=>true,'value'=>$want]); exit;
@@ -155,7 +151,7 @@ if (isset($_POST['ajax']) && $_POST['ajax'] === 'toggle_after') {
 // -------------------------------------------
 $sql_common = " FROM {$g5['member_table']} m ";
 $where = [];
-$where[] = "1";
+$where[] = "m.member_type > 0";
 $where[] = "(m.mb_level < 9)"; // 플랫폼관리자 제외
 
 if ($my_level == 7) {
@@ -208,7 +204,7 @@ if ($stx !== '') {
             break;
     }
 }
-$sql_search = ' WHERE member_type = 0 AND '.implode(' AND ', $where);
+$sql_search = ' WHERE '.implode(' AND ', $where);
 
 // -------------------------------------------
 // 정렬/페이징
@@ -229,28 +225,13 @@ $from_record = ($page - 1) * $rows;
 // -------------------------------------------
 // 목록 조회 (+ 최근 발신번호)
 // -------------------------------------------
-$sql = "
-  SELECT 
+$sql = "SELECT 
     m.mb_no, m.mb_id, m.mb_name, m.mb_level, m.mb_hp,
     m.company_id, m.company_name,
     m.mb_group,  m.mb_group_name,
     m.mb_datetime, m.mb_today_login, m.pay_start_date,
     m.mb_leave_date, m.mb_intercept_date,
-    m.is_after_db_use, 
-    IFNULL(m.is_after_call,0) AS is_after_call,
-    /* level=3 상담원일 때만 최근 발신번호 조회 */
-    CASE 
-      WHEN m.mb_level = 3 THEN (
-        SELECT cl.agent_phone
-          FROM call_log cl
-         WHERE cl.mb_no = m.mb_no
-           AND cl.agent_phone IS NOT NULL
-           AND cl.agent_phone <> ''
-         ORDER BY cl.call_start DESC
-         LIMIT 1
-      )
-      ELSE NULL
-    END AS recent_agent_phone
+    m.is_paid_db 
   {$sql_common}
   {$sql_search}
   {$sql_order}
@@ -304,7 +285,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
             <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
             <?php foreach ($company_options as $c) { ?>
                 <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
-                    <?php echo get_text($c['company_name']); ?> (지점 <?php echo (int)$c['group_count']; ?>)
+                    <?php echo get_text($c['company_name']); ?> (매체사 <?php echo (int)$c['group_count']; ?>)
                 </option>
             <?php } ?>
         </select>
@@ -312,44 +293,12 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
         <input type="hidden" name="company_id" id="company_id" value="<?php echo (int)$sel_company_id; ?>">
     <?php } ?>
 
-    <?php if ($my_level >= 8) { ?>
-        <label for="mb_group">지점선택</label>
-        <select name="mb_group" id="mb_group">
-            <option value="0"<?php echo $sel_mb_group===0?' selected':'';?>>전체 지점</option>
-            <?php
-            if ($group_options) {
-                if ($my_level >= 9 && $sel_company_id == 0) {
-                    $last_cid = null;
-                    foreach ($group_options as $g) {
-                        if ($last_cid !== (int)$g['company_id']) {
-                            echo '<option value="" disabled>── '.get_text($g['company_name']).' ──</option>';
-                            $last_cid = (int)$g['company_id'];
-                        }
-                        echo '<option value="'.(int)$g['mb_group'].'" '.get_selected($sel_mb_group,(int)$g['mb_group']).'>'.get_text($g['mb_group_name']).' (상담원 '.(int)$g['member_count'].')</option>';
-                    }
-                } else {
-                    foreach ($group_options as $g) {
-                        echo '<option value="'.(int)$g['mb_group'].'" '.get_selected($sel_mb_group,(int)$g['mb_group']).'>'.get_text($g['mb_group_name']).' (상담원 '.(int)$g['member_count'].')</option>';
-                    }
-                }
-            }
-            ?>
-        </select>
-    <?php } else { ?>
-        <input type="hidden" name="mb_group" id="mb_group" value="<?php echo (int)$sel_mb_group; ?>">
-    <?php } ?>
-
-    <?php if ($my_level >= 8) { ?>
+    <?php if ($my_level >= 9) { ?>
         <!-- 권한 라디오 필터 -->
         <span class="role-radio" style="margin-left:10px;">
             <label><input type="radio" name="role_filter" value="all" <?php echo $role_filter==='all'?'checked':''; ?>> 전체</label>
-            <?php if ($my_level >= 9) { ?>
-                <label><input type="radio" name="role_filter" value="company" <?php echo $role_filter==='company'?'checked':''; ?>> 대표이사</label>
-            <?php } ?>
-            <label><input type="radio" name="role_filter" value="leader" <?php echo $role_filter==='leader'?'checked':''; ?>> 지점장</label>
-            <label><input type="radio" name="role_filter" value="member-after" <?php echo $role_filter==='member-after'?'checked':''; ?>> 2차팀장</label>
-            <label><input type="radio" name="role_filter" value="member" <?php echo $role_filter==='member'?'checked':''; ?>> 상담원</label>
-            <label><input type="radio" name="role_filter" value="member-before" <?php echo $role_filter==='member'?'checked':''; ?>> 상담원_승인전</label>
+            <label><input type="radio" name="role_filter" value="company" <?php echo $role_filter==='company'?'checked':''; ?>> 에이전시</label>
+            <label><input type="radio" name="role_filter" value="leader" <?php echo $role_filter==='leader'?'checked':''; ?>> 매체사</label>
         </span>
     <?php } else { ?>
         <input type="hidden" name="role_filter" value="all">
@@ -363,8 +312,8 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
     <select name="sfl" title="검색대상" style="margin-left:10px;">
         <option value="mb_name"<?php echo get_selected($sfl, 'mb_name'); ?>>이름</option>
         <option value="mb_id"<?php echo get_selected($sfl, 'mb_id'); ?>>아이디</option>
-        <option value="mb_group_name"<?php echo get_selected($sfl, 'mb_group_name'); ?>>조직명</option>
-        <option value="company_name"<?php echo get_selected($sfl, 'company_name'); ?>>회사명</option>
+        <option value="mb_group_name"<?php echo get_selected($sfl, 'mb_group_name'); ?>>매체사명</option>
+        <option value="company_name"<?php echo get_selected($sfl, 'company_name'); ?>>에이전시명</option>
     </select>
     <label for="stx" class="sound_only">검색어</label>
     <input type="text" name="stx" id="stx" value="<?php echo get_text($stx); ?>" class="frm_input">
@@ -381,21 +330,18 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                 <th scope="col">대표연락처</th>
                 <?php } ?>
                 <th scope="col"><?php echo subject_sort_link('m.company_name', $qstr_member_list); ?>회사</a></th>
-                <th scope="col">지점명</th>
+                <th scope="col">매체사명</th>
+                <?php if($my_level >= 9) { ?>
+                <th scope="col">진행유무</th>
+                <?php } ?>
                 <th scope="col"><?php echo subject_sort_link('m.mb_name', $qstr_member_list); ?>이름</a></th>
                 <th scope="col"><?php echo subject_sort_link('m.mb_id', $qstr_member_list); ?>아이디</a></th>
-                <th scope="col">2차콜온오프</th><!-- NEW -->
-                <th scope="col">최근발신번호</th><!-- NEW -->
                 <th scope="col">상태</th>
                 <th scope="col"><?php echo subject_sort_link('m.mb_datetime', $qstr_member_list); ?>등록일</a></th>
                 <th scope="col"><?php echo subject_sort_link('m.mb_today_login', $qstr_member_list); ?>최종접속일</a></th>
-                <th scope="col"><?php echo subject_sort_link('m.pay_start_date', $qstr_member_list); ?>시작일</a></th>
                 <th scope="col">수정</th>
                 <th scope="col">차단</th>
                 <th scope="col">삭제</th>
-                <?php if($my_level >= 9) { ?>
-                <th scope="col">DB상세</th>
-                <?php } ?>
             </tr>
         </thead>
         <tbody>
@@ -414,7 +360,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                 // 권한 배지
                 list($role_name, $role_class) = role_label_and_class((int)$row['mb_level']);
 
-                // 표시용 회사/지점 이름
+                // 표시용 회사/매체사 이름
                 $disp_company = get_company_name_cached((int)$row['company_id']);
                 $disp_group   = get_group_name_cached((int)$row['mb_group']);
 
@@ -424,12 +370,9 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                 $pay_start_date = $row['pay_start_date']  ? substr($row['pay_start_date'], 2, 8) : '';
 
                 // 토글 가능/표시여부
-                $is_after = (int)$row['is_after_call'] === 1;
-                $is_toggle_target = in_array((int)$row['mb_level'], [5,7], true);
-                $can_toggle = $is_toggle_target && can_toggle_aftercall($my_level, $my_company_id, $my_mb_no, $row);
-
-                // 최근 발신번호 표시(상담원=3 인 경우만 값 존재)
-                $recent_phone = ($row['mb_level'] == 3 && !empty($row['recent_agent_phone'])) ? format_korean_phone($row['recent_agent_phone']) : '-';
+                $is_paid_db = (int)$row['is_paid_db'] === 1;
+                $is_toggle_target = in_array((int)$row['mb_level'], [7,8], true);
+                $can_toggle = $is_toggle_target && can_toggle_is_paid_db($my_level, $my_company_id, $my_mb_no, $row);
                 ?>
                 <tr class="<?php echo $bg; ?>">
                     <?php if($my_level >= 8) { ?>
@@ -440,41 +383,25 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                     <?php } ?>
                     <td class="td_left"><?php echo get_text($disp_company); ?></td>
                     <td class="td_left"><?php echo get_text($disp_group); ?></td>
+                    <?php if ($my_level >= 9 && $is_toggle_target) { ?>
+                    <td class="td_center td_mng td_mng_s">
+                        <button type="button"
+                                class="toggle-is-paid-db <?php echo $is_paid_db ? 'on':'off'; ?>"
+                                data-mb-no="<?php echo (int)$row['mb_no']; ?>"
+                                data-value="<?php echo $is_paid_db ? 1:0; ?>"
+                                <?php echo $can_toggle ? '' : 'disabled'; ?>>
+                            <?php echo $is_paid_db ? 'ON':'OFF'; ?>
+                        </button>
+                    </td>
+                    <?php } ?>
                     <td class="td_mbname"><?php echo get_text($row['mb_name']); ?></td>
                     <td class="td_left"><?php echo get_text($row['mb_id']); ?></td>
-
-                    <!-- NEW: 2차콜담당 토글 -->
-                    <td class="td_center">
-                        <?php if ($is_toggle_target) { ?>
-                            <button type="button"
-                                    class="toggle-after <?php echo $is_after ? 'on':'off'; ?>"
-                                    data-mb-no="<?php echo (int)$row['mb_no']; ?>"
-                                    data-value="<?php echo $is_after ? 1:0; ?>"
-                                    <?php echo $can_toggle ? '' : 'disabled'; ?>>
-                                <?php echo $is_after ? 'ON':'OFF'; ?>
-                            </button>
-                        <?php } else { ?>
-                            -
-                        <?php } ?>
-                    </td>
-
-                    <!-- NEW: 최근 발신번호 -->
-                    <td class="td_center"><?php echo get_text($recent_phone); ?></td>
-
                     <td class="td_mbstat"><?php echo $status_label; ?></td>
                     <td class="td_date"><?php echo $reg_date; ?></td>
                     <td class="td_date"><?php echo $last_login; ?></td>
-                    <td class="td_date">
-                        <?php
-                        echo $pay_start_date;
-                        if($member['mb_id'] == 'admin_pay' && $row['mb_level']==2) {
-                            echo '<a href="./call_member_block.php?action=agree&amp;mb_id='.urlencode($row['mb_id']).'&amp;'.http_build_query(['_ret'=>$_SERVER['REQUEST_URI']]).'" class="btn btn_02" onclick="return confirm(\'해당 회원을 승인하시겠습니까?\');" style="background:#d73bb0 !important;color:#fff !important">승인</a>';
-                        }
-                        ?>
-                    </td>
                     <td class="td_mng td_mng_s">
                         <?php if (empty($row['mb_leave_date'])) { ?>    
-                        <a href="./call_member_form.php?w=u&amp;mb_id=<?php echo urlencode($row['mb_id']); ?>" class="btn btn_03">수정</a>
+                        <a href="./paid_member_form.php?w=u&amp;mb_id=<?php echo urlencode($row['mb_id']); ?>" class="btn btn_03">수정</a>
                         <?php } else echo '-'; ?>
                     </td>
                     <td class="td_mng td_mng_s">
@@ -493,15 +420,6 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                             삭제회원
                         <?php } ?>
                     </td>
-                    <?php if($my_level >= 9) { ?>
-                    <td class="td_mng td_mng_s">
-                        <?php
-                            if($row['mb_level'] == 8) {
-                                echo $row['is_after_db_use'] ? '<span class="badge badge-company">사용</span>' : '미사용';
-                            }
-                        ?>
-                    </td>
-                    <?php } ?>
                 </tr>
                 <?php
             }
@@ -514,7 +432,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
 </div>
 
 <div class="btn_fixed_top">
-    <a href="./call_member_form.php" class="btn btn_01">회원추가</a>
+    <a href="./paid_member_form.php" class="btn btn_01">회원 추가</a>
 </div>
 
 <?php
@@ -526,7 +444,7 @@ echo get_paging(G5_IS_MOBILE ? $config['cf_mobile_pages'] : $config['cf_write_pa
 <script>
 (function(){
     var $form = document.getElementById('searchForm');
-    // ★ 회사 변경 시 지점/담당자 초기화 후 자동검색
+    // ★ 회사 변경 시 매체사/담당자 초기화 후 자동검색
     var companySel = document.getElementById('company_id');
     if (companySel) {
         companySel.addEventListener('change', function(){
@@ -538,7 +456,7 @@ echo get_paging(G5_IS_MOBILE ? $config['cf_mobile_pages'] : $config['cf_write_pa
         });
     }
 
-    // 지점 변경 시 담당자 초기화 후 자동검색
+    // 매체사 변경 시 담당자 초기화 후 자동검색
     var mbGroup = document.getElementById('mb_group');
     if (mbGroup) {
         mbGroup.addEventListener('change', function(){
@@ -548,6 +466,49 @@ echo get_paging(G5_IS_MOBILE ? $config['cf_mobile_pages'] : $config['cf_write_pa
         });
     }
 })();
+
+<?php if($member['mb_level'] >= 9) { ?>
+// 2차콜담당 토글
+document.addEventListener('click', function(e){
+var btn = e.target.closest('.toggle-is-paid-db');
+if (!btn) return;
+
+if (btn.hasAttribute('disabled')) return;
+
+if (!confirm('진행여부 상태를 정말 변경하시겠습니까?')) return;
+
+var mbNo = parseInt(btn.getAttribute('data-mb-no') || '0', 10) || 0;
+var cur  = parseInt(btn.getAttribute('data-value') || '0', 10) || 0;
+var want = cur ? 0 : 1;
+
+var fd = new FormData();
+fd.append('ajax','toggle_is_paid');
+fd.append('mb_no', String(mbNo));
+fd.append('want', String(want));
+btn.setAttribute('disabled','disabled');
+
+fetch('./paid_member_list.php', { method:'POST', body:fd, credentials:'same-origin' })
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+    if (!j || j.success === false) throw new Error((j && j.message) || '실패');
+    // UI 반영
+    if (typeof j.value !== 'undefined') {
+        var v = parseInt(j.value,10)===1;
+        btn.classList.toggle('on', v);
+        btn.classList.toggle('off', !v);
+        btn.textContent = v ? 'ON':'OFF';
+        btn.setAttribute('data-value', v ? '1':'0');
+    }
+    })
+    .catch(function(err){
+    alert('변경 실패: ' + err.message);
+    })
+    .finally(function(){
+    btn.removeAttribute('disabled');
+    });
+});            
+<?php } ?>
+
 </script>
 
 <?php include_once (G5_ADMIN_PATH.'/admin.tail.php');
