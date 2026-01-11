@@ -1,7 +1,11 @@
 <?php
 require_once './_common.php';
-if($member['mb_id'] == 'admin_pay') {
+if($is_admin_pay) {
     header('Location: /adm/call/billing_company_list.php');
+    exit;
+}
+if($is_paid_company) {
+    header('Location: /adm/paid/paid_stats.php');
     exit;
 }
 header('Location: /adm/call/');

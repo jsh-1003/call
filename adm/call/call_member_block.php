@@ -71,7 +71,7 @@ if ($my_level == 8) {
 // -----------------------------
 $safe_mb_id = sql_escape_string($mb_id);
 
-if ($action === 'agree' && $target['mb_level']==2 && $member['mb_id'] == 'admin_pay') {
+if ($action === 'agree' && $target['mb_level']==2 && $is_admin_pay) {
     sql_query("UPDATE {$g5['member_table']}
                   SET mb_level = 3, pay_start_date='".G5_TIME_YMD."'
                 WHERE mb_id = '{$safe_mb_id}'");

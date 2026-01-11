@@ -467,7 +467,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                     <td class="td_date">
                         <?php
                         echo $pay_start_date;
-                        if($member['mb_id'] == 'admin_pay' && $row['mb_level']==2) {
+                        if($is_admin_pay && $row['mb_level']==2) {
                             echo '<a href="./call_member_block.php?action=agree&amp;mb_id='.urlencode($row['mb_id']).'&amp;'.http_build_query(['_ret'=>$_SERVER['REQUEST_URI']]).'" class="btn btn_02" onclick="return confirm(\'해당 회원을 승인하시겠습니까?\');" style="background:#d73bb0 !important;color:#fff !important">승인</a>';
                         }
                         ?>

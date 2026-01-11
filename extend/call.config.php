@@ -30,6 +30,10 @@ if($is_admin != 'super') {
  */
 $is_shop_api_view = false;
 $is_admin_pay = false;
+
+$is_paid_company = false;
+$is_agency = false;
+$is_vendor = false;
 $member['member_type'] = empty($member['member_type']) ? 0 : $member['member_type'];
 
 if($is_admin == 'super') {
@@ -45,6 +49,10 @@ unset($auth);
 
 switch ($member['member_type']) {
     case 1:
+        $is_agency = true;
+    case 2:
+        $is_vendor = false;
+        $is_paid_company = true;
         $is_admin = 'group';
         $auth = array(
             '200710' => 'rw',
