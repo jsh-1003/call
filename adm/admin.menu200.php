@@ -1,5 +1,10 @@
 <?php
-if($member['member_type'] ==0 && $member['mb_level'] < 10) return;
+$is_paid_db_use_company = 0;
+if($member['mb_level'] < 8) return;
+if($member['member_type'] ==0 && $member['mb_level'] < 10) {
+    $is_paid_db_use_company = is_paid_db_use_company($member['mb_no']);
+    if($is_paid_db_use_company < 1) return;
+}
 if($member['mb_level'] > 10) {
     $menu['menu200'] = array(
         array('200000', '회원관리', G5_ADMIN_URL . '/member_list.php', 'member'),
@@ -17,5 +22,15 @@ if($member['mb_level'] > 10) {
 $menu['menu200'] = array(
     array('200000', '매체사관리', G5_ADMIN_URL . '/paid/paid_member_list.php', 'member'),
     array('200710', '회원관리', G5_ADMIN_URL . '/paid/paid_member_list.php', 'mb_list'),
-    array('200750', '사용통계', G5_ADMIN_URL . '/paid/paid_stats.php', 'paid_stats'),    
+    array('200750', '사용통계', G5_ADMIN_URL . '/paid/paid_stats.php', 'paid_stats'),
+    array('200770', '포인트확인', G5_ADMIN_URL . '/paid/paid_point_list.php', 'paid_point'),    
 );
+
+// 유료DB 사용하는 회원사인경우
+if($is_paid_db_use_company > 0) {
+    $menu['menu200'] = array(
+        array('200000', '유료DB 통계', G5_ADMIN_URL . '/member_list.php', 'member'),
+        array('200750', '사용통계', G5_ADMIN_URL . '/paid/paid_stats.php', 'paid_stats'),
+        array('200770', '포인트확인', G5_ADMIN_URL . '/paid/paid_point_list.php', 'paid_point'),    
+    );
+}

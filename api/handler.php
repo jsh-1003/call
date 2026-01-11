@@ -120,8 +120,8 @@ function handle_call_upload(): void {
     $info  = get_group_info($token);
     $mb_group               = (int)$info['mb_group'];
     $mb_no                  = (int)$info['mb_no'];
-    $is_paid_db             = (int)$info['is_paid_db'];
-    $paid_db_billing_type   = (int)$info['paid_db_billing_type'];
+    $is_paid_db             = 0;
+    $paid_db_billing_type   = 0;
 
     // 1) 입력 파싱 (multipart | json | x-www-form-urlencoded)
     $in = [];
@@ -135,7 +135,7 @@ function handle_call_upload(): void {
     }
 
     // 필수 파라미터: target_id, call_status, phoneNumber
-    $mode         = isset($in['mode'])        ? trim((string)$in['mode'])        : 'auto';
+    $mode = isset($in['mode'])        ? trim((string)$in['mode'])        : 'auto';
     if ($mode === 'manual') {
         handle_manual_call_log($in, $mb_group, $mb_no);
         return;        
@@ -158,7 +158,7 @@ function handle_call_upload(): void {
     }
 
     // 2) 대상 검증/조회 (권한: mb_group 일치)
-    $t = sql_fetch("SELECT t.target_id, t.campaign_id, t.mb_group, t.call_hp, t.name, t.assigned_mb_no, t.attempt_count, t.db_age_type
+    $t = sql_fetch("SELECT t.target_id, t.campaign_id, t.mb_group, t.call_hp, t.name, t.assigned_mb_no, t.attempt_count, t.db_age_type, t.is_paid_db, t.paid_db_billing_type
         FROM call_target t
         WHERE t.target_id = {$target_id} AND t.mb_group = {$mb_group}
         LIMIT 1
@@ -184,6 +184,13 @@ function handle_call_upload(): void {
         AND assigned_status = 1
         LIMIT 1
     ");
+    
+    // 유료 DB인 경우 -> call_target의 is_paid_db값이 1이며, db_age_type값이 1또는 2인 경우만 대상으로 함
+    if($t['is_paid_db'] && ($db_age_type == 1 || $db_age_type == 2)) {
+        $is_paid_db             = 1;
+        $paid_db_billing_type   = (int)$t['paid_db_billing_type'];
+    }
+
     // sql_query($aff);
 
 
@@ -268,7 +275,9 @@ function handle_call_upload(): void {
     $call_id = (int)sql_insert_id();
 
     // 5-2) 유료DB 비용 처리
-    paid_db_use($mb_no, $target_id, $call_id, $call_time, $duration_sec);
+    if($is_paid_db) {
+        paid_db_use($mb_no, $target_id, $call_id, $call_time, $duration_sec, $paid_db_billing_type);
+    }
 
     // 6) 대상 상태 업데이트
     $set = [];

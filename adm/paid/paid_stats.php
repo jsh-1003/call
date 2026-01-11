@@ -956,7 +956,7 @@ $show_vendor_select = (($is_admin9 || $is_agency) && !$is_company_rep && !$is_me
             <th scope="col" style="width:200px;">사용 업체</th>
             <th scope="col" style="width:90px;">전체 수신</th>
             <th scope="col" style="width:90px;">일반 사용량</th>
-            <th scope="col" style="width:110px;">실버 단독 사용량</th>
+            <th scope="col" style="width:110px;">실버 사용량</th>
             <th scope="col" style="width:120px;">10초 과금 총금</th>
             <th scope="col" style="width:120px;">연결당 과금 총금</th>
             <th scope="col" style="width:120px;">전체 사용 총금</th>
@@ -1035,9 +1035,11 @@ $show_vendor_select = (($is_admin9 || $is_agency) && !$is_company_rep && !$is_me
     <table class="table-fixed">
         <thead>
             <tr>
+                <?php if(!$is_company_rep) { ?>
                 <th>에이전시</th>
                 <th>매체사</th>
                 <th>사용 업체</th>
+                <?php } ?>
                 <?php if (!$hide_t3_branch_agent_cols) { ?>
                     <th>사용 지점</th>
                     <th>상담원</th>
@@ -1094,9 +1096,11 @@ $show_vendor_select = (($is_admin9 || $is_agency) && !$is_company_rep && !$is_me
                 }
                 ?>
                 <tr>
+                    <?php if(!$is_company_rep) { ?>
                     <td><?php echo get_text($agency_name); ?></td>
                     <td><?php echo get_text($media_name); ?></td>
                     <td><?php echo get_text($company_name); ?></td>
+                    <?php } ?>
                     <?php if (!$hide_t3_branch_agent_cols) { ?>
                         <td><?php echo get_text($gname); ?></td>
                         <td><?php echo get_text($agent); ?> (<?php echo (int)$row['agent_id']; ?>)</td>

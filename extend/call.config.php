@@ -31,18 +31,21 @@ if($is_admin != 'super') {
 $is_shop_api_view = false;
 $is_admin_pay = false;
 
-$is_paid_company = false;
+$is_company_leader = false; // 사용자 대표인 경우
+$is_paid_company = false; // 에이전시+매체사 여부
 $is_agency = false;
 $is_vendor = false;
 $member['member_type'] = empty($member['member_type']) ? 0 : $member['member_type'];
 
+
+if($member['mb_id'] == 'admin_pay') {
+    $auth[] = array(
+        '700990' => 'rw',
+    );
+    $is_admin_pay = true;
+    $is_admin = 'super';
+}
 if($is_admin == 'super') {
-    if($member['mb_id'] == 'admin_pay') {
-        $auth[] = array(
-            '700990' => 'rw',
-        );
-        $is_admin_pay = true;
-    }
     return;
 }
 unset($auth);
@@ -64,6 +67,7 @@ switch ($member['member_type']) {
             $is_admin = 'super';
         } else if($member['mb_level'] >= 7) {
             $is_admin = 'group';
+            $is_company_leader = $member['mb_level'] == 8;
             $auth = array(
                 '700000' => 'rw',
                 '700100' => 'rw',

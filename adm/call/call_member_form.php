@@ -383,13 +383,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $set[] = "mb_group_name=''";
         }
 
-        if(!empty($is_admin_pay) && $is_admin_pay) {
+        if($is_admin_pay) {
             if(!empty($pay_start_date)) {
                 $pay_start_date = sql_escape_string($pay_start_date);
                 $set[] = " pay_start_date = date_format('{$pay_start_date}', '%Y-%m-%d') ";
             } else {
                 $set[] = " pay_start_date = NULL ";
             }
+            $po_point = isset($_POST['po_point']) ? (int)strip_tags(clean_xss_attributes($_POST['po_point'])) : 0;
+            $po_content = isset($_POST['po_content']) ? strip_tags(clean_xss_attributes($_POST['po_content'])) : '';
+            $expire = isset($_POST['po_expire_term']) ? preg_replace('/[^0-9]/', '', $_POST['po_expire_term']) : '';
+            if($po_point) {
+                insert_point($target['mb_id'], $po_point, $po_content, '@passive', $target['mb_id'], $member['mb_id'] . '-' . uniqid(''), $expire);
+            }
+            if($post_level == 8) {
+                $set[] = "is_paid_db='".(int)$is_paid_db."'";
+            }         
         }
 
         $sql = "UPDATE {$g5['member_table']} SET ".implode(',', $set)." WHERE mb_id='".sql_escape_string($post_id)."'";
@@ -597,6 +606,22 @@ if (!$is_new) {
                 </tr>
                 <?php } ?>
 
+                <?php if($is_admin_pay && !$is_new && $mb['mb_level']==8) { ?>
+                <tr>
+                    <th scope="row" style="background-color:#3f51b5 !important;color:#fff !important"><label for="mb_name">유료DB 사용</label></th>
+                    <td colspan="3">
+                        <label class="mgr12">
+                            <input type="radio" name="is_paid_db" value="0" <?php echo ($mb['is_paid_db']==0?'checked':''); ?>>
+                            미사용
+                        </label>
+                        <label class="mgr12">
+                            <input type="radio" name="is_paid_db" value="1" <?php echo ($mb['is_paid_db']==1?'checked':''); ?>>
+                            사용
+                        </label>
+                    </td>
+                </tr>
+                <?php } ?>
+
                 <!-- 지점장 전용: 지점명 -->
                 <tr id="row_group_name" style="display:<?php echo ($default_role==='leader' ? '' : 'none'); ?>;">
                     <th scope="row"><label for="mb_group_name">지점</label></th>
@@ -608,6 +633,18 @@ if (!$is_new) {
                         <?php } ?>
                     </td>
                 </tr>
+                <?php if($is_admin_pay && !empty($mb['mb_level']) && $mb['mb_level'] == 8) { ?>
+                <tr>
+                    <th scope="row" style="background-color:#3f51b5 !important;color:#fff !important">
+                        <label for="po_content">포인트 내용</label>
+                    </th>
+                    <td><input type="text" name="po_content" id="po_content" class="frm_input" size="80"></td>
+                    <th scope="row" style="background-color:#3f51b5 !important;color:#fff !important">
+                        <label for="po_point">지급 포인트 (현재 : <?php echo number_format($mb['mb_point']) ?>)</label>
+                    </th>
+                    <td><input type="text" name="po_point" id="po_point"class="frm_input"></td>
+                </tr>
+                <?php } ?>
             </tbody>
         </table>
     </div>

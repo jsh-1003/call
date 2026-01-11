@@ -215,7 +215,7 @@ $sql_search = ' WHERE member_type = 0 AND '.implode(' AND ', $where);
 // -------------------------------------------
 $sst = $_GET['sst'] ?? 'm.company_id desc, m.mb_group desc, m.mb_level asc, m.mb_no';
 $sod = strtolower($_GET['sod'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
-$allowed_sort = ['m.mb_datetime','m.mb_today_login','m.pay_start_date','m.mb_name','m.mb_id','m.mb_group_name','m.company_name'];
+$allowed_sort = ['m.mb_datetime','m.mb_today_login','m.pay_start_date','m.mb_name','m.mb_id','m.mb_group_name','m.company_name','m.is_paid_db','m.mb_point'];
 if (!in_array($sst, $allowed_sort, true)) $sst = 'm.company_id desc, m.mb_group desc, m.mb_level asc, m.mb_no';
 $sql_order = " ORDER BY {$sst} {$sod} ";
 
@@ -236,7 +236,7 @@ $sql = "
     m.mb_group,  m.mb_group_name,
     m.mb_datetime, m.mb_today_login, m.pay_start_date,
     m.mb_leave_date, m.mb_intercept_date,
-    m.is_after_db_use, 
+    m.is_after_db_use, m.is_paid_db, m.mb_point,
     IFNULL(m.is_after_call,0) AS is_after_call,
     /* level=3 상담원일 때만 최근 발신번호 조회 */
     CASE 
@@ -349,7 +349,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
             <label><input type="radio" name="role_filter" value="leader" <?php echo $role_filter==='leader'?'checked':''; ?>> 지점장</label>
             <label><input type="radio" name="role_filter" value="member-after" <?php echo $role_filter==='member-after'?'checked':''; ?>> 2차팀장</label>
             <label><input type="radio" name="role_filter" value="member" <?php echo $role_filter==='member'?'checked':''; ?>> 상담원</label>
-            <label><input type="radio" name="role_filter" value="member-before" <?php echo $role_filter==='member'?'checked':''; ?>> 상담원_승인전</label>
+            <label><input type="radio" name="role_filter" value="member-before" <?php echo $role_filter==='member-before'?'checked':''; ?>> 상담원_승인전</label>
         </span>
     <?php } else { ?>
         <input type="hidden" name="role_filter" value="all">
@@ -390,11 +390,15 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                 <th scope="col"><?php echo subject_sort_link('m.mb_datetime', $qstr_member_list); ?>등록일</a></th>
                 <th scope="col"><?php echo subject_sort_link('m.mb_today_login', $qstr_member_list); ?>최종접속일</a></th>
                 <th scope="col"><?php echo subject_sort_link('m.pay_start_date', $qstr_member_list); ?>시작일</a></th>
+                <th scope="col"><?php echo subject_sort_link('m.is_paid_db', $qstr_member_list); ?>유료DB</a></th>
                 <th scope="col">수정</th>
                 <th scope="col">차단</th>
                 <th scope="col">삭제</th>
                 <?php if($my_level >= 9) { ?>
                 <th scope="col">DB상세</th>
+                <?php } ?>
+                <?php if($is_admin_pay) { ?>
+                <th scope="col"><?php echo subject_sort_link('m.mb_point', $qstr_member_list); ?>잔여포인트</a></th>
                 <?php } ?>
             </tr>
         </thead>
@@ -473,6 +477,9 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                         ?>
                     </td>
                     <td class="td_mng td_mng_s">
+                        <?php echo $row['is_paid_db'] ? '<span class="badge badge-company">사용</span>' : '-'; ?>
+                    </td>
+                    <td class="td_mng td_mng_s">
                         <?php if (empty($row['mb_leave_date'])) { ?>    
                         <a href="./call_member_form.php?w=u&amp;mb_id=<?php echo urlencode($row['mb_id']); ?>" class="btn btn_03">수정</a>
                         <?php } else echo '-'; ?>
@@ -499,6 +506,13 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                             if($row['mb_level'] == 8) {
                                 echo $row['is_after_db_use'] ? '<span class="badge badge-company">사용</span>' : '미사용';
                             }
+                        ?>
+                    </td>
+                    <?php } ?>
+                    <?php if($is_admin_pay) { ?>
+                    <td class="td_money">
+                        <?php
+                        echo $row['mb_level'] == 8 ? number_format($row['mb_point']) : '-';
                         ?>
                     </td>
                     <?php } ?>

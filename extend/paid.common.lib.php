@@ -4,18 +4,13 @@ if (!defined('_GNUBOARD_')) exit; // 개별 페이지 접근 불가
 /** 
  * 유료대상 통화인지 확인
  */
-function paid_db_use($mb_no, $target_id, $call_id, $call_time, $call_duration) {
+function paid_db_use($mb_no, $target_id, $call_id, $call_time, $call_duration, $paid_db_billing_type) {
     // 1초 이하면 무효로 판단
     if( $call_time < 1 || $call_duration < 1 ) return 0;
 
-    $paid_info = get_member_from_mb_no($mb_no, 'company_id, is_paid_db, paid_db_billing_type');
-    
-    // 유료DB 사용이 아니면 리턴
-    if(!$paid_info['is_paid_db']) return 0;
-    
-    $company_info = get_member_from_mb_no($paid_info['company_id'], 'mb_id');
-    $mb_id = $company_info['mb_id'];
-    $paid_db_billing_type = $paid_info['paid_db_billing_type'];
+    $_company_id = get_member_from_mb_no($mb_no, 'company_id');
+    $company_info = get_member_from_mb_no($_company_id['company_id'], 'mb_id');
+    $mb_id = $company_info['mb_id']; // 대표 회원 아이디(포인트 차감용)
 
     if($paid_db_billing_type == 1 && $call_duration > 9.9) {
         // 1번 : 통화10초시 과금, 150원
@@ -38,4 +33,9 @@ function paid_db_use($mb_no, $target_id, $call_id, $call_time, $call_duration) {
     $sql = "UPDATE call_log SET is_paid = '{$paid_db_billing_type}', paid_price = '{$paid_price}' WHERE call_id = '{$call_id}' ";
     sql_query($sql);
     return 1;
+}
+
+function is_paid_db_use_company(int $company_id) {
+    $sql = "SELECT is_paid_db FROM g5_member WHERE mb_no = '{$company_id}' ";
+    return (int)current(sql_fetch($sql));
 }
