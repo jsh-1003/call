@@ -7,5 +7,7 @@
 require_once './_common.php';
 require_once G5_LIB_PATH.'/call.lib.php';
 
-$is_company_leader = $member['mb_level'] == 8;
-var_dump($is_company_leader);
+$sel_company_id = 76;
+$sel_mb_group = 77;
+$build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
+print_r2($build_org_select_options);

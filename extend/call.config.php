@@ -16,8 +16,18 @@ define('S3_BUCKET',  'call-save');
 
 define('CALL_SHOP_API_TOKEN', 'a7df2c6e9b814f0dac3f5c12990e4fd8c5bfc79ab3e64d69f0a2b771c8d93451'); // SHOP API 토큰 키
 
+/* -----------------------------------------------------------
+ * 유료DB 단가 관련
+ * --------------------------------------------------------- */
+define('AGENCY_PRICE_CONN', 10);
+define('AGENCY_PRICE_10S',  20);
+
+define('MEDIA_PRICE_CONN',  20);
+define('MEDIA_PRICE_10S',   40);
+
 define('PAID_PRICE_TYPE_1', 160); // 1번 : 통화10초시 과금, 160원
 define('PAID_PRICE_TYPE_2', 80); // 2번 : 통화당 과금, 80원
+
 
 if($is_admin != 'super') {
     define('G5_DEBUG', false);

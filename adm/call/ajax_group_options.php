@@ -72,9 +72,13 @@ try {
             $last_cid = $cid;
         }
 
+        $label = (string)$gname;
+        if((int)$mcnt) {
+            $label .= "(상담원 {$mcnt})";
+        }
         $items[] = [
             'value' => $gid,
-            'label' => sprintf('%s (상담원 %d)', (string)$gname, (int)$mcnt)
+            'label' => $label
         ];
     }
 

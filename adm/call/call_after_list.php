@@ -264,7 +264,7 @@ $sql_list = "SELECT
       SELECT mb_group, MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('지점 ', mb_group))) AS mv_group_name
         FROM {$member_table} WHERE mb_group>0 GROUP BY mb_group
   ) g ON g.mb_group = b.mb_group
-  JOIN call_campaign cc ON cc.campaign_id=b.campaign_id AND cc.mb_group=b.mb_group
+  JOIN call_campaign cc ON cc.campaign_id = b.campaign_id AND (cc.is_paid_db = 1 OR cc.mb_group = b.mb_group) 
   LEFT JOIN call_aftercall_ticket tk
     ON tk.campaign_id=b.campaign_id AND tk.mb_group=b.mb_group AND tk.target_id=b.target_id
   LEFT JOIN call_aftercall_state_code s ON s.state_id=COALESCE(tk.state_id,0)

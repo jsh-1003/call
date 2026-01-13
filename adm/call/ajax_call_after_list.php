@@ -1,5 +1,5 @@
 <?php
-// /adm/call/call_after_list.php
+// /adm/call/ajax_call_after_list.php
 $sub_menu = '700400';
 require_once './_common.php';
 
@@ -36,8 +36,16 @@ if (isset($_GET['ajax']) && $_GET['ajax']==='get') {
     $campaign_id = (int)($_GET['campaign_id'] ?? 0);
     $mb_group    = (int)($_GET['mb_group'] ?? 0);
     header('Content-Type: application/json; charset=utf-8');
-    if ($target_id<=0 || $campaign_id<=0 || $mb_group<=0) { echo json_encode(['success'=>false,'message'=>'invalid'], JSON_UNESCAPED_UNICODE); exit; }
-    if ($mb_level <= 7 && $mb_group !== $my_group) { echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit; }
+    if ($target_id<=0 || $campaign_id<=0) { echo json_encode(['success'=>false,'message'=>'invalid'], JSON_UNESCAPED_UNICODE); exit; }
+    $camp = sql_fetch("SELECT campaign_id, mb_group, is_paid_db
+        FROM call_campaign
+        WHERE campaign_id={$campaign_id}
+        AND deleted_at IS NULL
+        LIMIT 1
+    ");
+    if (!$camp) { echo json_encode(['success'=>false,'message'=>'invalid campaign'], JSON_UNESCAPED_UNICODE); exit; }
+    $is_paid_db = ((int)$camp['is_paid_db'] === 1);
+    if ($mb_level <= 7 && $mb_group !== $my_group && !$is_paid_db) { echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit; }
     if ($mb_level == 8) {
         $own_grp = sql_fetch("SELECT 1 FROM {$member_table} WHERE mb_no={$mb_group} AND mb_level=7 AND company_id='{$my_company_id}' LIMIT 1");
         if (!$own_grp) { echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit; }
@@ -130,6 +138,15 @@ if (isset($_POST['ajax']) && $_POST['ajax']==='save') {
     $schedule_clear= (int)($_POST['schedule_clear'] ?? 0);
     $assigned_after_mb_no = (int)($_POST['assigned_after_mb_no'] ?? 0);
 
+$camp = sql_fetch("SELECT campaign_id, mb_group, is_paid_db
+        FROM call_campaign
+        WHERE campaign_id={$campaign_id}
+        AND deleted_at IS NULL
+        LIMIT 1
+    ");
+    if (!$camp) { echo json_encode(['success'=>false,'message'=>'invalid campaign'], JSON_UNESCAPED_UNICODE); exit; }
+    $is_paid_db = ((int)$camp['is_paid_db'] === 1);
+
     // 레벨7 이상만 변경 허용, 5레벨은 입력을 무시
     if ($mb_level < 7) {
         $assigned_after_mb_no = null; // 업데이트/인서트 시 그대로 유지
@@ -143,7 +160,7 @@ if (isset($_POST['ajax']) && $_POST['ajax']==='save') {
     header('Content-Type: application/json; charset=utf-8');
 
     if ($campaign_id<=0 || $mb_group<=0 || $target_id<=0) { echo json_encode(['success'=>false,'message'=>'invalid','tmp'=>$_POST]); exit; }
-    if ($mb_level == 7 && $mb_group !== $my_group) { echo json_encode(['success'=>false,'message'=>'denied/1']); exit; }
+    if ($mb_level == 7 && $mb_group !== $my_group && !$is_paid_db) { echo json_encode(['success'=>false,'message'=>'denied/1']); exit; }
     if ($mb_level == 8) {
         $own_grp = sql_fetch("SELECT 1 FROM {$member_table} WHERE mb_no={$mb_group} AND mb_level=7 AND company_id='{$my_company_id}' LIMIT 1");
         if (!$own_grp) { echo json_encode(['success'=>false,'message'=>'denied/2']); exit; }

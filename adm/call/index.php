@@ -50,6 +50,7 @@ $ASSIGN_LABEL = [ 0=>'미배정', 1=>'배정', 2=>'저장중', 3=>'완료', 4=>'
 // WHERE 구성 (+ 삭제 캠페인 제외 조건)
 // ----------------------------------------------------------------------------------
 $where = [];
+$where[] = "t.mb_group <> 0";
 // 권한별 기본 범위
 if ($mb_level >= 8) {
     // 상단 조직 필터에서 제한
@@ -376,7 +377,7 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
 
                 // 캠페인 정보를 지우고 가져와서 보여줌.
                 // $campaign_info = get_campaign_from_cached($row['campaign_id']);
-                $campaign_info = $campaign_list[$row['campaign_id']];
+                $campaign_info = !empty($campaign_list[$row['campaign_id']]) ? $campaign_list[$row['campaign_id']] : ['status'=>'','name'=>'','is_open_number'=>''];
                 $row['campaign_status'] = $campaign_info['status'];
                 $row['campaign_name'] = $campaign_info['name'];
                 $row['is_open_number'] = $campaign_info['is_open_number'];

@@ -99,9 +99,9 @@ $sql_common = "
 $where = array();
 $where[] = "po.po_rel_table = '@passive'";
 
-// 대표 계정 범위(필요시 조정: (0)만 쓰면 mb_level IN(0)로 변경)
+// 대표 계정 범위
 $where[] = "mb.member_type = 0";
-$where[] = "mb.mb_level IN (0,8)";
+$where[] = "mb.mb_level = 8";
 
 // 날짜
 $start_esc = sql_escape_string($start_sql);
@@ -144,8 +144,7 @@ $total_page  = (int)ceil($total_count / $rows);
 $from_record = ($page - 1) * $rows;
 
 // list
-$sql = "
-    SELECT
+$sql = "SELECT
         po.*,
         mb.mb_name,
         mb.mb_hp,
@@ -173,7 +172,9 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
 
 $g5['title'] = '포인트 내역';
 require_once '../admin.head.php';
-
+if(!empty($aaa)) {
+    print_r2($sql);
+}
 $colspan = 8;
 ?>
 <style>

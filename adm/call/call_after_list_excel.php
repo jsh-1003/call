@@ -137,8 +137,7 @@ if ($f_acstate >= 0) {
 $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
 
 // ---------- SQL (목록과 동일 구조, rn=1만) ----------
-$sql_base = "
-  SELECT
+$sql_base = "SELECT
     b.call_id, b.mb_group, b.campaign_id, b.target_id, b.mb_no AS agent_id,
     b.call_status, b.call_start, b.call_end, b.call_time, b.call_hp,
 
@@ -184,7 +183,7 @@ $sql_base = "
       SELECT mb_group, MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('지점 ', mb_group))) AS mv_group_name
         FROM {$member_table} WHERE mb_group>0 GROUP BY mb_group
   ) g ON g.mb_group = b.mb_group
-  JOIN call_campaign cc ON cc.campaign_id=b.campaign_id AND cc.mb_group=b.mb_group
+  JOIN call_campaign cc ON cc.campaign_id = b.campaign_id AND (cc.is_paid_db = 1 OR cc.mb_group = b.mb_group) 
   LEFT JOIN call_aftercall_ticket tk
     ON tk.campaign_id=b.campaign_id AND tk.mb_group=b.mb_group AND tk.target_id=b.target_id
   LEFT JOIN {$member_table} ma ON ma.mb_no = tk.assigned_after_mb_no

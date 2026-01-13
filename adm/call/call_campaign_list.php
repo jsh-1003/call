@@ -67,7 +67,7 @@ if     ($status_filter === 'active')   $status_cond = " c.status=1 ";
 elseif ($status_filter === 'inactive') $status_cond = " c.status=0 ";
 else                                   $status_cond = " c.status IN (0,1) ";
 
-$sql_search = " WHERE {$status_cond} ";
+$sql_search = " WHERE c.is_paid_db=0 AND {$status_cond} ";
 
 // 회사/지점 필터 SQL (c.mb_group 기준)
 $group_filter_sql = '';

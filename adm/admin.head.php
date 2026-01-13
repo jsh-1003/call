@@ -142,7 +142,7 @@ body, #hd_top, #wrapper {min-width:1100px}
         </div>
         <?php } ?>
         <?php
-        if(in_array($member['mb_level'], array(5,7))) {
+        if(in_array($member['mb_level'], array(5,7)) && $member['member_type']==0) {
             $is_after = (int)$member['is_after_call'] === 1;
         ?>
         <div class="top_after_badge">

@@ -55,7 +55,7 @@ if ($my_level >= 9) {
     $res = sql_query("
         SELECT m.mb_no AS company_id
         FROM {$g5['member_table']} m
-        WHERE m.mb_level = 8
+        WHERE m.mb_level = 8 and member_type=0
         ORDER BY COALESCE(NULLIF(m.company_name,''), CONCAT('회사-', m.mb_no)) ASC, m.mb_no ASC
     ");
     while ($r = sql_fetch_array($res)) {

@@ -51,6 +51,12 @@ function call_assign_pick_and_lock($mb_group, $mb_no, $need, $lease_min, $batch_
         return ['ok'=>true, 'picked'=>0, 'ids'=>[], 'err'=>null];
     }
 
+    // ★ 유료DB 사용자면 유료DB 풀에서 먼저 배정 시도 후 종료
+    $paid_ret = call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min, $batch_id, $opts, $campaign_id);
+    if (is_array($paid_ret)) {
+        return $paid_ret;
+    }
+
     // ★ 변경: 회사ID 캐시 헬퍼 사용 (블랙리스트 조회용)
     $company_id = (int)get_company_id_from_group_id_cached($mb_group);
 
@@ -152,6 +158,223 @@ function call_assign_pick_and_lock($mb_group, $mb_no, $need, $lease_min, $batch_
         }
 
         // 3) 배정 이력 적재
+        $ins_hist_sql = "
+            INSERT INTO call_assignment (campaign_id, mb_group, target_id, mb_no, assigned_at, status)
+            SELECT t.campaign_id, {$mb_group}, p.target_id, {$mb_no}, NOW(), 1
+              FROM {$tmp} AS p
+              JOIN call_target AS t ON t.target_id = p.target_id
+        ";
+        sql_query($ins_hist_sql);
+
+        sql_query("COMMIT");
+
+        // 결과 id 목록
+        $ids = [];
+        $q = sql_query("SELECT target_id FROM {$tmp} ORDER BY target_id");
+        while ($r = sql_fetch_array($q)) {
+            $ids[] = (int)$r['target_id'];
+        }
+
+        return ['ok'=>true, 'picked'=>$picked2, 'ids'=>$ids, 'err'=>null];
+
+    } catch (Exception $e) {
+        @sql_query("ROLLBACK");
+        return ['ok'=>false, 'picked'=>0, 'ids'=>[], 'err'=>$e->getMessage()];
+    }
+}
+
+/**
+ * 유료DB N건 배정(트랜잭션) - 블랙리스트 제외 포함
+ *
+ * 동작 조건:
+ *  - is_paid_db_use_member($mb_no) >= 1 인 경우에만 유료DB 배정 수행
+ *  - 그렇지 않으면 null 반환(= 기존 call_assign_pick_and_lock 로직 계속)
+ *
+ * 변경점:
+ *  - WHERE에 t.is_paid_db=1 추가
+ *  - mb_group/campaign_id 조건 및 call_campaign 조인 제거
+ *  - ORDER BY rand_score, target_id 고정
+ *  - 배정 시 call_target에 company_id, mb_group, paid_db_billing_type 추가 업데이트
+ *
+ * @return array|null  // null이면 "유료DB 미사용" -> 호출부에서 기존 로직 진행
+ */
+function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min, $batch_id, $opts = [], $campaign_id = 0)
+{
+    // 0) 유료DB 사용 멤버 아니면 스킵
+    $paid_use = (int)is_paid_db_use_member($mb_no);
+    if ($paid_use < 1) {
+        return null;
+    }
+
+    $use_skip_locked        = isset($opts['use_skip_locked']) ? (bool)$opts['use_skip_locked'] : true;
+    $assigned_status_to     = isset($opts['assigned_status_to']) ? (int)$opts['assigned_status_to'] : 1;  // 배정(통화전)
+    $assigned_status_filter = isset($opts['assigned_status_filter']) ? (int)$opts['assigned_status_filter'] : 0; // 미배정
+    $where_extra            = isset($opts['where_extra']) ? trim($opts['where_extra']) : null;
+
+    // 기본값: 블랙리스트/내부 DNC 제외 (기존 함수와 동일한 성격)
+    $exclude_blacklist      = array_key_exists('exclude_blacklist', $opts) ? (bool)$opts['exclude_blacklist'] : true;
+    $exclude_dnc_flag       = array_key_exists('exclude_dnc_flag', $opts) ? (bool)$opts['exclude_dnc_flag'] : false;
+
+    // 안전 캐스팅
+    $mb_group  = (int)$mb_group;
+    $mb_no     = (int)$mb_no;
+    $n         = max(0, (int)$need);
+    $lease_min = max(1, (int)$lease_min);
+    $batch_id  = (int)$batch_id;
+
+    if ($n <= 0) {
+        return ['ok'=>true, 'picked'=>0, 'ids'=>[], 'err'=>null];
+    }
+
+    global $g5;
+    $member_table = $g5['member_table']; // g5_member
+
+    // 유료DB 과금 타입
+    $paid_db_billing_type = (int)get_paid_db_billing_type($mb_no);
+
+    // 블랙리스트 회사 기준: 기존과 동일하게 "그룹->회사"를 우선 사용
+    $company_id = 0;
+    if (function_exists('get_company_id_from_group_id_cached')) {
+        $company_id = (int)get_company_id_from_group_id_cached($mb_group);
+    }
+    // fallback: 멤버에서 company_id 조회(캐시)
+    if ($company_id <= 0) {
+        static $member_company_cache = [];
+        if (!isset($member_company_cache[$mb_no])) {
+            $m = sql_fetch("SELECT company_id, mb_group FROM {$member_table} WHERE mb_no = {$mb_no} LIMIT 1");
+            $member_company_cache[$mb_no] = [
+                'company_id' => (int)($m['company_id'] ?? 0),
+                'mb_group'   => (int)($m['mb_group'] ?? 0),
+            ];
+        }
+        $company_id = (int)$member_company_cache[$mb_no]['company_id'];
+        // mb_group 파라미터가 0으로 들어오는 방어(혹시 대비)
+        if ($mb_group <= 0) {
+            $mb_group = (int)$member_company_cache[$mb_no]['mb_group'];
+        }
+    }
+
+    // 임시테이블은 세션 범위. 동시 호출 대비로 유니크 네임
+    $tmp = 'tmp_paid_pick_' . substr(md5(uniqid('', true)), 0, 10);
+
+    try {
+        sql_query("START TRANSACTION");
+
+        // 임시 테이블
+        sql_query("DROP TEMPORARY TABLE IF EXISTS {$tmp}");
+        sql_query("CREATE TEMPORARY TABLE {$tmp} (target_id BIGINT PRIMARY KEY) ENGINE=MEMORY");
+
+        // WHERE 추가 구성
+        $where_extra_sql = '';
+        if ($where_extra) {
+            // 개발자가 직접 안전한 조건만 넣도록 가정 (ex: "AND next_try_at <= NOW()")
+            $where_extra_sql = "\n      " . $where_extra;
+        }
+
+        // 블랙리스트 및 do_not_call 제외 조건 생성
+        $where_guard_sql = '';
+        if ($exclude_dnc_flag) {
+            $where_guard_sql .= "\n      AND t.do_not_call = 0";
+        }
+        if ($exclude_blacklist && $company_id > 0) {
+            $where_guard_sql .= "\n      AND NOT EXISTS (
+                    SELECT 1
+                      FROM call_blacklist b
+                     WHERE b.company_id = {$company_id}
+                       AND b.call_hp    = t.call_hp
+                )";
+        }
+
+        // 1) 후보 픽 (잠금 포함)
+        //    ★ 변경: is_paid_db=1 + mb_group 조건 제거
+        //    ★ 정렬: rand_score, target_id
+        // $pick_sql = "INSERT INTO {$tmp} (target_id)
+        //     SELECT t.target_id
+        //       FROM call_target AS t
+        //       JOIN call_campaign AS c
+        //         ON c.campaign_id = t.campaign_id
+        //       AND c.status = 1
+        //     WHERE t.is_paid_db = 1
+        //       AND t.assigned_status = {$assigned_status_filter}
+        //       {$where_guard_sql}
+        //       {$where_extra_sql}
+        //     ORDER BY t.rand_score ASC, t.target_id ASC
+        //     LIMIT {$n}
+        // ";
+        $pick_sql = "INSERT INTO {$tmp} (target_id)
+            SELECT t.target_id
+              FROM call_target AS t
+              JOIN call_campaign AS c
+                ON c.campaign_id = t.campaign_id
+              AND c.status = 1
+              AND c.deleted_at IS NULL
+              AND c.is_paid_db = 1
+              JOIN {$member_table} AS ag
+                ON ag.mb_no = c.db_agency
+              AND ag.is_paid_db = 1
+              JOIN {$member_table} AS vd
+                ON vd.mb_no = c.db_vendor
+              AND vd.is_paid_db = 1
+            WHERE t.is_paid_db = 1
+              AND t.assigned_status = {$assigned_status_filter}
+              {$where_guard_sql}
+              {$where_extra_sql}
+            ORDER BY t.rand_score ASC, t.target_id ASC
+            LIMIT {$n}
+        ";
+
+
+        if ($use_skip_locked) {
+            $pick_sql .= " FOR UPDATE SKIP LOCKED";
+        } else {
+            $pick_sql .= " FOR UPDATE";
+        }
+
+        sql_query($pick_sql);
+
+        // 픽된 수 확인
+        $row = sql_fetch("SELECT COUNT(*) AS cnt FROM {$tmp}");
+        $picked = (int)$row['cnt'];
+        if ($picked === 0) {
+            sql_query("ROLLBACK");
+            return ['ok'=>true, 'picked'=>0, 'ids'=>[], 'err'=>null];
+        }
+
+        // 2) 상태 업데이트(배정)
+        //    - SKIP LOCKED 미사용이면 경합 보호를 위해 상태 가드 유지
+        $status_guard = $use_skip_locked ? '' : "WHERE t.assigned_status = {$assigned_status_filter}";
+
+        // ★ 변경: company_id, mb_group, paid_db_billing_type 추가 업데이트
+        $upd_sql = "UPDATE call_target AS t
+            JOIN {$tmp} AS p ON p.target_id = t.target_id
+               SET t.assigned_status     = {$assigned_status_to},
+                   t.assigned_mb_no      = {$mb_no},
+                   t.assigned_at         = NOW(),
+                   t.assign_lease_until  = DATE_ADD(NOW(), INTERVAL {$lease_min} MINUTE),
+                   t.assign_batch_id     = {$batch_id},
+                   t.company_id          = {$company_id},
+                   t.mb_group            = {$mb_group},
+                   t.paid_db_billing_type= {$paid_db_billing_type}
+             {$status_guard}
+        ";
+        sql_query($upd_sql);
+
+        // 실제 배정된 수 재확인
+        $row2 = sql_fetch("
+            SELECT COUNT(*) AS cnt
+              FROM call_target t
+              JOIN {$tmp} p ON p.target_id = t.target_id
+             WHERE t.assigned_status = {$assigned_status_to}
+               AND t.assigned_mb_no  = {$mb_no}
+               AND t.assign_batch_id = {$batch_id}
+        ");
+        $picked2 = (int)$row2['cnt'];
+        if ($picked2 === 0) {
+            sql_query("ROLLBACK");
+            return ['ok'=>false, 'picked'=>0, 'ids'=>[], 'err'=>'경합으로 유료DB 배정 실패(다시 시도)'];
+        }
+
+        // 3) 배정 이력 적재 (campaign_id는 call_target 값을 그대로 사용)
         $ins_hist_sql = "
             INSERT INTO call_assignment (campaign_id, mb_group, target_id, mb_no, assigned_at, status)
             SELECT t.campaign_id, {$mb_group}, p.target_id, {$mb_no}, NOW(), 1

@@ -185,8 +185,7 @@ $agent_options = $build_org_select_options['agent_options'];
 // 총 건수
 // - 회사 필터는 agent 조인(m.company_id) 기준으로 동작
 // -----------------------------
-$sql_cnt = "
-    SELECT COUNT(*) AS cnt
+$sql_cnt = "SELECT COUNT(*) AS cnt
       FROM call_recording r
       JOIN call_log l
         ON l.call_id = r.call_id
@@ -195,8 +194,7 @@ $sql_cnt = "
       JOIN call_target t
         ON t.target_id = l.target_id
       JOIN call_campaign cc
-        ON cc.campaign_id = r.campaign_id
-       AND cc.mb_group = r.mb_group
+        ON cc.campaign_id = r.campaign_id AND (cc.is_paid_db = 1 OR cc.mb_group = r.mb_group)
       LEFT JOIN {$member_table} m
         ON m.mb_no = l.mb_no
     {$where_sql}
@@ -207,8 +205,7 @@ $total_count = (int)($row_cnt['cnt'] ?? 0);
 // -----------------------------
 // 상세 목록
 // -----------------------------
-$sql_list = "
-    SELECT
+$sql_list = "SELECT
         r.recording_id, 
         r.created_at        AS rec_created_at,
         r.file_size,
@@ -252,8 +249,7 @@ $sql_list = "
       ON sc.call_status = l.call_status AND sc.mb_group = 0
     /* 캠페인명 */
     JOIN call_campaign cc
-      ON cc.campaign_id = r.campaign_id
-     AND cc.mb_group = r.mb_group
+      ON cc.campaign_id = r.campaign_id AND (cc.is_paid_db = 1 OR cc.mb_group = r.mb_group)
     {$where_sql}
     ORDER BY r.created_at DESC, r.recording_id DESC
     LIMIT {$offset}, {$page_rows}

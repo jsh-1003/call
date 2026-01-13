@@ -171,7 +171,7 @@ function get_company_info(int $mb_no) {
     return $row;
 }
 
-function get_member_from_mb_no(int $mb_no, $fields = '*', $is_cache = false) {
+function get_member_from_mb_no(int $mb_no, $fields = '*', $is_cache = true) {
     global $g5;
     static $cache = array();
     $key = md5($fields);
@@ -351,11 +351,11 @@ $r = blacklist_register($mb_group, $call_hp, [
 // $r['action'] 으로 insert/update/skip 구분 가능
 */
 
-function get_campaign_list($mb_group=0) {
+function get_campaign_list($mb_group=0,int $is_paid_db=0) {
     if(!$mb_group) {
-        $where = ' WHERE status <> 9 ';
+        $where = " WHERE is_paid_db = '{$is_paid_db}' AND status <> 9 ";
     } else {
-        $where = " WHERE mb_group in ({$mb_group}) AND status <> 9 ";
+        $where = " WHERE is_paid_db = '{$is_paid_db}' AND mb_group in ({$mb_group}) AND status <> 9 ";
     }
     $sql = "SELECT * from call_campaign {$where} ORDER BY campaign_id DESC";
     $res = sql_query($sql);
@@ -670,7 +670,7 @@ function build_org_select_options($sel_company_id=0, $sel_mb_group=0, $member_ty
         $aw[] = "mb_group = ".(int)$my_group;
     }
     $aw[] = " mb_level = 3 AND IFNULL(mb_leave_date,'') = '' AND IFNULL(mb_intercept_date,'') = '' ";
-    $aw_sql = 'WHERE m.member_type = '.$my_member_type.implode(' AND ', $aw);
+    $aw_sql = 'WHERE '.implode(' AND ', $aw);
 
     $ar = sql_query("SELECT mb_no, mb_name, company_id, mb_group FROM {$member_table} {$aw_sql} ORDER BY company_id ASC, mb_group ASC, mb_name ASC, mb_no ASC");
     while ($r = sql_fetch_array($ar)) {
