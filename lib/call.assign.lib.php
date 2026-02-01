@@ -233,10 +233,8 @@ function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min,
     $paid_db_billing_type = (int)get_paid_db_billing_type($mb_no);
 
     // 블랙리스트 회사 기준: 기존과 동일하게 "그룹->회사"를 우선 사용
-    $company_id = 0;
-    if (function_exists('get_company_id_from_group_id_cached')) {
-        $company_id = (int)get_company_id_from_group_id_cached($mb_group);
-    }
+    $company_id = (int)get_company_id_from_group_id_cached($mb_group);
+
     // fallback: 멤버에서 company_id 조회(캐시)
     if ($company_id <= 0) {
         static $member_company_cache = [];
@@ -276,12 +274,21 @@ function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min,
         if ($exclude_dnc_flag) {
             $where_guard_sql .= "\n      AND t.do_not_call = 0";
         }
-        if ($exclude_blacklist && $company_id > 0) {
+        if ($exclude_blacklist) {
+            // 1) 공용 블랙리스트 (company_id=1)
             $where_guard_sql .= "\n      AND NOT EXISTS (
                     SELECT 1
-                      FROM call_blacklist b
-                     WHERE b.company_id = {$company_id}
-                       AND b.call_hp    = t.call_hp
+                    FROM call_blacklist b1
+                    WHERE b1.company_id = 1
+                    AND b1.call_hp    = t.call_hp
+                )";
+
+            // 2) 회사별 블랙리스트
+            $where_guard_sql .= "\n      AND NOT EXISTS (
+                    SELECT 1
+                    FROM call_blacklist bc
+                    WHERE bc.company_id = {$company_id}
+                    AND bc.call_hp    = t.call_hp
                 )";
         }
 

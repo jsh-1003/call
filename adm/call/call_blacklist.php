@@ -248,6 +248,9 @@ $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체�
         <?php if ($mb_level >= 9) { ?>
             <select name="company_id" id="company_id">
                 <option value="0"<?php echo $sel_company_id===0?' selected':'';?>>전체 회사</option>
+                <?php if($is_admin_pay) { ?>
+                <option value="1"<?php echo $sel_company_id===1?' selected':'';?>>::::: 유료DB공통 :::::</option>
+                <?php } ?>
                 <?php foreach ($company_options as $c) { ?>
                     <option value="<?php echo (int)$c['company_id']; ?>" <?php echo get_selected($sel_company_id, (int)$c['company_id']); ?>>
                         <?php echo get_text($c['company_name']); ?> (지점 <?php echo (int)$c['group_count']; ?>)
@@ -322,6 +325,9 @@ $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체�
         <?php if ($mb_level >= 9) { ?>
             <select id="w_company_id" name="company_id" required>
                 <option value="">회사 선택</option>
+                <?php if($is_admin_pay) { ?>
+                <option value="1"<?php echo $sel_company_id===1?' selected':'';?>>::::: 유료DB공통 :::::</option>
+                <?php } ?>
                 <?php foreach ($company_options as $c) { ?>
                     <option value="<?php echo (int)$c['company_id']; ?>"><?php echo get_text($c['company_name']); ?></option>
                 <?php } ?>
@@ -444,6 +450,9 @@ echo '</div>';
         <?php if ($mb_level >= 9) { ?>
             <select id="xls_company_id" name="company_id" required>
                 <option value="">회사 선택(필수)</option>
+                <?php if($is_admin_pay) { ?>
+                <option value="1"<?php echo $sel_company_id===1?' selected':'';?>>::::: 유료DB공통 :::::</option>
+                <?php } ?>
                 <?php foreach ($company_options as $c) { ?>
                     <option value="<?php echo (int)$c['company_id']; ?>"><?php echo get_text($c['company_name']); ?></option>
                 <?php } ?>
