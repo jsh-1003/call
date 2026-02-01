@@ -214,6 +214,7 @@ function handle_call_upload(): void {
     }
 
     // AUTO_SKIP 처리
+    $is_auto_skip = false;
     if ($call_status == CALL_STATUS_AUTO_SKIP) {
         $gid = (int)$mb_group;
         $sql = "SELECT call_status
@@ -228,6 +229,8 @@ function handle_call_upload(): void {
             $call_status = (int)$skip_call_status['call_status'];
             $memo = '[SYSTEM] AUTO_SKIP'.PHP_EOL.$memo;
         }
+        $duration_sec = 0;
+        $is_auto_skip = true;
     }
 
     // 멱등성 키 만들기
@@ -273,11 +276,6 @@ function handle_call_upload(): void {
     $ok = sql_query($qlog, true);
     if (!$ok) { sql_query("ROLLBACK"); send_json(['success'=>false,'message'=>'failed to upsert call_log'], 500); }
     $call_id = (int)sql_insert_id();
-
-    // 5-2) 유료DB 비용 처리
-    if($is_paid_db) {
-        paid_db_use($mb_no, $target_id, $call_id, $call_time, $duration_sec, $paid_db_billing_type);
-    }
 
     // 6) 대상 상태 업데이트
     $set = [];
@@ -351,6 +349,40 @@ function handle_call_upload(): void {
         $ac_result = ['success'=>false, 'message'=>'aftercall error: '.$e->getMessage()];
     }
 
+    try {
+        // 상상마케팅 접수DB 전송
+        if ((int)$meta['is_after_call'] === 1 && !empty($info['company_id']) && $info['company_id'] == 308) {
+            $after_api_info = sql_fetch("SELECT t.call_hp, t.name, meta_json, t.assigned_mb_no
+                    FROM call_target t
+                    WHERE t.target_id = '{$target_id}'
+                    LIMIT 1
+                ");
+            if($after_api_info) {
+                // 1차 상담사
+                $_a_mb_name = get_member_from_mb_no($after_api_info['assigned_mb_no'], 'mb_name');
+                // 2차 상담사
+                $b_mo_no = sql_fetch("SELECT  assigned_after_mb_no FROM call_aftercall_ticket WHERE target_id = '{$target_id}' ");
+                if(!empty($b_mo_no['assigned_after_mb_no'])) {
+                    $_b_mb_name = get_member_from_mb_no($b_mo_no['assigned_after_mb_no'], 'mb_name');
+                } else {
+                    $_b_mb_name['mb_name'] = '';
+                }
+                $a_mb_name = !empty($_a_mb_name['mb_name']) ? $_a_mb_name['mb_name'] : '';
+                $b_mb_name = !empty($_b_mb_name['mb_name']) ? $_b_mb_name['mb_name'] : '';
+                // 전송
+                include_once(G5_LIB_PATH.'/call.after.api.lib.php');            
+                $after_api_send_res = send_jnjsmart_call_regist($after_api_info['name'],
+                    $after_api_info['call_hp'], 
+                    $a_mb_name, 
+                    $b_mb_name, 
+                    $after_api_info['meta_json']
+                );
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('[aftercall-api] 전송실패: '.$e->getMessage());
+    }
+
     // 10) 파일 업로드(S3) - 트랜잭션 밖, 실패해도 롤백/삭제 없음
     $recording_id = null;
     $s3_key       = null;
@@ -404,6 +436,11 @@ function handle_call_upload(): void {
                 $ok = sql_query($qrec);
                 if ($ok) {
                     $recording_id = (int)sql_insert_id();
+                    // 유료DB 비용 처리
+                    if($is_paid_db && $is_auto_skip === false) {
+                        paid_db_use($mb_no, $target_id, $call_id, $call_time, $duration_sec, $paid_db_billing_type);
+                    }
+
                 } else {
                     error_log('[s3] call_recording insert failed (but upload ok)');
                 }

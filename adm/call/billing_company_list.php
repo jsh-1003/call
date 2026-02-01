@@ -317,8 +317,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='relock_mont
 // -------------------------------------------
 /* 회사 목록(셀렉트/검색용 원본 후보군): 레벨3 보유 회사 */
 // -------------------------------------------
-$all_company_rs = sql_query("
-    SELECT m.company_id
+$all_company_rs = sql_query("SELECT m.company_id
     FROM g5_member m
     WHERE m.mb_level=3
       AND (m.mb_leave_date IS NULL OR m.mb_leave_date='')

@@ -19,11 +19,13 @@ if($member['mb_level'] > 10) {
     );
 }
 
-$menu['menu200'] = array(
-    array('200000', '매체사관리', G5_ADMIN_URL . '/paid/paid_member_list.php', 'member'),
-    array('200710', '회원관리', G5_ADMIN_URL . '/paid/paid_member_list.php', 'mb_list'),
-    array('200750', '사용통계', G5_ADMIN_URL . '/paid/paid_stats.php', 'paid_stats'),
-);
+if($member['mb_id'] != 'admin') {
+    $menu['menu200'] = array(
+        array('200000', '매체사관리', G5_ADMIN_URL . '/paid/paid_member_list.php', 'member'),
+        array('200710', '회원관리', G5_ADMIN_URL . '/paid/paid_member_list.php', 'mb_list'),
+        array('200750', '사용통계', G5_ADMIN_URL . '/paid/paid_stats.php', 'paid_stats'),
+    );
+}
 
 // 유료DB 사용하는 회원사인경우
 if($is_paid_db_use_company > 0) {

@@ -155,8 +155,7 @@ $total_count = (int)($row_cnt['cnt'] ?? 0);
 // ----------------------------------------------------------------------------------
 // 목록 (캠페인 조인 + is_open_number 포함)
 // ----------------------------------------------------------------------------------
-$sql_list = "
-    SELECT
+$sql_list = "SELECT
         t.target_id, t.campaign_id, t.mb_group, t.call_hp, t.hp_last4,
         t.name, t.birth_date, t.meta_json, t.sex,
         t.assigned_status, t.assigned_mb_no, t.assigned_at, t.assign_lease_until, t.assign_batch_id,
@@ -174,7 +173,7 @@ $sql_list = "
       ON c.campaign_id = t.campaign_id AND c.mb_group = t.mb_group
     */
     {$where_sql}
-    ORDER BY t.target_id DESC
+    ORDER BY t.updated_at DESC
     LIMIT {$offset}, {$rows}
 ";
 $res = sql_query($sql_list);
@@ -208,7 +207,7 @@ $codes = get_code_list($sel_mb_group);
 // ----------------------------------------------------------------------------------
 // 화면
 // ----------------------------------------------------------------------------------
-$g5['title'] = 'DB리스트';
+$g5['title'] = '유료DB리스트';
 include_once(G5_ADMIN_PATH.'/admin.head.php');
 $listall = '<a href="' . $_SERVER['SCRIPT_NAME'] . '" class="ov_listall">전체목록</a>';
 ?>
@@ -287,7 +286,7 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
         <select name="campaign_id" id="campaign_id" style="height:29px;width:200px;">
             <option value="0"<?php echo $campaign_id===0?' selected':'';?>>전체 캠페인</option>
             <?php foreach ($campaign_list as $k => $c) { ?>
-                <option value="<?php echo (int)$k; ?>" <?php echo get_selected($campaign_id, (int)$k); ?>><?php echo ((int)$c['status']==1 ? '' : '(비활성) ').get_text($c['name']); ?></option>
+                <option value="<?php echo (int)$k; ?>" <?php echo get_selected($campaign_id, (int)$k); ?>><?php echo ((int)$c['status']==1 ? '' : '(비활성) ').get_text($c['paid_db_name']); ?></option>
             <?php } ?>
         </select>
 
@@ -379,7 +378,7 @@ tr.camp-inactive td { background-image: linear-gradient(to right, rgba(0,0,0,0.0
                 // $campaign_info = get_campaign_from_cached($row['campaign_id']);
                 $campaign_info = !empty($campaign_list[$row['campaign_id']]) ? $campaign_list[$row['campaign_id']] : ['status'=>'','name'=>'','is_open_number'=>''];
                 $row['campaign_status'] = $campaign_info['status'];
-                $row['campaign_name'] = $campaign_info['name'];
+                $row['campaign_name'] = $campaign_info['paid_db_name'];
                 $row['is_open_number'] = $campaign_info['is_open_number'];
 
                 // 전화번호: is_open_number=0이면 숨김

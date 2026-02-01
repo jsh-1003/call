@@ -18,7 +18,7 @@ $my_group      = (int)($member['mb_group'] ?? 0);
 $my_company_id = (int)($member['company_id'] ?? 0);
 $my_type       = (int)($member['member_type'] ?? 0);
 
-$is_admin9      = (bool)$is_admin_pay;
+$is_admin9      = (bool)$is_admin_pay || ($mb_level >= 9);
 $is_agency      = ($my_type === 1); // 에이전시
 $is_media       = ($my_type === 2); // 매체사
 $is_company_rep = ($my_type === 0 && $mb_level === 8); // 사용자 대표
@@ -101,8 +101,9 @@ function db_age_label($v){
 }
 function safe_company_name($row){
     $name = trim((string)($row['company_name'] ?? ''));
-    if ($name === '') $name = trim((string)($row['mb_name'] ?? ''));
-    if ($name === '') $name = '회사-'.(int)($row['mb_no'] ?? 0);
+    if ($name === '') $name = get_company_name_cached($row['mb_no']);
+    else if ($name === '') $name = trim((string)($row['mb_name'] ?? ''));
+    else if ($name === '') $name = '회사-'.(int)($row['mb_no'] ?? 0);
     return $name;
 }
 
@@ -132,7 +133,7 @@ $end_esc   = sql_escape_string($end_sql);
 $need_target_join = false;
 $where = [];
 $where[] = "l.is_paid_db = 1";
-$where[] = "l.is_paid > 0"; // 1/2 등 확장
+$where[] = "l.is_paid IN (1,2)"; // 1/2 등 확장
 $where[] = "l.call_start BETWEEN '{$start_esc}' AND '{$end_esc}'";
 
 // 회사 스코프: 관리자 전체/선택, 파트너/대표는 고정
@@ -601,14 +602,14 @@ foreach ($usage_period_company as $cid => $us) {
 
     $rows_t2[] = [
         'company_id'     => $cid,
-        'company_name'   => $company_map[$cid]['name'] ?? ('회사-'.$cid),
+        'company_name'   => $company_map[$cid]['name'] ?? get_company_name_cached($cid),
         'total_receive'  => (int)$us['total_used'],
         'normal_used'    => (int)$us['normal_used'],
         'silver_used'    => (int)$us['silver_used'],
         'sum_10s_user'   => (int)$us['sum_10s_user'],
         'sum_conn_user'  => (int)$us['sum_conn_user'],
         'sum_user_total' => (int)$us['sum_user_total'],
-        'mb_point'       => (int)($company_map[$cid]['point'] ?? 0),
+        'mb_point'       => (int)($company_map[$cid]['point'] ?? get_company_info($cid)['mb_point']),
     ];
 }
 usort($rows_t2, function($a,$b){
@@ -920,20 +921,14 @@ $hide_t3_branch_agent_cols = ($is_agency || $is_media); // 파트너는 지점/�
         <div class="card"><div>매체 수수료 총액</div><div class="big"><?php echo number_format($sum_media_fee); ?></div></div>
         <div class="card"><div>사용자 매출 총액</div><div class="big"><?php echo number_format($sum_user_total); ?></div></div>
         <div class="card"><div>순익 총액</div><div class="big"><?php echo number_format($sum_admin_profit); ?></div></div>
-    <?php } else { ?>
-        <?php if ($is_company_rep) { ?>
-            <div class="card"><div>전체 사용 총액</div><div class="big"><?php echo number_format($sum_user_total); ?></div></div>
-            <div class="card"><div>충전 잔액(포인트)</div><div class="big"><?php echo number_format((int)($member['mb_point'] ?? 0)); ?></div></div>
-        <?php } else { ?>
-            <?php
-            $my_fee = 0;
-            $my_fee_label = '정산액';
-            if ($is_agency) { $my_fee = $sum_agency_fee; $my_fee_label = '에이전시 정산액'; }
-            if ($is_media)  { $my_fee = $sum_media_fee;  $my_fee_label = '매체사 정산액'; }
-            ?>
-            <div class="card"><div><?php echo get_text($my_fee_label); ?></div><div class="big"><?php echo number_format($my_fee); ?></div></div>
-            <div class="card"><div>사용자 매출 총액</div><div class="big"><?php echo number_format($sum_user_total); ?></div></div>
-        <?php } ?>
+    <?php } else if ($is_company_rep) { ?>
+        <div class="card"><div>전체 사용 총액</div><div class="big"><?php echo number_format($sum_user_total); ?></div></div>
+        <div class="card"><div>충전 잔액(포인트)</div><div class="big"><?php echo number_format((int)($member['mb_point'] ?? 0)); ?></div></div>
+    <?php } else if($is_agency) { ?>
+        <div class="card"><div>에이전시 정산액</div><div class="big"><?php echo number_format($sum_agency_fee); ?></div></div>
+        <div class="card"><div>매체사 정산액</div><div class="big"><?php echo number_format($sum_media_fee); ?></div></div>
+    <?php } else if($is_media) { ?>
+        <div class="card"><div>매체사 정산액</div><div class="big"><?php echo number_format($sum_media_fee); ?></div></div>
     <?php } ?>
 </div>
 
@@ -945,7 +940,9 @@ $hide_t3_branch_agent_cols = ($is_agency || $is_media); // 파트너는 지점/�
         <caption>테이블1</caption>
         <thead>
         <tr>
+            <?php if(!$is_media) { ?>
             <th scope="col" style="width:110px;">에이전시</th>
+            <?php } ?>
             <th scope="col" style="width:110px;">매체사</th>
 
             <th scope="col" style="width:90px;">일반 전체</th>
@@ -978,7 +975,9 @@ $hide_t3_branch_agent_cols = ($is_agency || $is_media); // 파트너는 지점/�
         } else {
             foreach ($rows_t1 as $r) {
                 echo '<tr>';
-                echo '<td>'.get_text($r['agency_name']).'</td>';
+                if(!$is_media) {
+                    echo '<td>'.get_text($r['agency_name']).'</td>';
+                }
                 echo '<td>'.get_text($r['media_name']).'</td>';
 
                 echo '<td class="td_num">'.number_format($r['normal_total']).'</td>';
@@ -1102,7 +1101,9 @@ $hide_t3_branch_agent_cols = ($is_agency || $is_media); // 파트너는 지점/�
             <tr>
                 <?php $hide_t3_company_col = ($is_agency || $is_media); ?>
                 <?php if(!$is_company_rep) { ?>
+                <?php if(!$is_media) { ?>
                 <th>에이전시</th>
+                <?php } ?>
                 <th>매체사</th>
                 <?php if (!$hide_t3_company_col) { ?><th>사용 업체</th><?php } ?>
                 <?php } ?>
@@ -1149,7 +1150,11 @@ $hide_t3_branch_agent_cols = ($is_agency || $is_media); // 파트너는 지점/�
 
                 $bday = empty($row['birth_date']) ? '-' : get_text($row['birth_date']);
                 $hp_display = get_text(format_korean_phone($row['target_hp'] ?: $row['call_hp']));
-
+                $target_name = get_text($row['target_name'] ?: '-');
+                if(!$is_admin_pay) {
+                    $hp_display = mask_phone_010_style($hp_display);
+                    $target_name = mb_substr($target_name, 0, 1).str_repeat('*', mb_strlen($target_name)-2).mb_substr($target_name, -1);
+                }
                 $meta = '-';
                 if (!is_null($row['meta_json']) && $row['meta_json'] !== '') {
                     $decoded = json_decode($row['meta_json'], true);
@@ -1171,7 +1176,9 @@ $hide_t3_branch_agent_cols = ($is_agency || $is_media); // 파트너는 지점/�
                 ?>
                 <tr>
                     <?php if(!$is_company_rep) { ?>
+                    <?php if(!$is_media) { ?>
                     <td><?php echo get_text($agency_name); ?></td>
+                    <?php } ?>
                     <td><?php echo get_text($vendor_name); ?></td>
                     <?php if (!$hide_t3_company_col) { ?>
                         <td><?php echo get_text($company_name); ?></td>
@@ -1183,7 +1190,7 @@ $hide_t3_branch_agent_cols = ($is_agency || $is_media); // 파트너는 지점/�
                     <?php } ?>
                     <td><?php echo get_text(db_age_label($row['db_age_type'])); ?></td>
                     <td><?php echo get_text(billing_type_label($row['paid_db_billing_type'])); ?></td>
-                    <td><?php echo get_text($row['target_name'] ?: '-'); ?></td>
+                    <td><?php echo get_text($target_name ?: '-'); ?></td>
                     <td><?php echo $hp_display; ?></td>
                     <td><?php echo $bday; ?></td>
                     <td><?php echo $meta; ?></td>

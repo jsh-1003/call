@@ -40,9 +40,10 @@ if (isset($_GET['ajax']) && $_GET['ajax']==='get') {
     $camp = sql_fetch("SELECT campaign_id, mb_group, is_paid_db
         FROM call_campaign
         WHERE campaign_id={$campaign_id}
-        AND deleted_at IS NULL
         LIMIT 1
     ");
+    // AND deleted_at IS NULL -- 삭제처리 제외를 취소
+
     if (!$camp) { echo json_encode(['success'=>false,'message'=>'invalid campaign'], JSON_UNESCAPED_UNICODE); exit; }
     $is_paid_db = ((int)$camp['is_paid_db'] === 1);
     if ($mb_level <= 7 && $mb_group !== $my_group && !$is_paid_db) { echo json_encode(['success'=>false,'message'=>'denied'], JSON_UNESCAPED_UNICODE); exit; }
@@ -141,9 +142,10 @@ if (isset($_POST['ajax']) && $_POST['ajax']==='save') {
 $camp = sql_fetch("SELECT campaign_id, mb_group, is_paid_db
         FROM call_campaign
         WHERE campaign_id={$campaign_id}
-        AND deleted_at IS NULL
         LIMIT 1
     ");
+    // AND deleted_at IS NULL -- 삭제처리 제외를 취소
+
     if (!$camp) { echo json_encode(['success'=>false,'message'=>'invalid campaign'], JSON_UNESCAPED_UNICODE); exit; }
     $is_paid_db = ((int)$camp['is_paid_db'] === 1);
 

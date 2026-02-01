@@ -5,6 +5,36 @@ function _g($key, $def='') { return isset($_GET[$key]) ? trim((string)$_GET[$key
 function _p($key, $def='') { return isset($_POST[$key]) ? trim((string)$_POST[$key]) : $def; }
 function _h($s){ return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 
+/**
+ * 전화번호 마스킹
+ * 예) 010-4689-1823 => 010-4**9-1**3
+ *     01046891823    => 010-4**9-1**3
+ *
+ * 규칙:
+ * - 숫자만 추출 후 11자리(휴대폰) 기준으로 마스킹
+ * - 중간(4자리) = 1번째/마지막만 노출: 4**9
+ * - 끝(4자리)  = 1번째/마지막만 노출: 1**3
+ * - 하이픈 포함해서 3-4-4 형태로 반환
+ */
+function mask_phone_010_style(string $phone): string
+{
+    $digits = preg_replace('/\D+/', '', $phone);
+
+    // 11자리(010xxxxxxxx)만 처리. 그 외는 원문 반환(필요시 정책 바꿔도 됨)
+    if ($digits === null || strlen($digits) !== 11) {
+        return $phone;
+    }
+
+    $p1 = substr($digits, 0, 3);   // 010
+    $p2 = substr($digits, 3, 4);   // 4689
+    $p3 = substr($digits, 7, 4);   // 1823
+
+    $m2 = $p2[0] . '**' . $p2[3];
+    $m3 = $p3[0] . '**' . $p3[3];
+
+    return $p1 . '-' . $m2 . '-' . $m3;
+}
+
 function rand01(): float {
     $max = 9007199254740991; // 2^53 - 1
     return random_int(0, $max) / $max;

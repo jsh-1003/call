@@ -221,8 +221,7 @@ function build_list_sql_optimized($args) {
     ";
 
     // 바깥에서 확정된 call_id만 JOIN
-    $sql = "
-        SELECT
+    $sql = "SELECT
             l.call_id,
             l.mb_group,
             l.mb_no                                                        AS agent_id,
@@ -267,7 +266,10 @@ function build_list_sql_optimized($args) {
          AND rec.campaign_id = l.campaign_id
         JOIN call_campaign cc
           ON cc.campaign_id = l.campaign_id
-         AND cc.mb_group = l.mb_group
+          AND (
+                cc.mb_group = l.mb_group
+                OR (cc.is_paid_db = 1 AND cc.mb_group = 0)
+            )
         ORDER BY l.call_start DESC, l.call_id DESC
     ";
 

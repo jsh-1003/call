@@ -5,9 +5,31 @@
 // 실행: 브라우저에서 1회 실행하고 삭제 권장
 // 환경: 그누보드5, PHPExcel(내장)
 require_once './_common.php';
-require_once G5_LIB_PATH.'/call.lib.php';
+include_once(G5_LIB_PATH.'/call.after.api.lib.php');
+// $target_id = 13680050;
+// $after_api_info = sql_fetch("SELECT t.call_hp, t.name, meta_json, t.assigned_mb_no
+//         FROM call_target t
+//         WHERE t.target_id = $target_id
+//         LIMIT 1
+//     ");
+// if($after_api_info) {
+//     $_a_mb_name = get_member_from_mb_no($after_api_info['assigned_mb_no'], 'mb_name');
+//     $b_mo_no = sql_fetch("SELECT  assigned_after_mb_no FROM call_aftercall_ticket WHERE target_id = '{$target_id}' ");
+//     if(!empty($b_mo_no['assigned_after_mb_no'])) {
+//         $_b_mb_name = get_member_from_mb_no($b_mo_no['assigned_after_mb_no'], 'mb_name');
+//     } else {
+//         $_b_mb_name['mb_name'] = '';
+//     }
+//     $a_mb_name = !empty($_a_mb_name['mb_name']) ? $_a_mb_name['mb_name'] : '';
+//     $b_mb_name = !empty($_b_mb_name['mb_name']) ? $_b_mb_name['mb_name'] : '';
+// }
+// $after_api_send_res = send_jnjsmart_call_regist($after_api_info['name'],
+//     $after_api_info['call_hp'], 
+//     $a_mb_name, 
+//     $b_mb_name, 
+//     $after_api_info['meta_json']
+// );
 
-$sel_company_id = 76;
-$sel_mb_group = 77;
-$build_org_select_options = build_org_select_options($sel_company_id, $sel_mb_group);
-print_r2($build_org_select_options);
+// $tmp = iconv("euc-kr", "utf-8", $after_api_send_res['body']);
+// var_dump($tmp);
+// var_dump($after_api_send_res);
