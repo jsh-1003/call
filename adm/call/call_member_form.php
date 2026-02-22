@@ -594,12 +594,14 @@ if (!$is_new) {
                     </td>
                     <th scope="row"><label for="mb_name">과금 방식 선택</label></th>
                     <td>
+                        <?php /*
                         <label class="mgr12">
                             <input type="radio" name="paid_db_billing_type" value="1" <?php echo (!$mb['paid_db_billing_type'] || $mb['paid_db_billing_type']==1?'checked':''); ?>>
                             통화 10초부터 과금
                         </label>
+                        */ ?>
                         <label class="mgr12">
-                            <input type="radio" name="paid_db_billing_type" value="2" <?php echo ($mb['paid_db_billing_type']==2?'checked':''); ?>>
+                            <input type="radio" name="paid_db_billing_type" value="2" <?php echo (!$mb['paid_db_billing_type'] || $mb['paid_db_billing_type']==2?'checked':''); ?>>
                             연결당 과금
                         </label>
                     </td>

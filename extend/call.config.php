@@ -27,6 +27,13 @@ define('MEDIA_PRICE_10S',   40);
 
 define('PAID_PRICE_TYPE_1', 160); // 1번 : 통화10초시 과금, 160원
 define('PAID_PRICE_TYPE_2', 80); // 2번 : 통화당 과금, 80원
+define('PAID_PRICE_TYPE_2_PLUS_COMPANY', 150); // 2번 : 일부업체들 150원으로 표기
+// 에스엘컴퍼니
+// 제이케이플래닛
+// 주식회사 지엠씨퍼포먼스
+// 한국중소기업센터
+// 400, 426, 535, 365
+define('PAID_PRICE_TYPE_2_PLUS_COMPANY_IDS', [400, 426, 535, 365]);
 
 
 if($is_admin != 'super') {
@@ -119,4 +126,35 @@ if ( isset($member['mb_no']) && in_array($member['mb_no'], array(363,48)) ) {
 // 접수DB
 if(isset($member['is_after_db_use']) && $member['is_after_db_use']) {
     $auth['700500'] = 'rw';
+}
+
+
+$vpn_subnet = '10.78.';   // WireGuard 대역 앞부분
+
+// VPN 강제 대상 관리자 ID
+$vpn_only_ids = [
+    'culture',
+];
+
+// 로그인 정보
+$mb_id = $member['mb_id'] ?? '';
+$remote_ip = $_SERVER['REMOTE_ADDR'] ?? '';
+
+// 해당 ID가 VPN 전용인지?
+if (in_array($mb_id, $vpn_only_ids, true) || ($mb_id && $member['member_type'] == 2) ) {
+
+    // VPN IP인지 체크
+    if (strpos($remote_ip, $vpn_subnet) !== 0) {
+
+        // 로그 남기면 더 좋음
+        error_log("[VPN BLOCK] {$mb_id} / {$remote_ip}");
+
+        session_unset(); // 모든 세션변수를 언레지스터 시켜줌
+        session_destroy(); // 세션해제함
+        set_cookie('ck_mb_id', '', 0);
+        set_cookie('ck_auto', '', 0);
+
+        http_response_code(403);
+        die('VPN 이용 바랍니다.');
+    }
 }

@@ -1,5 +1,10 @@
 <?php
 $sub_menu = '700950';
+if(!empty($_REQUEST['bo_table']) && $_REQUEST['bo_table'] == 'agree') {
+    $sub_menu = '200791';
+} else if(!empty($_REQUEST['bo_table']) && $_REQUEST['bo_table'] == 'withdraw') {
+    $sub_menu = '200792';
+}
 include_once('../common.php');
 
 // 커뮤니티 사용여부

@@ -135,7 +135,11 @@ body, #hd_top, #wrapper {min-width:1100px}
     <div id="hd_top">
         <button type="button" id="btn_gnb" class="btn_gnb_close <?php echo $adm_menu_cookie['btn_gnb']; ?>">메뉴</button>
         <div id="logo"><a href="<?php echo correct_goto_url(G5_ADMIN_URL); ?>"><img src="<?php echo G5_ADMIN_URL ?>/img/admin_logo.png" alt="<?php echo get_text($config['cf_title']); ?> 관리자"></a></div>
-        <?php echo latest('basic', 'notice', 2, 50); ?>
+        <?php 
+        if(!$member['member_type']) {
+            echo latest('basic', 'notice', 2, 50);
+        }
+        ?>
         <?php if($is_company_leader && is_paid_db_use_company($member['mb_no'])) { ?>
         <div class="top_after_badge">
             <span style="color:#fff">잔여포인트 : <?php echo number_format($member['mb_point']) ?>점</span>

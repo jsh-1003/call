@@ -527,7 +527,7 @@ function admin_referer_check($return = false)
         $msg = '올바른 방법으로 이용해 주십시오.';
     }
 
-    if ($member['mb_level'] < 10 && $p['path'] && !preg_match('/\/' . preg_quote(G5_ADMIN_DIR) . '\//i', $p['path'])) {
+    if ($member['mb_level'] < 7 && $p['path'] && !preg_match('/\/' . preg_quote(G5_ADMIN_DIR) . '\//i', $p['path'])) {
         $msg = '올바른 방법으로 이용해 주십시오';
     }
 

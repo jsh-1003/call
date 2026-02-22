@@ -4,7 +4,7 @@ include_once(G5_LIB_PATH.'/naver_syndi.lib.php');
 include_once(G5_CAPTCHA_PATH.'/captcha.lib.php');
 
 // 토큰체크
-if($member['mb_level'] < 10) {
+if($member['mb_level'] < 5) {
     check_write_token($bo_table);
 }
 
