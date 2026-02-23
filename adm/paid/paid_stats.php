@@ -1170,7 +1170,15 @@ $hide_t3_branch_agent_cols = ($is_agency || $is_media); // 파트너는 지점/�
                 $price_display = (int)$row['paid_price']; // 기본: 사용자 매출(로그 저장값)
                 if ($is_agency || $is_media) {
                     if ($bill_type === 1) $price_display = (int)$viewer_price_10s;
-                    else if ($bill_type === 2) $price_display = (int)$viewer_price_conn;
+                    else if ($bill_type === 2) {
+                        $cid = (int)$row['company_id'];
+                        if (in_array($cid, PAID_PRICE_TYPE_2_PLUS_COMPANY_IDS)) {
+                            $price_display = (int)PAID_PRICE_TYPE_2_PLUS_COMPANY;
+                        } else {
+                            $price_display = (int)PAID_PRICE_TYPE_2;
+                        }
+                        $price_display = (int)$viewer_price_conn;
+                    }
                     else $price_display = 0;
                 }
                 ?>

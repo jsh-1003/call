@@ -353,6 +353,21 @@ if ($step === 'preview') {
             }
         }
 
+        if ($birth_date) {
+            $man_age = calc_age_years($birth_date);
+            if ($man_age < 62 && $man_age > 10) $db_age_type = 1;
+            else if ($man_age <= 70 && $man_age >= 62) $db_age_type = 2;
+            if ($man_age < 40 || $man_age > 69) {
+                if ($is_validate) {
+                    $status = '제외';
+                    $reason = '대상 나이 아님';
+                }
+            }
+        } else if($is_validate) {
+            $status = '제외';
+            $reason = '나이 없음';
+        }
+
         if ($status === '정상' && $is_validate) {
             $name_reason = '';
             if (!call_validate_name_basic($name, $name_reason)) {
@@ -592,6 +607,15 @@ try {
             $man_age = calc_age_years($birth_date);
             if ($man_age < 62 && $man_age > 10) $db_age_type = 1;
             else if ($man_age <= 70 && $man_age >= 62) $db_age_type = 2;
+            if ($man_age < 40 || $man_age > 69) {
+                $skip_count++;
+                if ($is_validate && count($fail_msgs) < 20) $fail_msgs[] = "행 {$i}: 대상 나이 아님 ";
+                continue;
+            }
+        } else if($is_validate) {
+            $skip_count++;
+            if (count($fail_msgs) < 20) $fail_msgs[] = "행 {$i}: 나이 없음 ";
+            continue;
         }
 
         $rand_score = rand01();

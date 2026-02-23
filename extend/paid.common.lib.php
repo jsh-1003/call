@@ -9,6 +9,7 @@ function paid_db_use($mb_no, $target_id, $call_id, $call_time, $call_duration, $
     if( $call_time < 1 || $call_duration < 1 ) return 0;
 
     $_company_id = get_member_from_mb_no($mb_no, 'company_id');
+    $company_id = $_company_id['company_id'];
     $company_info = get_member_from_mb_no($_company_id['company_id'], 'mb_id');
     $mb_id = $company_info['mb_id']; // 대표 회원 아이디(포인트 차감용)
 
@@ -21,6 +22,10 @@ function paid_db_use($mb_no, $target_id, $call_id, $call_time, $call_duration, $
         // 2번 : 통화당 과금
         $rel_table = '@paid2';
         $paid_price = PAID_PRICE_TYPE_2;
+        if (in_array($company_id, PAID_PRICE_TYPE_2_PLUS_COMPANY_IDS)) {
+            // 예외 단가 적용
+            $paid_price = PAID_PRICE_TYPE_2_PLUS_COMPANY;
+        }        
         $content = '연결과금/'.$target_id.'/'.$paid_price;
     } else {
         return 0;

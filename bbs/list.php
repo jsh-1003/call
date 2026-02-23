@@ -36,7 +36,7 @@ $stx = trim($stx);
 //검색인지 아닌지 구분하는 변수 초기화
 $is_search_bbs = false;
 
-if ($sca || $stx || $stx === '0' || (!empty($board['gr_id']) && $board['gr_id'] = 'member' && !$is_admin_pay)) {     //검색이면
+if ($sca || $stx || $stx === '0' || (!empty($board['gr_id']) && $board['gr_id'] == 'member' && !$is_admin_pay)) {     //검색이면
     $is_search_bbs = true;      //검색구분변수 true 지정
     $sql_search = get_sql_search($sca, $sfl, $stx, $sop);
     if ($board['gr_id'] == 'member' && !$is_admin_pay) {
