@@ -116,7 +116,6 @@ function call_assign_pick_and_lock($mb_group, $mb_no, $need, $lease_min, $batch_
                     ON vd.mb_no = c.db_vendor
                 AND vd.is_paid_db = 1
                 WHERE 
-                c.campaign_id = 1129 AND
                 t.is_paid_db = 1
                 AND t.assigned_status = {$assigned_status_filter}
             ";
