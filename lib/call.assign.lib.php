@@ -77,48 +77,81 @@ function call_assign_pick_and_lock($mb_group, $mb_no, $need, $lease_min, $batch_
             $where_extra_sql = "\n      " . $where_extra;
         }
 
-        $where_campaign = '';
-        if ($campaign_id > 0) {
-            $where_campaign = " AND t.campaign_id = {$campaign_id} ";
+
+        $guard_company_ids = [];
+        if ($exclude_blacklist) {
+            // 공용(1) + 회사별
+            $guard_company_ids = [1, $company_id];
+            $guard_company_ids = array_values(array_unique(array_map('intval', $guard_company_ids)));
         }
 
-        // ★ 변경: 블랙리스트 및 do_not_call 제외 조건 생성
-        $where_guard_sql = '';
-        if ($exclude_dnc_flag) {
-            $where_guard_sql .= "\n      AND t.do_not_call = 0";
-        }
-        if ($exclude_blacklist && $company_id > 0) {
-            // call_blacklist(company_id, call_hp) 유니크 인덱스 활용
-            $where_guard_sql .= "\n      AND NOT EXISTS (
-                    SELECT 1
-                      FROM call_blacklist b
-                     WHERE b.company_id = {$company_id}
-                       AND b.call_hp    = t.call_hp
-                )";
-        }
+        $chunk = 1;
+        $max_round = 200; // 무한루프 방지
 
-        // 1) 후보 픽 (잠금 포함) - 활성 캠페인(status=1)만
-        $pick_sql = "INSERT INTO {$tmp} (target_id)
-            SELECT t.target_id
-              FROM call_target AS t
-              JOIN call_campaign AS c
-                ON c.campaign_id = t.campaign_id
-               AND c.mb_group    = t.mb_group
-               AND c.status      = 1
-             WHERE t.mb_group = {$mb_group}
-               AND t.assigned_status = {$assigned_status_filter}
-               {$where_campaign}
-               {$where_guard_sql}
-               {$where_extra_sql}
-             ORDER BY t.{$order_col}
-             LIMIT {$n}
-        ";
+        // 1) 후보 픽
+        for ($round = 0; $round < $max_round; $round++) {
 
-        if ($use_skip_locked) {
-            // MySQL 8.x+: 경합 회피
-            $pick_sql .= " FOR UPDATE SKIP LOCKED";
+            // 이미 n개 채웠으면 중단
+            $row = sql_fetch("SELECT COUNT(*) AS cnt FROM {$tmp}");
+            $picked_now = (int)($row['cnt'] ?? 0);
+            if ($picked_now >= $n) break;
+
+            $limit = $chunk;
+
+            // 1) 후보를 tmp에 추가
+            //    - 여기서 call_target row들을 FOR UPDATE SKIP LOCKED로 "잠금"
+            //    - 블랙리스트 조건은 여기서 빼고(where_guard_sql 제거) where_extra + dnc만 유지
+            $pick_lock_sql = "INSERT IGNORE INTO {$tmp} (target_id)
+                SELECT t.target_id
+                FROM call_target AS t FORCE INDEX (idx_target_paid_pick)
+                STRAIGHT_JOIN call_campaign AS c
+                    ON c.campaign_id = t.campaign_id
+                AND c.status = 1
+                AND c.deleted_at IS NULL
+                AND c.is_paid_db = 1
+                JOIN g5_member AS ag
+                    ON ag.mb_no = c.db_agency
+                AND ag.is_paid_db = 1
+                JOIN g5_member AS vd
+                    ON vd.mb_no = c.db_vendor
+                AND vd.is_paid_db = 1
+                WHERE 
+                c.campaign_id = 1129 AND
+                t.is_paid_db = 1
+                AND t.assigned_status = {$assigned_status_filter}
+            ";
+
+            // DNC는 픽단계에서 유지(원하면 이것도 픽후에 제거 가능하지만 보통 여기서 거르는게 싸다)
+            if ($exclude_dnc_flag) {
+                //$pick_lock_sql .= "\n AND t.do_not_call = 0";
+            }
+
+            // 기존 where_extra_sql 유지
+            $pick_lock_sql .= "\n {$where_extra_sql}";
+
+            $pick_lock_sql .= "
+                ORDER BY t.rand_score ASC, t.target_id ASC
+                LIMIT {$limit}
+                FOR UPDATE " . ($use_skip_locked ? "SKIP LOCKED" : "") . "
+            ";
+
+            sql_query($pick_lock_sql);
+
+            // 2) tmp에서 블랙리스트 대상 일괄 제거
+            if (!empty($guard_company_ids)) {
+                $in_guard = implode(',', $guard_company_ids);
+                $guard_delete_sql = "DELETE tmp
+                    FROM {$tmp} AS tmp
+                    JOIN call_target AS t
+                        ON t.target_id = tmp.target_id
+                    JOIN call_blacklist AS b
+                        ON b.call_hp = t.call_hp
+                    AND b.company_id IN ({$in_guard})
+                ";
+                sql_query($guard_delete_sql);
+            }
+            // 3) n개 채웠는지 확인 후 부족하면 다음 라운드
         }
-        sql_query($pick_sql);
 
         // 픽된 수 확인
         $row = sql_fetch("SELECT COUNT(*) AS cnt FROM {$tmp}");
@@ -129,16 +162,20 @@ function call_assign_pick_and_lock($mb_group, $mb_no, $need, $lease_min, $batch_
         }
 
         // 2) 상태 업데이트(배정)
-        $status_guard = $use_skip_locked ? '' : "AND t.assigned_status = {$assigned_status_filter}";
+        $status_guard = "WHERE t.assigned_status = {$assigned_status_filter}";
 
+        // ★ 변경: company_id, mb_group, paid_db_billing_type 추가 업데이트
         $upd_sql = "UPDATE call_target AS t
             JOIN {$tmp} AS p ON p.target_id = t.target_id
-               SET t.assigned_status     = {$assigned_status_to},
-                   t.assigned_mb_no      = {$mb_no},
-                   t.assigned_at         = NOW(),
-                   t.assign_lease_until  = DATE_ADD(NOW(), INTERVAL {$lease_min} MINUTE),
-                   t.assign_batch_id     = {$batch_id}
-             {$status_guard}
+                SET t.assigned_status     = {$assigned_status_to},
+                    t.assigned_mb_no      = {$mb_no},
+                    t.assigned_at         = NOW(),
+                    t.assign_lease_until  = DATE_ADD(NOW(), INTERVAL {$lease_min} MINUTE),
+                    t.assign_batch_id     = {$batch_id},
+                    t.company_id          = {$company_id},
+                    t.mb_group            = {$mb_group},
+                    t.paid_db_billing_type= {$paid_db_billing_type}
+                {$status_guard}
         ";
         sql_query($upd_sql);
 
@@ -154,10 +191,10 @@ function call_assign_pick_and_lock($mb_group, $mb_no, $need, $lease_min, $batch_
         $picked2 = (int)$row2['cnt'];
         if ($picked2 === 0) {
             sql_query("ROLLBACK");
-            return ['ok'=>false, 'picked'=>0, 'ids'=>[], 'err'=>'경합으로 배정 실패(다시 시도)'];
+            return ['ok'=>false, 'picked'=>0, 'ids'=>[], 'err'=>'경합으로 유료DB 배정 실패(다시 시도)'];
         }
 
-        // 3) 배정 이력 적재
+        // 3) 배정 이력 적재 (campaign_id는 call_target 값을 그대로 사용)
         $ins_hist_sql = "
             INSERT INTO call_assignment (campaign_id, mb_group, target_id, mb_no, assigned_at, status)
             SELECT t.campaign_id, {$mb_group}, p.target_id, {$mb_no}, NOW(), 1
