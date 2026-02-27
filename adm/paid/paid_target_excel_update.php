@@ -274,7 +274,7 @@ if ($is_headerless) {
     $header = $firstRow;
 
     $name_keys  = ['이름','name','성명','성함','고객명'];
-    $hp_keys    = ['전화번호','연락처','휴대폰','핸드폰','폰','전화','tel','phone','hp','call_hp'];
+    $hp_keys    = ['휴대폰번호','전화번호','연락처','휴대폰','핸드폰','폰','전화','tel','phone','hp','call_hp'];
     $birth_keys = ['생년월일','생일','주민번호','birth','birth_date','생년','dob'];
     $sex_keys   = ['성별','남녀','sex','gender'];
 

@@ -473,6 +473,13 @@ function open_upload_popup() {
     var top  = (screen.height - h) / 2;
     window.open(url, 'paid_target_excel', 'width='+w+',height='+h+',left='+left+',top='+top+',scrollbars=1,resizable=1');
 }
+function open_upload_popup_add_mode() {
+    var url = './paid_target_excel_add_mode.php';
+    var w = 860, h = 740;
+    var left = (screen.width - w) / 2;
+    var top  = (screen.height - h) / 2;
+    window.open(url, 'paid_target_excel_add_mode', 'width='+w+',height='+h+',left='+left+',top='+top+',scrollbars=1,resizable=1');
+}
 </script>
 
 <?php

@@ -26,14 +26,16 @@ define('MEDIA_PRICE_CONN',  20);
 define('MEDIA_PRICE_10S',   40);
 
 define('PAID_PRICE_TYPE_1', 160); // 1번 : 통화10초시 과금, 160원
-define('PAID_PRICE_TYPE_2', 80); // 2번 : 통화당 과금, 80원
-define('PAID_PRICE_TYPE_2_PLUS_COMPANY', 150); // 2번 : 일부업체들 150원으로 표기
-// 에스엘컴퍼니
-// 제이케이플래닛
-// 주식회사 지엠씨퍼포먼스
-// 한국중소기업센터
-// 400, 426, 535, 365
-define('PAID_PRICE_TYPE_2_PLUS_COMPANY_IDS', [400, 426, 535, 365]);
+define('PAID_PRICE_TYPE_2', 150); // 2번 : 통화당 과금, 150원
+define('PAID_PRICE_TYPE_2_PLUS_COMPANY', 80); // 2번 : 일부업체들 80원으로 표기
+// 뉴썬 : 177
+// 토모스 : 237
+// 기동넷 : 62
+// 고산센터 : 36
+// 제이모바일 : 70
+// 태영넷 : 74
+// 티앤플 : 130
+define('PAID_PRICE_TYPE_2_PLUS_COMPANY_IDS', [36, 62, 70, 74, 77, 130, 177, 237]);
 
 
 if($is_admin != 'super') {

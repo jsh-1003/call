@@ -217,7 +217,7 @@ $(function(){
         var file = input.files[0];
 
         if (file.size > MAX_FILE_SIZE) {
-            alert('파일 용량이 10MB를 초과했습니다.\n'
+            alert('파일 용량이 50MB를 초과했습니다.\n'
                 + '현재 용량: 약 ' + (file.size / (1024*1024)).toFixed(1) + 'MB\n'
                 + '10MB 이하로 나누어 업로드해 주세요.');
             e.preventDefault();

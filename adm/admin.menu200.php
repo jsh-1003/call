@@ -11,6 +11,8 @@ if($member['member_type'] ==0 && $member['mb_level'] < 10) {
     $is_paid_db_use_company = is_paid_db_use_company($member['mb_no']);
     if($is_paid_db_use_company < 1) return;
 }
+if($member['mb_id'] == 'admin') return;
+
 if($member['mb_level'] > 10) {
     $menu['menu200'] = array(
         array('200000', '회원관리', G5_ADMIN_URL . '/member_list.php', 'member'),

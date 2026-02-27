@@ -955,3 +955,16 @@ function status_label($code){
     }
     return $status_cache[$code];
 }
+
+
+function sql_affected_rows($link=null) {
+    global $g5;
+
+    if(!$link)
+        $link = $g5['connect_db'];
+
+    if(function_exists('mysqli_affected_rows') && G5_MYSQLI_USE)
+        return mysqli_affected_rows($link);
+    else
+        return mysql_affected_rows($link);
+}
