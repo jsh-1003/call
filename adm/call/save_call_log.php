@@ -87,10 +87,52 @@ WHERE
 ORDER BY l.call_start DESC;
 ";
 
+$sql = "SELECT
+    t.name AS target_name,
+    t.birth_date,
+    CASE
+        WHEN t.sex = 1 THEN '남'
+        WHEN t.sex = 2 THEN '여'
+        ELSE ''
+    END AS sex,
+
+    /* meta_json: 값만 뽑아서 콤마 연결 */
+    (
+      SELECT GROUP_CONCAT(j.val SEPARATOR ',')
+      FROM JSON_TABLE(
+             JSON_EXTRACT(t.meta_json, '$.*'),
+             '$[*]' COLUMNS (
+               val VARCHAR(2000) PATH '$'
+             )
+           ) AS j
+    ) AS etc_info,
+
+    /* 전화번호 하이픈 */
+    CONCAT(
+        SUBSTRING(t.call_hp, 1, 3), '-',
+        SUBSTRING(t.call_hp, 4, 4), '-',
+        SUBSTRING(t.call_hp, 8)
+    ) AS call_hp
+
+FROM call_target t
+
+WHERE
+    t.mb_group = 0
+    AND t.campaign_id IN (1158, 1159)
+    AND (
+        JSON_UNQUOTE(JSON_EXTRACT(t.meta_json, '$.거주지')) LIKE '서울%'
+        OR JSON_UNQUOTE(JSON_EXTRACT(t.meta_json, '$.거주지')) LIKE '경기%'
+    )
+
+ORDER BY t.rand_score";
+
+
+
 // -----------------------------
 // 다운로드 헤더
 // -----------------------------
 $filename = 'private_15sec_calls.csv';
+$filename = '서울경기_1차2차_260309.csv';
 
 header('Content-Type: text/csv; charset=UTF-8');
 header('Content-Disposition: attachment; filename="' . $filename . '"');
@@ -108,7 +150,8 @@ if (!$out) {
 
 // 컬럼 헤더
 // fputcsv($out, ['call_id','mb_group','campaign_id','campaign_name','call_hp','duration_sec','call_start']);
-fputcsv($out, ['캠페인명','이름','전화번호','생년월일','성별','기타정보','통화시간','통화일시']);
+// fputcsv($out, ['캠페인명','이름','전화번호','생년월일','성별','기타정보','통화시간','통화일시']);
+fputcsv($out, ['이름','전화번호','생년월일','성별','기타정보']);
 
 // -----------------------------
 // unbuffered query로 한 줄씩 스트리밍
@@ -119,14 +162,14 @@ fputcsv($out, ['캠페인명','이름','전화번호','생년월일','성별','�
 $res = sql_query($sql);
 while ($row = sql_fetch_array($res)) {
     fputcsv($out, [
-        $row['campaign_name'],
+        // $row['campaign_name'],
         $row['target_name'],
         $row['call_hp'],
         $row['birth_date'],
         $row['sex'],
         $row['etc_info'],
-        $row['duration_sec'],
-        $row['call_start'],
+        // $row['duration_sec'],
+        // $row['call_start'],
     ]);
 }
 fclose($out);

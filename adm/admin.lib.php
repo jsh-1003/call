@@ -636,7 +636,12 @@ if (!verify_mb_key($member)) {
     // 메일 알림
     mailer($member['mb_nick'], $member['mb_email'], $member['mb_email'], 'XSS 공격 알림', $_SERVER['REMOTE_ADDR'] . ' 아이피로 XSS 공격이 있었습니다.<br><br>관리자 권한을 탈취하려는 접근이므로 주의하시기 바랍니다.<br><br>해당 아이피는 차단하시고 의심되는 게시물이 있는지 확인하시기 바랍니다.' . G5_URL, 0);
 
-    alert_close('정상적으로 로그인하여 접근하시기 바랍니다.');
+    session_unset(); // 모든 세션변수를 언레지스터 시켜줌
+    session_destroy(); // 세션해제함
+    set_cookie('ck_mb_id', '', 0);
+    set_cookie('ck_auto', '', 0);
+    // alert_close('정상적으로 로그인하여 접근하시기 바랍니다.');
+    alert('정상적으로 로그인하여 접근하시기 바랍니다.','/bbs/logout.php');
 }
 
 if (isset($auth) && is_array($auth)) {

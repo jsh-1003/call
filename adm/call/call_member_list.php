@@ -438,7 +438,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                 <tr class="<?php echo $bg; ?>">
                     <?php if($my_level >= 8) { ?>
                     <td class="">
-                        <span class="badge <?php echo $role_class; ?>"><?php echo $role_name; ?></span>
+                        <span class="badge <?php echo $role_class; ?>" title="<?php echo $row['mb_no'] ?>"><?php echo $role_name; ?></span>
                     </td>
                     <td><?php echo format_korean_phone($row['mb_hp']) ?></td>
                     <?php } ?>

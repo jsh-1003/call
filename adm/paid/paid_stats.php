@@ -203,8 +203,7 @@ $agency_select_options = [];
 $vendor_select_options = [];
 
 if ($show_agency_select) {
-    $qA = sql_query("
-        SELECT c.db_agency AS mb_no, m.mb_name AS name
+    $qA = sql_query("SELECT c.db_agency AS mb_no, m.company_name AS name
           FROM call_campaign c
           JOIN {$member_table} m
             ON m.mb_no = c.db_agency
@@ -214,7 +213,7 @@ if ($show_agency_select) {
          WHERE c.is_paid_db=1
            AND c.db_agency > 0
          GROUP BY c.db_agency
-         ORDER BY m.mb_name ASC, c.db_agency ASC
+         ORDER BY m.company_name ASC, c.db_agency ASC
     ");
     while ($r = sql_fetch_array($qA)) {
         $agency_select_options[] = ['mb_no'=>(int)$r['mb_no'], 'name'=>trim((string)$r['name'])];
@@ -230,8 +229,7 @@ if ($show_vendor_select) {
     }
     $vendor_where_sql = 'WHERE '.implode(' AND ', $vendor_where);
 
-    $qV = sql_query("
-        SELECT c.db_vendor AS mb_no, m.mb_name AS name
+    $qV = sql_query("SELECT c.db_vendor AS mb_no, m.mb_group_name AS name
           FROM call_campaign c
           JOIN {$member_table} m
             ON m.mb_no = c.db_vendor
@@ -240,7 +238,7 @@ if ($show_vendor_select) {
            AND IFNULL(m.mb_intercept_date,'')=''
           {$vendor_where_sql}
          GROUP BY c.db_vendor
-         ORDER BY m.mb_name ASC, c.db_vendor ASC
+         ORDER BY m.mb_group_name ASC, c.db_vendor ASC
     ");
     while ($r = sql_fetch_array($qV)) {
         $vendor_select_options[] = ['mb_no'=>(int)$r['mb_no'], 'name'=>trim((string)$r['name'])];
@@ -285,8 +283,7 @@ if ($is_admin9) {
 
     if (!empty($company_ids)) {
         $in = implode(',', array_map('intval', $company_ids));
-        $q_company = sql_query("
-            SELECT mb_no, mb_name, company_name, mb_point
+        $q_company = sql_query("SELECT mb_no, mb_name, company_name, mb_point
               FROM {$member_table}
              WHERE member_type=0
                AND mb_level=8
@@ -421,8 +418,7 @@ if ($sel_mb_group > 0) {
 }
 $where_pool_sql = $where_pool ? ('WHERE '.implode(' AND ', $where_pool)) : '';
 
-$sql_stock_partner = "
-    SELECT
+$sql_stock_partner = "SELECT
         c.db_agency AS db_agency,
         c.db_vendor AS db_vendor,
         SUM(CASE WHEN t.db_age_type=1 THEN 1 ELSE 0 END) AS normal_total,
@@ -507,17 +503,17 @@ $vendor_name_map = [];
 
 if (!empty($agency_ids)) {
     $in = implode(',', array_keys($agency_ids));
-    $qA = sql_query("SELECT mb_no, mb_name FROM {$member_table}
+    $qA = sql_query("SELECT mb_no, company_name FROM {$member_table}
                      WHERE mb_no IN ({$in}) AND member_type=1
                        AND IFNULL(mb_leave_date,'')='' AND IFNULL(mb_intercept_date,'')=''");
-    while ($r = sql_fetch_array($qA)) $agency_name_map[(int)$r['mb_no']] = trim((string)$r['mb_name']);
+    while ($r = sql_fetch_array($qA)) $agency_name_map[(int)$r['mb_no']] = trim((string)$r['company_name']);
 }
 if (!empty($vendor_ids)) {
     $in = implode(',', array_keys($vendor_ids));
-    $qV = sql_query("SELECT mb_no, mb_name FROM {$member_table}
+    $qV = sql_query("SELECT mb_no, mb_group_name FROM {$member_table}
                      WHERE mb_no IN ({$in}) AND member_type=2
                        AND IFNULL(mb_leave_date,'')='' AND IFNULL(mb_intercept_date,'')=''");
-    while ($r = sql_fetch_array($qV)) $vendor_name_map[(int)$r['mb_no']] = trim((string)$r['mb_name']);
+    while ($r = sql_fetch_array($qV)) $vendor_name_map[(int)$r['mb_no']] = trim((string)$r['mb_group_name']);
 }
 
 /** 테이블1 rows */
@@ -621,8 +617,7 @@ usort($rows_t2, function($a,$b){
  * --------------------------------------------------------- */
 $rows_rep_summary = [];
 if ($is_company_rep) {
-    $sql_rep = "
-        SELECT
+    $sql_rep = "SELECT
             l.mb_group,
             l.mb_no AS agent_id,
             ag.mb_name AS agent_name,
@@ -694,8 +689,7 @@ $sub = "
      LIMIT {$offset}, {$page_rows}
 ";
 
-$res_list = sql_query("
-    SELECT
+$res_list = sql_query("SELECT
         l.call_id,
         ag.company_id,
         l.mb_group,
@@ -715,8 +709,8 @@ $res_list = sql_query("
 
         c.db_agency,
         c.db_vendor,
-        a.mb_name AS agency_name,
-        v.mb_name AS vendor_name,
+        a.company_name AS agency_name,
+        v.mb_group_name AS vendor_name,
 
         l.call_start,
         l.call_end,

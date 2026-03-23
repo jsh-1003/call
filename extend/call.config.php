@@ -35,7 +35,10 @@ define('PAID_PRICE_TYPE_2_PLUS_COMPANY', 80); // 2번 : 일부업체들 80원으
 // 제이모바일 : 70
 // 태영넷 : 74
 // 티앤플 : 130
-define('PAID_PRICE_TYPE_2_PLUS_COMPANY_IDS', [36, 62, 70, 74, 77, 130, 177, 237]);
+// 메이크라이프 : 6
+// 이든넷 : 2
+// 케이와이컴퍼니 : 71
+define('PAID_PRICE_TYPE_2_PLUS_COMPANY_IDS', [2, 6, 36, 62, 70, 71, 74, 77, 130, 177, 237]); // 80원 업체들 company_id
 
 
 if($is_admin != 'super') {

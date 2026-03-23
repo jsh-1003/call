@@ -92,7 +92,7 @@ function call_assign_pick_and_lock($mb_group, $mb_no, $need, $lease_min, $batch_
             $where_guard_sql .= "\n      AND NOT EXISTS (
                     SELECT 1
                       FROM call_blacklist b
-                     WHERE b.company_id = {$company_id}
+                     WHERE b.company_id in (1, {$company_id})
                        AND b.call_hp    = t.call_hp
                 )";
         }

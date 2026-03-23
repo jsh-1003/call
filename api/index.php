@@ -65,6 +65,11 @@ switch ($path) {
         handle_call_shop_order();
         break;
 
+        // 로그인
+    case '/api/voice/customer_signal':
+        send_json(['success' => true, 'message' => '', 200]);
+        break;
+
     default:
         send_json(['success' => false, 'message' => 'Not Found: '.$path], 404);
 }

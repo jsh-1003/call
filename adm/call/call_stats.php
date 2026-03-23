@@ -1004,6 +1004,13 @@ while ($r = sql_fetch_array($res_ac_camp)) {
     }
 }
 
+
+// 현재 GET 그대로를 보존
+$__q_all = $_GET;
+$__q_all['mode'] = 'screen';     $href_screen    = './call_stats_excel.php?'.http_build_query($__q_all);
+$__q_all['mode'] = 'condition';  $href_condition = './call_stats_excel.php?'.http_build_query($__q_all);
+$__q_all['mode'] = 'all';        $href_all       = './call_stats_excel.php?'.http_build_query($__q_all);
+
 /* -----------------------------------------------------------
  * 11) 조직 드롭다운 옵션
  * --------------------------------------------------------- */
@@ -1513,6 +1520,11 @@ $listall = '<a href="'.$_SERVER['SCRIPT_NAME'].'" class="ov_listall">전체목�
         ?>
         </tbody>
     </table>
+</div>
+
+<div class="btn_fixed_top">
+    <a href="<?php echo $href_condition; ?>" class="btn btn_02">현재조건 엑셀다운</a>&nbsp;&nbsp;&nbsp;
+    <a href="<?php echo $href_screen;    ?>" class="btn btn_02" style="background:#e5e7eb !important">현재화면 엑셀다운</a>
 </div>
 
 <!-- 페이징 -->

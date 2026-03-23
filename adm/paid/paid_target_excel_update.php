@@ -53,7 +53,7 @@ $CALL_ALLOWED_SURNAMES = [
     '현','함','변','염','여','추','도','소','석','선','설','마',
     '길','연','위','표','명','기','반','라','왕','금','옥','육',
     '인','지','어','탁','국','모','맹','봉','호','형','예','음',
-    '용','편','음','사','경','빈'    
+    '용','편','음','사','경','빈','제','복','화'
 ];
 
 function call_clean_name_for_check($name_raw) {
@@ -502,6 +502,8 @@ if ($step === 'preview') {
     </div>
     <?php include_once(G5_PATH.'/tail.sub.php'); ?>
     <?php
+    unset($sheet, $reader, $rowData, $row, $preview_rows, $firstRowArr, $firstRowRaw, $firstRow);
+    gc_collect_cycles();    
     exit;
 }
 
@@ -739,4 +741,8 @@ include_once(G5_PATH.'/head.sub.php');
 })();
 </script>
 
-<?php include_once(G5_PATH.'/tail.sub.php'); ?>
+<?php
+unset($sheet, $reader, $rowData, $row, $preview_rows, $firstRowArr, $firstRowRaw, $firstRow);
+gc_collect_cycles();
+include_once(G5_PATH.'/tail.sub.php');
+?>

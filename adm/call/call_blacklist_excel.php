@@ -2,6 +2,8 @@
 // /adm/call/call_blacklist_excel.php
 $sub_menu = '700500';
 require_once './_common.php';
+set_time_limit(360);
+ini_set('memory_limit', '512M');
 
 if ((int)$member['mb_level'] < 5) alert('접근 권한이 없습니다.');
 
