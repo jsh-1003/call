@@ -21,11 +21,7 @@ function paid_db_use($mb_no, $target_id, $call_id, $call_time, $call_duration, $
     } else if($paid_db_billing_type == 2) {
         // 2번 : 통화당 과금
         $rel_table = '@paid2';
-        $paid_price = PAID_PRICE_TYPE_2;
-        if (in_array($company_id, PAID_PRICE_TYPE_2_PLUS_COMPANY_IDS)) {
-            // 예외 단가 적용
-            $paid_price = PAID_PRICE_TYPE_2_PLUS_COMPANY;
-        }        
+        $paid_price = get_company_paid_price($company_id);
         $content = '연결과금/'.$target_id.'/'.$paid_price;
     } else {
         return 0;
@@ -153,4 +149,24 @@ function build_paid_select_options($sel_company_id=0, $sel_mb_group=0) {
         'company_options' => $company_options,
         'group_options'   => $group_options
     ];
+}
+
+/**
+ * company_id로 연결당 과금 요금 가져오기
+ */
+function get_company_paid_price(int $company_id, int $price_type = 2) {
+    $return_price = PAID_PRICE_TYPE_2;
+    if (in_array($company_id, PAID_PRICE_TYPE_2_PLUS_COMPANY_IDS)) {
+        $return_price = PAID_PRICE_TYPE_2_PLUS_COMPANY;
+    }    
+    if($price_type == 2) {
+        $sql = "SELECT paid_price_type_2 FROM g5_member WHERE mb_no = '{$company_id}' ";
+        $row = sql_fetch($sql);
+        if(!empty($row['paid_price_type_2']) && $row['paid_price_type_2'] ) {
+            $return_price = $row['paid_price_type_2'];
+        }
+    } else {
+        $return_price = PAID_PRICE_TYPE_1;
+    }
+    return (int)$return_price;
 }

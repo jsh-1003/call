@@ -55,8 +55,11 @@ function is_unlocked_fast(int $company_id, int $mb_no = 0): bool
 
     // 1) 개인 기준: 스냅샷이 있으면 '무조건' 그 값을 우선 (관리자 강제잠금 포함)
     if ($mb_no > 0) {
-        $snap = sql_fetch("
-            SELECT locked
+        if($mb_no == 11) {
+            // test_member  전용
+            return true;
+        }
+        $snap = sql_fetch("SELECT locked
               FROM billing_member_snapshot
              WHERE company_id = {$company_id}
                AND month = '" . sql_escape_string($month) . "'
@@ -72,8 +75,7 @@ function is_unlocked_fast(int $company_id, int $mb_no = 0): bool
     }
 
     // 2) 회사 월 정책: 결제완료 or 임시해제면 허용, 그 외 차단
-    $row = sql_fetch("
-        SELECT payment_status, manual_unlock
+    $row = sql_fetch("SELECT payment_status, manual_unlock
           FROM billing_company_month
          WHERE company_id = {$company_id}
            AND month = '" . sql_escape_string($month) . "'

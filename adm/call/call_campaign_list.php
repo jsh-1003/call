@@ -264,7 +264,7 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
 .opt-sep{font-weight:bold;color:#666}
 .td_cnt {width:60px;font-weight:bold;font-size:1.05em;font-family:sans-serif}
 .td_cntsmall {width:56px}
-.td_cam_name {font-size:0.85em;letter-spacing:-1px;}
+.td_cam_name {font-size:1.1em;letter-spacing:-1px;}
 </style>
 
 <div class="local_ov01 local_ov">

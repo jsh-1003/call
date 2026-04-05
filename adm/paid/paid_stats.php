@@ -10,8 +10,6 @@ require_once './_common.php';
  *  - 매체사(member_type=2)
  *  - 사용자 대표(member_type=0 && mb_level=8)
  * --------------------------------------------------------- */
-$member_table = $g5['member_table']; // g5_member
-
 $mb_no         = (int)($member['mb_no'] ?? 0);
 $mb_level      = (int)($member['mb_level'] ?? 0);
 $my_group      = (int)($member['mb_group'] ?? 0);
@@ -205,7 +203,7 @@ $vendor_select_options = [];
 if ($show_agency_select) {
     $qA = sql_query("SELECT c.db_agency AS mb_no, m.company_name AS name
           FROM call_campaign c
-          JOIN {$member_table} m
+          JOIN g5_member m
             ON m.mb_no = c.db_agency
            AND m.member_type = 1
            AND IFNULL(m.mb_leave_date,'')=''
@@ -231,7 +229,7 @@ if ($show_vendor_select) {
 
     $qV = sql_query("SELECT c.db_vendor AS mb_no, m.mb_group_name AS name
           FROM call_campaign c
-          JOIN {$member_table} m
+          JOIN g5_member m
             ON m.mb_no = c.db_vendor
            AND m.member_type = 2
            AND IFNULL(m.mb_leave_date,'')=''
@@ -284,7 +282,7 @@ if ($is_admin9) {
     if (!empty($company_ids)) {
         $in = implode(',', array_map('intval', $company_ids));
         $q_company = sql_query("SELECT mb_no, mb_name, company_name, mb_point
-              FROM {$member_table}
+              FROM g5_member
              WHERE member_type=0
                AND mb_level=8
                AND mb_no IN ({$in})
@@ -327,7 +325,7 @@ if ($is_admin9) {
             SUM(CASE WHEN l.paid_db_billing_type=2 THEN l.paid_price ELSE 0 END) AS sum_conn_user,
             SUM(l.paid_price) AS sum_user_total
         FROM call_log l
-        JOIN {$member_table} ag
+        JOIN g5_member ag
           ON ag.mb_no = l.mb_no
          AND ag.member_type=0
          AND ag.mb_level=3
@@ -353,6 +351,15 @@ if ($is_admin9) {
             'sum_conn_user'  => (int)$r['sum_conn_user'],
             'sum_user_total' => (int)$r['sum_user_total'],
         ];
+        if(!in_array($cid, $company_ids)) {
+            $cname = get_company_name_cached($cid);
+            $gcnt  = count_groups_by_company_cached($cid);
+            $company_options[] = [
+                'company_id'   => $cid,
+                'company_name' => $cname,
+                'group_count'  => $gcnt,
+            ];
+        }
     }
 }
 
@@ -370,7 +377,7 @@ $sql_usage_partner = "SELECT
         SUM(CASE WHEN l.paid_db_billing_type=2 THEN l.paid_price ELSE 0 END) AS sum_conn_user,
         SUM(l.paid_price) AS sum_user_total
     FROM call_log l
-    JOIN {$member_table} ag
+    JOIN g5_member ag
       ON ag.mb_no = l.mb_no
      AND ag.member_type=0
      AND ag.mb_level BETWEEN 3 AND 7
@@ -421,22 +428,24 @@ $where_pool_sql = $where_pool ? ('WHERE '.implode(' AND ', $where_pool)) : '';
 $sql_stock_partner = "SELECT
         c.db_agency AS db_agency,
         c.db_vendor AS db_vendor,
-        SUM(CASE WHEN t.db_age_type=1 THEN 1 ELSE 0 END) AS normal_total,
-        SUM(CASE WHEN t.db_age_type=2 THEN 1 ELSE 0 END) AS silver_total,
-        SUM(CASE WHEN t.db_age_type=1 AND t.last_result IS NULL THEN 1 ELSE 0 END) AS normal_remain,
-        SUM(CASE WHEN t.db_age_type=2 AND t.last_result IS NULL THEN 1 ELSE 0 END) AS silver_remain
+        -- SUM(CASE WHEN t.db_age_type=1 THEN 1 ELSE 0 END) AS normal_total,
+        -- SUM(CASE WHEN t.db_age_type=2 THEN 1 ELSE 0 END) AS silver_total,
+        count(t.target_id) AS total,
+        -- SUM(CASE WHEN t.db_age_type=1 AND t.last_result IS NULL THEN 1 ELSE 0 END) AS normal_remain,
+        -- SUM(CASE WHEN t.db_age_type=2 AND t.last_result IS NULL THEN 1 ELSE 0 END) AS silver_remain,
+        SUM(t.last_result IS NULL) AS total_remain
     FROM call_target t
     JOIN call_campaign c
       ON c.campaign_id = t.campaign_id
      AND c.is_paid_db  = 1
      AND c.status      = 1
      AND c.deleted_at IS NULL
-    LEFT JOIN {$member_table} v
+    LEFT JOIN g5_member v
       ON v.mb_no = c.db_vendor
      AND v.member_type = 2
      AND IFNULL(v.mb_leave_date,'')=''
      AND IFNULL(v.mb_intercept_date,'')=''
-    LEFT JOIN {$member_table} a
+    LEFT JOIN g5_member a
       ON a.mb_no = c.db_agency
      AND a.member_type = 1
      AND IFNULL(a.mb_leave_date,'')=''
@@ -461,10 +470,12 @@ while ($r = sql_fetch_array($q_stock_partner)) {
     $stock_partner_active[$k] = [
         'db_agency'      => (int)$r['db_agency'],
         'db_vendor'      => (int)$r['db_vendor'],
-        'normal_total'   => (int)$r['normal_total'],
-        'silver_total'   => (int)$r['silver_total'],
-        'normal_remain'  => (int)$r['normal_remain'],
-        'silver_remain'  => (int)$r['silver_remain'],
+        'total'          => (int)$r['total'],
+        'total_remain'   => (int)$r['total_remain'],
+        // 'normal_total'   => (int)$r['normal_total'],
+        // 'silver_total'   => (int)$r['silver_total'],
+        // 'normal_remain'  => (int)$r['normal_remain'],
+        // 'silver_remain'  => (int)$r['silver_remain'],
     ];
 }
 
@@ -481,8 +492,8 @@ $sum_agency_fee = 0;
 $sum_media_fee  = 0;
 
 // 로그인 역할별 "표시 단가"(요청사항: 파트너 로그인 시 표의 금액은 파트너 단가 기준)
-$viewer_price_conn = PAID_PRICE_TYPE_1;
-$viewer_price_10s  = PAID_PRICE_TYPE_2;
+$viewer_price_conn = PAID_PRICE_TYPE_2;
+$viewer_price_10s  = PAID_PRICE_TYPE_1;
 if ($is_agency) { $viewer_price_conn = AGENCY_PRICE_CONN; $viewer_price_10s = AGENCY_PRICE_10S; }
 if ($is_media)  { $viewer_price_conn = MEDIA_PRICE_CONN;  $viewer_price_10s = MEDIA_PRICE_10S;  }
 
@@ -503,14 +514,14 @@ $vendor_name_map = [];
 
 if (!empty($agency_ids)) {
     $in = implode(',', array_keys($agency_ids));
-    $qA = sql_query("SELECT mb_no, company_name FROM {$member_table}
+    $qA = sql_query("SELECT mb_no, company_name FROM g5_member
                      WHERE mb_no IN ({$in}) AND member_type=1
                        AND IFNULL(mb_leave_date,'')='' AND IFNULL(mb_intercept_date,'')=''");
     while ($r = sql_fetch_array($qA)) $agency_name_map[(int)$r['mb_no']] = trim((string)$r['company_name']);
 }
 if (!empty($vendor_ids)) {
     $in = implode(',', array_keys($vendor_ids));
-    $qV = sql_query("SELECT mb_no, mb_group_name FROM {$member_table}
+    $qV = sql_query("SELECT mb_no, mb_group_name FROM g5_member
                      WHERE mb_no IN ({$in}) AND member_type=2
                        AND IFNULL(mb_leave_date,'')='' AND IFNULL(mb_intercept_date,'')=''");
     while ($r = sql_fetch_array($qV)) $vendor_name_map[(int)$r['mb_no']] = trim((string)$r['mb_group_name']);
@@ -524,8 +535,9 @@ foreach ($keys as $k) {
     ];
     $s = $stock_partner_active[$k] ?? [
         'db_agency'=>(int)$u['db_agency'], 'db_vendor'=>(int)$u['db_vendor'],
-        'normal_total'=>0,'silver_total'=>0,'normal_remain'=>0,'silver_remain'=>0
+        'total'=>0,'total_remain'=>0
     ];
+    // 'normal_total'=>0,'silver_total'=>0,'normal_remain'=>0,'silver_remain'=>0
 
     $aid = (int)($s['db_agency'] ?? $u['db_agency']);
     $vid = (int)($s['db_vendor'] ?? $u['db_vendor']);
@@ -553,12 +565,15 @@ foreach ($keys as $k) {
         'media_name'    => $vid > 0 ? (trim((string)($vendor_name_map[$vid] ?? '')) ?: ('매체사-'.$vid)) : '-',
 
         // 활성 캠페인 기준 풀
-        'normal_total'  => (int)$s['normal_total'],
-        'silver_total'  => (int)$s['silver_total'],
-        'normal_remain' => (int)$s['normal_remain'],
-        'silver_remain' => (int)$s['silver_remain'],
+        'total'            => (int)$s['total'],
+        'total_remain'     => (int)$s['total_remain'],
+        // 'normal_total'  => (int)$s['normal_total'],
+        // 'silver_total'  => (int)$s['silver_total'],
+        // 'normal_remain' => (int)$s['normal_remain'],
+        // 'silver_remain' => (int)$s['silver_remain'],
 
         // 기간 내 사용(캠페인 상태 무관)
+        'total_used'    => (int)$u['total_used'],
         'normal_used'   => (int)$u['normal_used'],
         'silver_used'   => (int)$u['silver_used'],
 
@@ -629,7 +644,7 @@ if ($is_company_rep) {
             SUM(CASE WHEN l.paid_db_billing_type=2 THEN l.paid_price ELSE 0 END) AS sum_conn_user,
             SUM(l.paid_price) AS sum_user_total
         FROM call_log l
-        JOIN {$member_table} ag
+        JOIN g5_member ag
           ON ag.mb_no = l.mb_no
          AND ag.member_type=0
          AND ag.mb_level BETWEEN 3 AND 7
@@ -664,7 +679,7 @@ if ($is_company_rep) {
  *    * 에이전시/매체사 표시는 call_campaign.db_agency/db_vendor 기준으로 표시
  * --------------------------------------------------------- */
 $sub_joins = [];
-$sub_joins[] = "JOIN {$member_table} ag ON ag.mb_no=l.mb_no AND ag.member_type=0 AND ag.mb_level BETWEEN 3 AND 7 AND IFNULL(ag.mb_leave_date,'')='' AND IFNULL(ag.mb_intercept_date,'')=''";
+$sub_joins[] = "JOIN g5_member ag ON ag.mb_no=l.mb_no AND ag.member_type=0 AND ag.mb_level BETWEEN 3 AND 7 AND IFNULL(ag.mb_leave_date,'')='' AND IFNULL(ag.mb_intercept_date,'')=''";
 $sub_joins[] = "JOIN call_campaign c ON c.campaign_id=l.campaign_id AND c.is_paid_db=1";
 if ($need_target_join) {
     $sub_joins[] = "JOIN call_target t ON t.target_id = l.target_id";
@@ -717,7 +732,7 @@ $res_list = sql_query("SELECT
         l.call_time
     FROM ({$sub}) pick
     JOIN call_log l ON l.call_id = pick.call_id
-    JOIN {$member_table} ag
+    JOIN g5_member ag
       ON ag.mb_no=l.mb_no
      AND ag.member_type=0
      AND ag.mb_level BETWEEN 3 AND 7
@@ -725,8 +740,8 @@ $res_list = sql_query("SELECT
      AND IFNULL(ag.mb_intercept_date,'')=''
     JOIN call_target t ON t.target_id = l.target_id
     JOIN call_campaign c ON c.campaign_id = l.campaign_id AND c.is_paid_db=1
-    LEFT JOIN {$member_table} a ON a.mb_no=c.db_agency AND a.member_type=1
-    LEFT JOIN {$member_table} v ON v.mb_no=c.db_vendor AND v.member_type=2
+    LEFT JOIN g5_member a ON a.mb_no=c.db_agency AND a.member_type=1
+    LEFT JOIN g5_member v ON v.mb_no=c.db_vendor AND v.member_type=2
     ORDER BY l.call_start DESC, l.call_id DESC
 ");
 
@@ -939,14 +954,11 @@ $hide_t3_branch_agent_cols = ($is_agency || $is_media); // 파트너는 지점/�
             <?php } ?>
             <th scope="col" style="width:110px;">매체사</th>
 
-            <th scope="col" style="width:90px;">일반 전체</th>
-            <th scope="col" style="width:90px;">실버 전체</th>
+            <th scope="col" style="width:90px;">전체</th>
 
-            <th scope="col" style="width:90px;">일반 사용</th>
-            <th scope="col" style="width:90px;">실버 사용</th>
+            <th scope="col" style="width:90px;">사용</th>
 
-            <th scope="col" style="width:90px;">일반 잔여</th>
-            <th scope="col" style="width:90px;">실버 잔여</th>
+            <th scope="col" style="width:90px;">잔여</th>
 
             <th scope="col" style="width:90px;">10초 과금수</th>
             <th scope="col" style="width:90px;">연결 과금수</th>
@@ -974,14 +986,9 @@ $hide_t3_branch_agent_cols = ($is_agency || $is_media); // 파트너는 지점/�
                 }
                 echo '<td>'.get_text($r['media_name']).'</td>';
 
-                echo '<td class="td_num">'.number_format($r['normal_total']).'</td>';
-                echo '<td class="td_num">'.number_format($r['silver_total']).'</td>';
-
-                echo '<td class="td_num">'.number_format($r['normal_used']).'</td>';
-                echo '<td class="td_num">'.number_format($r['silver_used']).'</td>';
-
-                echo '<td class="td_num">'.number_format($r['normal_remain']).'</td>';
-                echo '<td class="td_num">'.number_format($r['silver_remain']).'</td>';
+                echo '<td class="td_num">'.number_format($r['total']).'</td>';
+                echo '<td class="td_num">'.number_format($r['total_used']).'</td>';
+                echo '<td class="td_num">'.number_format($r['total_remain']).'</td>';
 
                 echo '<td class="td_num">'.number_format($r['cnt_10s']).'</td>';
                 echo '<td class="td_num">'.number_format($r['cnt_conn']).'</td>';
@@ -1026,9 +1033,15 @@ $hide_t3_branch_agent_cols = ($is_agency || $is_media); // 파트너는 지점/�
         if (empty($rows_t2)) {
             echo '<tr><td colspan="8" class="empty_table">데이터가 없습니다.</td></tr>';
         } else {
+            $qstr = $_GET;
+            unset($qstr['page'], $qstr['company_id']);
             foreach ($rows_t2 as $r) {
+                $company_name = get_text($r['company_name']);
+                if(empty($company_id)) {
+                    $company_name = '<a href="./paid_stats.php?'.http_build_query($qstr).'&company_id='.$r['company_id'].'" target="_blank">'.$company_name.'</a>';
+                }
                 echo '<tr>';
-                echo '<td class="td_left">'.get_text($r['company_name']).'</td>';
+                echo '<td class="td_left">'.$company_name.'</td>';
                 echo '<td class="td_num">'.number_format($r['total_receive']).'</td>';
                 echo '<td class="td_num">'.number_format($r['normal_used']).'</td>';
                 echo '<td class="td_num">'.number_format($r['silver_used']).'</td>';
@@ -1164,15 +1177,7 @@ $hide_t3_branch_agent_cols = ($is_agency || $is_media); // 파트너는 지점/�
                 $price_display = (int)$row['paid_price']; // 기본: 사용자 매출(로그 저장값)
                 if ($is_agency || $is_media) {
                     if ($bill_type === 1) $price_display = (int)$viewer_price_10s;
-                    else if ($bill_type === 2) {
-                        $cid = (int)$row['company_id'];
-                        if (in_array($cid, PAID_PRICE_TYPE_2_PLUS_COMPANY_IDS)) {
-                            $price_display = (int)PAID_PRICE_TYPE_2_PLUS_COMPANY;
-                        } else {
-                            $price_display = (int)PAID_PRICE_TYPE_2;
-                        }
-                        $price_display = (int)$viewer_price_conn;
-                    }
+                    else if ($bill_type === 2) $price_display = (int)$viewer_price_conn;
                     else $price_display = 0;
                 }
                 ?>

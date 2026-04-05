@@ -2,7 +2,6 @@
 // /adm/call_member_form.php
 $sub_menu = "700750";
 require_once './_common.php';
-
 // 접근: 레벨 7 미만 금지
 if ((int)$member['mb_level'] < 7) alert('접근 권한이 없습니다.');
 auth_check_menu($auth, $sub_menu, 'w');
@@ -118,6 +117,9 @@ $default_mb_group_name  = $is_new ? ($my_level==7 ? (string)($member['mb_group_n
 $default_company_id     = $is_new ? ($my_level>=10 ? 0 : (int)$my_company_id) : (int)($mb['company_id'] ?? 0);
 $default_company_name   = $is_new ? ($my_level>=10 ? '' : $my_company_name) : (string)($mb['company_name'] ?? '');
 $default_company_hp     = $is_new ? '' : $mb['mb_hp'];
+
+$default_paid_price_type_2 = $is_new ? PAID_PRICE_TYPE_2 :  (int)$mb['paid_price_type_2'];
+if(!$default_paid_price_type_2) $default_paid_price_type_2 = PAID_PRICE_TYPE_2;
 
 // -----------------------------
 // 닉/메일 유니크 자동 생성(폼 비노출)
@@ -398,6 +400,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             if($post_level == 8) {
                 $set[] = "is_paid_db='".(int)$is_paid_db."'";
+                $set[] = "paid_price_type_2='".(int)$paid_price_type_2."'";
             }         
         }
 
@@ -600,18 +603,16 @@ if (!$is_new) {
                             통화 10초부터 과금
                         </label>
                         */ ?>
-                        <label class="mgr12">
-                            <input type="radio" name="paid_db_billing_type" value="2" <?php echo (!$mb['paid_db_billing_type'] || $mb['paid_db_billing_type']==2?'checked':''); ?>>
-                            연결당 과금
-                        </label>
+                        <input type="radio" name="paid_db_billing_type" value="2" <?php echo (!$mb['paid_db_billing_type'] || $mb['paid_db_billing_type']==2?'checked':''); ?>>
+                        연결당 과금
                     </td>
                 </tr>
                 <?php } ?>
 
                 <?php if($is_admin_pay && !$is_new && $mb['mb_level']==8) { ?>
                 <tr>
-                    <th scope="row" style="background-color:#3f51b5 !important;color:#fff !important"><label for="mb_name">유료DB 사용</label></th>
-                    <td colspan="3">
+                    <th scope="row" style="background-color:#3f51b5 !important;color:#fff !important"><label for="is_paid_db">유료DB 사용</label></th>
+                    <td>
                         <label class="mgr12">
                             <input type="radio" name="is_paid_db" value="0" <?php echo ($mb['is_paid_db']==0?'checked':''); ?>>
                             미사용
@@ -620,6 +621,11 @@ if (!$is_new) {
                             <input type="radio" name="is_paid_db" value="1" <?php echo ($mb['is_paid_db']==1?'checked':''); ?>>
                             사용
                         </label>
+                    </td>
+                    <th scope="row" style="background-color:#3f51b5 !important;color:#fff !important"><label for="paid_price_type_2">유료DB 단가</label></th>
+                    <td>
+                        <input type="number" name="paid_price_type_2" id="paid_price_type_2" class="frm_input" value="<?php echo get_text($default_paid_price_type_2); ?>">
+                        <div class="help">연결당 유료단가</div>
                     </td>
                 </tr>
                 <?php } ?>

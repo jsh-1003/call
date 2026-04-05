@@ -2,6 +2,8 @@
 require_once './_common.php';
 include_once(G5_LIB_PATH.'/call.assign.lib.php');
 
+$price = get_company_paid_price(9);
+var_dump($price);
 // $k = call_assign_count_my_queue(10, 11);
 // $rows = call_assign_list_my_queue(10, 11);
 // var_dump($rows);
