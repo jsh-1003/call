@@ -19,7 +19,7 @@ require_once G5_LIB_PATH.'/call.lib.php';
 require_once G5_LIB_PATH.'/call.assign.lib.php';
 require_once './handler.php';
 require_once './call_shop_handler.php'; // ← 콜샵 API 전용 핸들러
-
+require_once './presence_handler.php'; // 상태 조회 API 핸들러
 
 // ---- 공통 헤더 ----
 header('Content-Type: application/json; charset=utf-8');
@@ -60,12 +60,23 @@ switch ($path) {
         handle_get_call_status_codes();
         break;
 
+    // 상담원 모니터링용
+    case '/api/call/presence/update':
+        handle_call_presence_update();
+        break;
+    
+        // 상담원 모니터링용
+    case '/api/call/presence/list':
+        handle_call_presence_list();
+        break;
+
+
         // 콜샵 주문 등록
     case '/api/callShop/order':
         handle_call_shop_order();
         break;
 
-        // 로그인
+        // (목업 - AI콜봇 결과 부분)
     case '/api/voice/customer_signal':
         send_json(['success' => true, 'message' => '', 200]);
         break;
