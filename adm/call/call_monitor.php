@@ -70,6 +70,12 @@ $company_options = $build_org_select_options['company_options'];
 $group_options = $build_org_select_options['group_options'];
 // 상담사 옵션(회사/지점 필터 반영) — 상담원 레벨(3)만
 $agent_options = $build_org_select_options['agent_options'];
+$show_presence_board = ($sel_company_id > 0 || $sel_mb_group > 0);
+if($_SERVER['REMOTE_ADDR'] == '218.144.134.211') {
+    $show_presence_board = ($sel_company_id > 0 || $sel_mb_group > 0);
+} else {
+    $show_presence_board = false;
+}
 /**
  * ========================
  * // 회사/지점/담당자 드롭다운 옵션
@@ -90,6 +96,25 @@ canvas { background:#fff; }
 .section { background:#fff; border:1px solid #eee; padding:10px; }
 .sticky-head { position: sticky; top: 0; background:#f8f9fb; z-index:1; }
 .scrolling-body { max-height: 420px; overflow: auto; }
+.presence-section { margin-top:12px; }
+.presence-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0 0 10px 0; }
+.presence-head h3 { margin:0; }
+.presence-head-right { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.presence-toggle { display:inline-flex; align-items:center; gap:6px; color:#374151; font-size:12px; }
+.presence-meta { color:#666; font-size:12px; }
+.presence-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:10px; }
+.presence-card { border:1px solid #e8ebf0; border-radius:12px; background:linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%); padding:14px 14px 12px; box-shadow:0 3px 10px rgba(15, 23, 42, 0.04); }
+.presence-card.is-offline { opacity:0.82; }
+.presence-card-top { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:10px; }
+.presence-agent { min-width:0; }
+.presence-agent-name { display:flex; align-items:center; gap:8px; font-size:15px; font-weight:700; color:#111827; line-height:1.35; }
+.presence-agent-sub { margin-top:3px; color:#6b7280; font-size:12px;}
+.presence-dot { width:12px; height:12px; border-radius:50%; flex:0 0 12px; box-shadow:0 0 0 4px rgba(148, 163, 184, 0.12); }
+.presence-label { display:inline-flex; align-items:center; justify-content:center; min-width:72px; padding:5px 10px; border-radius:999px; font-size:12px; font-weight:700; color:#fff; }
+.presence-body { display:grid; gap:5px; }
+.presence-line { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12px; color:#4b5563; }
+.presence-line strong { color:#111827; font-weight:600; }
+.presence-empty { padding:18px 14px; text-align:center; color:#6b7280; border:1px dashed #d1d5db; border-radius:12px; background:#fbfbfc; }
 </style>
 
 <div class="local_ov01 local_ov">
@@ -189,6 +214,21 @@ canvas { background:#fff; }
         </div>
     </form>
 </div>
+
+<?php if ($show_presence_board) { ?>
+<div class="tbl_frm01 tbl_wrap section presence-section" id="presenceSection">
+    <div class="presence-head">
+        <h3>상담원 현재 상태</h3>
+        <div class="presence-head-right">
+            <label class="presence-toggle"><input type="checkbox" id="presenceAutoRefresh" checked> 자동고침</label>
+            <div class="presence-meta" id="presenceMeta">3초마다 자동 갱신</div>
+        </div>
+    </div>
+    <div class="presence-grid" id="presenceGrid">
+        <div class="presence-empty">상태 정보를 불러오는 중입니다.</div>
+    </div>
+</div>
+<?php } ?>
 
 <!-- KPI -->
 <div class="kpi" id="kpiWrap">
@@ -318,6 +358,10 @@ canvas { background:#fff; }
         tableGroups: document.querySelector('#groupsTable tbody'),
         tableAgents: document.querySelector('#agentsTable tbody'),
         tableRecentD: document.querySelector('#recentDetailTable tbody'),
+        presenceSection: document.getElementById('presenceSection'),
+        presenceGrid: document.getElementById('presenceGrid'),
+        presenceMeta: document.getElementById('presenceMeta'),
+        presenceAuto: document.getElementById('presenceAutoRefresh'),
         auto:       document.getElementById('autoRefresh'),
         sec:        document.getElementById('refreshSec'),
         btnNow:     document.getElementById('btnRefreshNow'),
@@ -333,8 +377,19 @@ canvas { background:#fff; }
     const COLOR_SUCCESS = '#28a745';
     const COLOR_FAIL    = '#6c757d';
     const COLOR_INFO    = '#17a2b8';
+    const PRESENCE_ENABLED = <?php echo $show_presence_board ? 'true' : 'false'; ?>;
+    const PRESENCE_POLL_MS = 3000;
+    const PRESENCE_STATE_META = {
+        READY:     { label: '대기중', color: '#2563eb' },
+        DIALING:   { label: '발신중', color: '#7c3aed' },
+        RINGING:   { label: '연결대기', color: '#f59e0b' },
+        CONNECTED: { label: '통화중', color: '#16a34a' },
+        WRAPUP:    { label: '후처리중', color: '#0f766e' },
+        OFFLINE:   { label: '오프라인', color: '#6b7280' },
+        UNKNOWN:   { label: '미확인', color: '#94a3b8' }
+    };
 
-    let chartTS, chartStatus, chartAgents;
+    let chartTS, chartStatus, chartAgents, presenceTimer = null;
 
     function buildParams() {
         const p = new URLSearchParams();
@@ -448,6 +503,80 @@ canvas { background:#fff; }
     }
 
     function td(v){ return `<td>${v}</td>`; }
+    function escapeHtml(value){
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+    function formatPresenceTime(value){
+        if (!value) return '-';
+        const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/);
+        if (!m) return value;
+        return `${m[2]}/${m[3]} ${m[4]}:${m[5]}`;
+    }
+    function presenceStateMeta(state){
+        return PRESENCE_STATE_META[state] || PRESENCE_STATE_META.UNKNOWN;
+    }
+    async function loadPresence(){
+        if (!PRESENCE_ENABLED || !el.presenceGrid) return;
+        const r = await fetchJson('presence');
+        if (!r.ok) return;
+
+        const rows = Array.isArray(r.rows) ? r.rows : [];
+        if (!rows.length) {
+            el.presenceGrid.innerHTML = '<div class="presence-empty">선택한 조직에 표시할 상담원 상태가 없습니다.</div>';
+            if (el.presenceMeta) el.presenceMeta.textContent = '3초마다 자동 갱신';
+            return;
+        }
+
+        el.presenceGrid.innerHTML = rows.map(function(row){
+            const state = row.state || 'UNKNOWN';
+            const meta = presenceStateMeta(state);
+            const staleClass = row.is_stale ? ' is-offline' : '';
+            const groupLabel = row.group_name ? row.group_name : '-';
+            const agentId = row.agent_mb_id ? row.agent_mb_id : ('#' + row.agent_no);
+            const phone = row.phone_number ? row.phone_number : '-';
+            const updatedAt = formatPresenceTime(row.updated_at || row.last_event_at || '');
+            return `
+                <div class="presence-card${staleClass}">
+                    <div class="presence-card-top">
+                        <div class="presence-agent">
+                            <div class="presence-agent-name">
+                                <span class="presence-dot" style="background:${meta.color}; box-shadow:0 0 0 4px ${meta.color}22;"></span>
+                                <span>${escapeHtml(row.agent_name || agentId)}</span>
+                            </div>
+                            <div class="presence-agent-sub">${escapeHtml(groupLabel)} <br> ${escapeHtml(agentId)}</div>
+                        </div>
+                        <span class="presence-label" style="background:${meta.color};">${escapeHtml(row.state_label || meta.label)}</span>
+                    </div>
+                    <div class="presence-body">
+                        <div class="presence-line"><span>연락처</span><strong>${escapeHtml(phone)}</strong></div>
+                        <div class="presence-line"><span>갱신시각</span><strong>${escapeHtml(updatedAt)}</strong></div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        if (el.presenceMeta) {
+            const serverTime = formatPresenceTime(r.server_time || '');
+            el.presenceMeta.textContent = serverTime !== '-' ? `3초마다 자동 갱신 · 서버 기준 ${serverTime}` : '3초마다 자동 갱신';
+        }
+    }
+    function startPresencePolling(){
+        stopPresencePolling();
+        if (!PRESENCE_ENABLED) return;
+        if (el.presenceAuto && !el.presenceAuto.checked) return;
+        presenceTimer = setInterval(loadPresence, PRESENCE_POLL_MS);
+    }
+    function stopPresencePolling(){
+        if (presenceTimer) {
+            clearInterval(presenceTimer);
+            presenceTimer = null;
+        }
+    }
 
     async function loadGroupsTable(){
         const r = await fetchJson('groups_table'); if (!r.ok) return;
@@ -520,7 +649,7 @@ canvas { background:#fff; }
     }
 
     async function refreshAll(){
-        await Promise.all([
+        const jobs = [
             loadKPI(),
             loadTimeseries(),
             loadStatus(),
@@ -528,7 +657,9 @@ canvas { background:#fff; }
             loadGroupsTable(),
             loadAgentsTable(),
             loadRecentDetail()
-        ]);
+        ];
+        if (PRESENCE_ENABLED) jobs.push(loadPresence());
+        await Promise.all(jobs);
     }
 
     // 자동 새로고침
@@ -538,6 +669,17 @@ canvas { background:#fff; }
     document.getElementById('autoRefresh').addEventListener('change', startAuto);
     document.getElementById('refreshSec').addEventListener('change', startAuto);
     document.getElementById('btnRefreshNow').addEventListener('click', refreshAll);
+    if (el.presenceAuto) {
+        el.presenceAuto.addEventListener('change', function(){
+            if (this.checked) {
+                loadPresence();
+                startPresencePolling();
+            } else {
+                stopPresencePolling();
+                if (el.presenceMeta) el.presenceMeta.textContent = '자동 갱신 꺼짐';
+            }
+        });
+    }
 
     // 회사 → 지점 AJAX (9+만)
     const companySel = document.getElementById('company_id');
@@ -582,7 +724,10 @@ canvas { background:#fff; }
     }
 
     // 최초 로드
-    refreshAll().then(startAuto);
+    refreshAll().then(function(){
+        startAuto();
+        startPresencePolling();
+    });
 })();
 
 (function(){

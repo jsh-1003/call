@@ -127,6 +127,77 @@ function build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_statu
     return $w ? ('WHERE '.implode(' AND ', $w)) : '';
 }
 
+function build_presence_agent_where($mb_level, $my_group, $sel_company_id, $sel_mb_group, $sel_agent_no) {
+    global $my_company_id;
+    $w = ["a.mb_level = 3"];
+
+    if ($mb_level == 7) {
+        $w[] = "a.mb_group = {$my_group}";
+    } elseif ($mb_level < 7) {
+        return '1=0';
+    } elseif ($sel_mb_group > 0) {
+        $w[] = "a.mb_group = {$sel_mb_group}";
+    } elseif ($mb_level >= 9) {
+        if ($sel_company_id > 0) {
+            $w[] = "a.company_id = {$sel_company_id}";
+        } else {
+            return '1=0';
+        }
+    } elseif ($mb_level == 8) {
+        if ((int)$my_company_id > 0) {
+            $w[] = "a.company_id = ".(int)$my_company_id;
+        } else {
+            return '1=0';
+        }
+    }
+
+    if ($sel_agent_no > 0) $w[] = "a.mb_no = {$sel_agent_no}";
+
+    return implode(' AND ', $w);
+}
+
+function normalize_presence_state($state, $last_heartbeat_at, $now_ts) {
+    $state = strtoupper(trim((string)$state));
+    $allowed = ['READY', 'DIALING', 'RINGING', 'CONNECTED', 'WRAPUP', 'OFFLINE'];
+
+    if ($state === '' || !in_array($state, $allowed, true)) {
+        $state = 'OFFLINE';
+    }
+
+    if ($state !== 'OFFLINE') {
+        $hb_ts = $last_heartbeat_at ? strtotime((string)$last_heartbeat_at) : false;
+        if (!$hb_ts || ($now_ts - $hb_ts) > 20) {
+            $state = 'OFFLINE';
+        }
+    }
+
+    return $state;
+}
+
+function presence_state_label($state) {
+    switch (strtoupper((string)$state)) {
+        case 'READY': return '대기중';
+        case 'DIALING': return '발신중';
+        case 'RINGING': return '연결대기';
+        case 'CONNECTED': return '통화중';
+        case 'WRAPUP': return '후처리중';
+        case 'OFFLINE': return '오프라인';
+        default: return '미확인';
+    }
+}
+
+function presence_sort_priority($state) {
+    switch (strtoupper((string)$state)) {
+        case 'CONNECTED': return 1;
+        case 'RINGING': return 2;
+        case 'DIALING': return 3;
+        case 'WRAPUP': return 4;
+        case 'READY': return 5;
+        case 'OFFLINE': return 6;
+        default: return 7;
+    }
+}
+
 /* ==========================
    상태 코드 UI 매핑
    ========================== */
@@ -149,7 +220,7 @@ $end_bucket   = floor($end_ts   / 1800) * 1800;
 
 // recent_detail은 실시간성이 커서 캐시 제외
 $cacheKey = cm_cache_key($type);
-if (!in_array($type, ['recent_detail'])) {
+if (!in_array($type, ['recent_detail', 'presence'])) {
     $cached = microcache_get($cacheKey);
     if ($cached !== null) { echo $cached; exit; }
 }
@@ -390,6 +461,130 @@ elseif ($type === 'groups_table') {
     microcache_set($cacheKey, $json, 8);
     echo $json; exit;
 }
+elseif ($type === 'presence') {
+    $agent_where = build_presence_agent_where($mb_level, $my_group, $sel_company_id, $sel_mb_group, $sel_agent_no);
+    if ($agent_where === '1=0') {
+        echo json_encode(['ok'=>true, 'rows'=>[], 'server_time'=>date('Y-m-d H:i:s')], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $sql_agents = "
+        SELECT
+            a.mb_no AS agent_no,
+            a.mb_id AS agent_mb_id,
+            a.mb_name AS agent_name,
+            a.mb_group,
+            COALESCE(g.mv_group_name, CONCAT('지점 ', a.mb_group)) AS group_name
+        FROM {$member_table} a
+        LEFT JOIN (
+            SELECT
+                mb_no,
+                MAX(COALESCE(NULLIF(mb_group_name,''), CONCAT('지점 ', mb_no))) AS mv_group_name
+            FROM {$member_table}
+            WHERE mb_level = 7
+            GROUP BY mb_no
+        ) AS g ON g.mb_no = a.mb_group
+        WHERE {$agent_where}
+        ORDER BY group_name ASC, a.mb_name ASC, a.mb_no ASC
+    ";
+    $res_agents = sql_query($sql_agents);
+    $agents = [];
+    $agent_ids = [];
+    while ($r = sql_fetch_array($res_agents)) {
+        $agent_no = (int)$r['agent_no'];
+        $agents[$agent_no] = [
+            'agent_no'    => $agent_no,
+            'agent_mb_id' => get_text($r['agent_mb_id']),
+            'agent_name'  => get_text($r['agent_name']),
+            'mb_group'    => (int)$r['mb_group'],
+            'group_name'  => get_text($r['group_name'] ?: ('지점 '.(int)$r['mb_group'])),
+        ];
+        $agent_ids[] = $agent_no;
+    }
+
+    if (!$agents) {
+        echo json_encode(['ok'=>true, 'rows'=>[], 'server_time'=>date('Y-m-d H:i:s')], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $presence_map = [];
+    $sql_presence = "
+        SELECT
+            id,
+            user_id,
+            state,
+            target_id,
+            phone_number,
+            mode,
+            last_event_at,
+            last_heartbeat_at,
+            updated_at
+        FROM call_agent_presence
+        WHERE user_id IN (".implode(',', $agent_ids).")
+        ORDER BY user_id ASC, updated_at DESC, id DESC
+    ";
+    $res_presence = sql_query($sql_presence);
+    while ($r = sql_fetch_array($res_presence)) {
+        $user_id = (int)$r['user_id'];
+        if (!isset($presence_map[$user_id])) {
+            $presence_map[$user_id] = $r;
+        }
+    }
+
+    $server_time = date('Y-m-d H:i:s');
+    $server_ts   = strtotime($server_time);
+    $rows = [];
+    foreach ($agents as $agent_no => $agent) {
+        $presence = $presence_map[$agent_no] ?? null;
+        $raw_state = $presence['state'] ?? 'OFFLINE';
+        $last_hb = $presence['last_heartbeat_at'] ?? '';
+        $state = normalize_presence_state($raw_state, $last_hb, $server_ts);
+
+        $phone = '';
+        if (!empty($presence['phone_number'])) {
+            $phone = get_text(format_korean_phone((string)$presence['phone_number']));
+        }
+
+        $detail = '-';
+        if (!empty($presence['target_id']) || $phone !== '') {
+            $detail_parts = [];
+            if (!empty($presence['target_id'])) $detail_parts[] = '대상 #'.(int)$presence['target_id'];
+            if ($phone !== '') $detail_parts[] = $phone;
+            $detail = implode(' · ', $detail_parts);
+        }
+
+        $rows[] = [
+            'agent_no'      => $agent_no,
+            'agent_mb_id'   => $agent['agent_mb_id'],
+            'agent_name'    => $agent['agent_name'] ?: $agent['agent_mb_id'],
+            'group_name'    => $agent['group_name'],
+            'state'         => $state,
+            'state_label'   => presence_state_label($state),
+            'phone_number'  => $phone ?: '-',
+            'last_detail'   => $detail,
+            'last_event_at' => $presence['last_event_at'] ?? '',
+            'updated_at'    => $presence['updated_at'] ?? '',
+            'is_stale'      => ($state === 'OFFLINE'),
+        ];
+    }
+
+    usort($rows, function($a, $b) {
+        $pa = presence_sort_priority($a['state']);
+        $pb = presence_sort_priority($b['state']);
+        if ($pa !== $pb) return $pa <=> $pb;
+        if ($a['group_name'] !== $b['group_name']) return strcmp((string)$a['group_name'], (string)$b['group_name']);
+        return strcmp((string)$a['agent_name'], (string)$b['agent_name']);
+    });
+
+    $json = json_encode([
+        'ok'          => true,
+        'rows'        => $rows,
+        'server_time' => $server_time,
+    ], JSON_UNESCAPED_UNICODE);
+    microcache_set($cacheKey, $json, 2);
+    echo $json;
+    exit;
+}
 elseif ($type === 'recent_detail') {
     // 최근 50건 상세. 레코딩은 call_id 유니크라고 했으므로 직접 조인
     $sql = "
@@ -438,13 +633,16 @@ elseif ($type === 'recent_detail') {
          AND r.campaign_id = l.campaign_id
         JOIN call_campaign cc
           ON cc.campaign_id = l.campaign_id
-         AND cc.mb_group    = l.mb_group
+         AND (cc.mb_group    = l.mb_group OR (cc.is_paid_db = 1 AND cc.mb_group = 0))
          AND cc.status      IN (0,1)
         ".build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_status, $sel_company_id, $sel_mb_group, $sel_agent_no)."
         ORDER BY l.call_start DESC, l.call_id DESC
         LIMIT 50
     ";
     $res = sql_query($sql);
+    if(!empty($aaa)) {
+        echo $sql;
+    }
     $rows = [];
     while ($r = sql_fetch_array($res)) {
         // 메타 축약
