@@ -8,7 +8,7 @@ if($is_paid_company) {
     header('Location: /adm/paid/paid_stats.php');
     exit;
 }
-header('Location: /adm/call/');
+header('Location: /adm/call/call_campaign_list.php');
 exit;
 $sub_menu = '100000';
 

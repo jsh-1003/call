@@ -8,12 +8,13 @@ if (empty($is_admin_pay)) {
     exit;
 }
 
-check_admin_token();
+//check_admin_token();
 
 $chk        = isset($_POST['chk']) ? (array)$_POST['chk'] : [];
 $act_button = (string)($_POST['act_button'] ?? '');
 $action     = (string)($_POST['action'] ?? '');
 $qstr       = isset($_POST['qstr']) ? preg_replace('#[^a-z0-9_=&\-%]#i','', $_POST['qstr']) : '';
+$ajax       = (string)($_POST['ajax'] ?? '');
 
 /**
  * 유료DB 캠페인만 상태 변경
@@ -29,8 +30,7 @@ function update_paid_campaign_status(array $ids, int $status, bool $is_delete=fa
     $ids_csv = implode(',', $ids);
 
     if ($is_delete) {
-        $sql = "
-            UPDATE call_campaign c
+        $sql = "UPDATE call_campaign c
                SET c.status=9,
                    c.deleted_at=NOW(),
                    c.updated_at=NOW()
@@ -44,8 +44,7 @@ function update_paid_campaign_status(array $ids, int $status, bool $is_delete=fa
 
     if (!in_array($status, [0,1], true)) return;
 
-    $sql = "
-        UPDATE call_campaign c
+    $sql = "UPDATE call_campaign c
            SET c.status={$status},
                c.updated_at=NOW()
          WHERE c.campaign_id IN ({$ids_csv})
@@ -53,6 +52,44 @@ function update_paid_campaign_status(array $ids, int $status, bool $is_delete=fa
            AND c.deleted_at IS NULL
     ";
     sql_query($sql);
+}
+
+if ($ajax === 'save_campaign_targets') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $campaign_id = isset($_POST['campaign_id']) ? (int)$_POST['campaign_id'] : 0;
+    $use_scope   = (string)($_POST['use_scope'] ?? 'all');
+    $company_ids = isset($_POST['company_ids']) ? (array)$_POST['company_ids'] : [];
+
+    if (!in_array($use_scope, ['all', 'selected', 'exclude'], true)) {
+        echo json_encode(['success' => false, 'message' => '사용 범위 값이 올바르지 않습니다.']);
+        exit;
+    }
+
+    if ($use_scope === 'all') {
+        $company_ids = [];
+    }
+
+    $result = sync_paid_campaign_target_companies($campaign_id, $company_ids, (int)($member['mb_no'] ?? 0), $use_scope);
+    if (empty($result['ok'])) {
+        echo json_encode([
+            'success' => false,
+            'message' => (string)($result['message'] ?? '저장에 실패했습니다.')
+        ]);
+        exit;
+    }
+
+    echo json_encode([
+        'success' => true,
+        'message' => '대상 회사 설정이 저장되었습니다.',
+        'state' => [
+            'mode' => $result['mode'],
+            'company_ids' => $result['company_ids'],
+            'company_count' => $result['company_count'],
+            'summary_text' => $result['summary_text'],
+        ]
+    ]);
+    exit;
 }
 
 // 단일행 액션

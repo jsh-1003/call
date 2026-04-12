@@ -44,9 +44,9 @@ function get_member_label($row) {
 
 $agency_options = [];
 $vendor_options = [];
+$target_company_options = [];
 
-$aq = sql_query("
-    SELECT mb_no, mb_id, mb_name, company_name, mb_group_name, member_type, is_paid_db
+$aq = sql_query("SELECT mb_no, mb_id, mb_name, company_name, mb_group_name, member_type, is_paid_db
       FROM {$g5['member_table']}
      WHERE member_type = 1
      ORDER BY COALESCE(NULLIF(company_name,''), NULLIF(mb_name,''), mb_id) ASC, mb_no ASC
@@ -55,14 +55,29 @@ while ($r = sql_fetch_array($aq)) {
     $agency_options[] = ['mb_no'=>(int)$r['mb_no'], 'label'=>get_member_label($r)];
 }
 
-$vq = sql_query("
-    SELECT mb_no, mb_id, mb_name, company_name, mb_group_name, member_type, is_paid_db
+$vq = sql_query("SELECT mb_no, mb_id, mb_name, company_name, mb_group_name, member_type, is_paid_db
       FROM {$g5['member_table']}
      WHERE member_type = 2
      ORDER BY COALESCE(NULLIF(company_name,''), NULLIF(mb_name,''), mb_id) ASC, mb_no ASC
 ");
 while ($r = sql_fetch_array($vq)) {
     $vendor_options[] = ['mb_no'=>(int)$r['mb_no'], 'label'=>get_member_label($r)];
+}
+
+$tq = sql_query("SELECT mb_no, mb_id, mb_name, company_name
+      FROM {$g5['member_table']}
+     WHERE member_type = 0
+       AND mb_level = 8
+       AND is_paid_db = 1
+       AND IFNULL(mb_leave_date,'') = ''
+       AND IFNULL(mb_intercept_date,'') = ''
+     ORDER BY COALESCE(NULLIF(company_name,''), NULLIF(mb_name,''), mb_id) ASC, mb_no ASC
+");
+while ($r = sql_fetch_array($tq)) {
+    $target_company_options[] = [
+        'mb_no' => (int)$r['mb_no'],
+        'label' => (string)($r['company_name'] ?: ($r['mb_name'] ?: $r['mb_id']))
+    ];
 }
 
 // -------------------------
@@ -195,6 +210,17 @@ if ($campaign_ids) {
     }
 }
 
+$campaign_target_summary_map = get_paid_campaign_target_summaries($campaign_ids);
+$campaign_target_summary_json = [];
+foreach ($campaign_target_summary_map as $campaign_id => $summary) {
+    $campaign_target_summary_json[(string)$campaign_id] = [
+        'mode' => (string)$summary['mode'],
+        'company_ids' => array_values(array_map('intval', (array)$summary['company_ids'])),
+        'company_count' => (int)$summary['company_count'],
+        'summary_text' => (string)$summary['summary_text'],
+    ];
+}
+
 // -------------------------
 $g5['title'] = '유료DB 캠페인 관리';
 include_once(G5_ADMIN_PATH.'/admin.head.php');
@@ -244,6 +270,42 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
 .td_cntsmall {width:56px}
 .td_cam_name {font-size:0.85em;letter-spacing:-1px;}
 .td_src {line-height:1.1em;}
+.target-summary {
+    display:block;
+    margin-bottom:6px;
+    color:#444;
+    font-size:12px;
+    line-height:1.4;
+}
+.target-summary.mode-selected { color:#0f5ba7; font-weight:600; }
+.target-summary.mode-exclude { color:#a64b00; font-weight:600; }
+.popup-target-wrap { display:flex; flex-direction:column; gap:14px; }
+.popup-target-help { color:#666; font-size:12px; line-height:1.5; }
+.popup-target-mode { display:flex; gap:18px; flex-wrap:wrap; }
+.popup-target-mode label { display:inline-flex; align-items:center; gap:6px; font-weight:600; }
+.popup-target-panel { border:1px solid #ddd; border-radius:8px; padding:14px; background:#fafafa; }
+.popup-target-toolbar { display:flex; justify-content:space-between; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
+.popup-target-toolbar .frm_input { width:260px; max-width:100%; }
+.popup-target-count { color:#555; font-size:12px; }
+.popup-target-list {
+    max-height:350px;
+    overflow:auto;
+    border:1px solid #e5e5e5;
+    border-radius:6px;
+    background:#fff;
+}
+.popup-target-item {
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:10px 12px;
+    border-top:1px solid #f0f0f0;
+}
+.popup-target-item:first-child { border-top:0; }
+.popup-target-item input[type="checkbox"] { margin:0; }
+.popup-target-item label { display:flex; align-items:center; gap:8px; width:100%; cursor:pointer; }
+.popup-target-empty { padding:24px 12px; text-align:center; color:#777; }
+.popup-target-all-note { color:#1b6a36; font-weight:600; }
 </style>
 
 <div class="local_ov01 local_ov">
@@ -341,6 +403,16 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
             $vendor_id = (int)($r['db_vendor'] ?? 0);
             $agency_nm = $agency_id ? ($member_map[$agency_id] ?? ('#'.$agency_id)) : '-';
             $vendor_nm = $vendor_id ? ($member_map[$vendor_id] ?? ('#'.$vendor_id)) : '-';
+            $target_summary = $campaign_target_summary_map[$cid] ?? [
+                'mode' => 'all',
+                'company_ids' => [],
+                'company_count' => 0,
+                'summary_text' => '전체 사용',
+            ];
+            $popup_campaign_name = htmlspecialchars(
+                json_encode((string)$r['paid_db_name'], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP),
+                ENT_QUOTES
+            );
             ?>
             <tr class="<?php echo $bg; ?> <?php echo $inactive ? 'row-inactive' : ''; ?>">
                 <td class="td_chk">
@@ -379,6 +451,17 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
                 ?>
                 <td class="td_datetime"><?php echo substr($r['created_at'], 2, 14); ?></td>
                 <td class="td_actions">
+                    <span class="target-summary <?php
+                        echo $target_summary['mode'] === 'selected' ? 'mode-selected' : '';
+                        echo $target_summary['mode'] === 'exclude' ? ' mode-exclude' : '';
+                    ?>" id="target_summary_<?php echo $cid; ?>">
+                        <?php echo get_text($target_summary['summary_text']); ?>
+                    </span>
+                    <button
+                        type="button"
+                        class="btn btn_01 btn-xs btn-inline"
+                        onclick="CampaignTargetModal.open(<?php echo $cid; ?>, <?php echo $popup_campaign_name; ?>);"
+                    >대상자선택</button>
                     <?php if ($inactive) { ?>
                         <button type="button" class="btn btn_01 btn-xs btn-inline" onclick="rowAction('activate', <?php echo $cid; ?>);">활성화</button>
                     <?php } else { ?>
@@ -423,6 +506,18 @@ echo get_paging(G5_IS_MOBILE ? $config['cf_mobile_pages'] : $config['cf_write_pa
 ?>
 
 <script>
+var paidTargetCompanies = <?php echo json_encode($target_company_options, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
+var paidCampaignTargetState = <?php echo json_encode($campaign_target_summary_json, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>;
+
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 function check_all(f){
     var chk = document.getElementsByName('chk[]');
     for (var i=0;i<chk.length;i++) chk[i].checked = f.checked;
@@ -480,6 +575,216 @@ function open_upload_popup_add_mode() {
     var top  = (screen.height - h) / 2;
     window.open(url, 'paid_target_excel_add_mode', 'width='+w+',height='+h+',left='+left+',top='+top+',scrollbars=1,resizable=1');
 }
+
+var CampaignTargetModal = {
+    state: {
+        campaignId: 0,
+        campaignName: '',
+        mode: 'all',
+        companyIds: [],
+        keyword: '',
+        saving: false
+    },
+
+    getCampaignState: function(campaignId) {
+        var key = String(campaignId);
+        var current = paidCampaignTargetState[key];
+        if (!current) {
+            return { mode: 'all', company_ids: [], company_count: 0, summary_text: '전체 사용' };
+        }
+        return {
+            mode: current.mode || 'all',
+            company_ids: Array.isArray(current.company_ids) ? current.company_ids.slice() : [],
+            company_count: parseInt(current.company_count || 0, 10) || 0,
+            summary_text: current.summary_text || '전체 사용'
+        };
+    },
+
+    open: function(campaignId, campaignName) {
+        var current = this.getCampaignState(campaignId);
+        this.state = {
+            campaignId: campaignId,
+            campaignName: campaignName || '',
+            mode: current.mode,
+            companyIds: current.company_ids.slice(),
+            keyword: '',
+            saving: false
+        };
+        this.render();
+    },
+
+    setMode: function(mode) {
+        this.state.mode = (mode === 'selected' || mode === 'exclude') ? mode : 'all';
+        this.render();
+    },
+
+    setKeyword: function(value) {
+        this.state.keyword = String(value || '');
+        this.render();
+    },
+
+    toggleCompany: function(companyId, checked) {
+        companyId = parseInt(companyId, 10) || 0;
+        if (companyId < 1) return;
+
+        var next = this.state.companyIds.filter(function(id){ return id !== companyId; });
+        if (checked) next.push(companyId);
+        next.sort(function(a, b){ return a - b; });
+        this.state.companyIds = next;
+        this.updateSelectedCount();
+    },
+
+    getFilteredCompanies: function() {
+        var keyword = this.state.keyword.trim().toLowerCase();
+        if (!keyword) return paidTargetCompanies.slice();
+
+        return paidTargetCompanies.filter(function(company){
+            var label = String(company.label || '').toLowerCase();
+            var idText = String(company.mb_no || '');
+            return label.indexOf(keyword) !== -1 || idText.indexOf(keyword) !== -1;
+        });
+    },
+    
+    // 추가: 전체 선택/해제 로직
+    toggleAll: function(checked) {
+        var filtered = this.getFilteredCompanies();
+        var currentIds = this.state.companyIds.slice();
+
+        filtered.forEach(function(company) {
+            var id = parseInt(company.mb_no, 10);
+            var index = currentIds.indexOf(id);
+            
+            if (checked) {
+                if (index === -1) currentIds.push(id);
+            } else {
+                if (index !== -1) currentIds.splice(index, 1);
+            }
+        });
+
+        currentIds.sort(function(a, b){ return a - b; });
+        this.state.companyIds = currentIds;
+        this.render(); // 상태 반영을 위해 리렌더링
+    },
+
+    buildBodyHtml: function() {
+        var filtered = this.getFilteredCompanies();
+        var selectedMap = {};
+        this.state.companyIds.forEach(function(id){ selectedMap[id] = true; });
+
+        // 현재 필터링된 항목이 모두 체크되어 있는지 확인 (전체체크 상태 동기화)
+        var isAllChecked = filtered.length > 0 && filtered.every(function(c) {
+            return selectedMap[parseInt(c.mb_no, 10)];
+        });
+
+        var listHtml = '';
+        if (this.state.mode === 'selected' || this.state.mode === 'exclude') {
+            if (!filtered.length) {
+                listHtml = '<div class="popup-target-empty">조건에 맞는 회사가 없습니다.</div>';
+            } else {
+                listHtml = filtered.map(function(company){
+                    var id = parseInt(company.mb_no, 10) || 0;
+                    var checked = selectedMap[id] ? ' checked' : '';
+                    return ''
+                        + '<div class="popup-target-item">'
+                        + '  <label>'
+                        + '    <input type="checkbox" value="' + id + '"' + checked + ' onchange="CampaignTargetModal.toggleCompany(' + id + ', this.checked)">'
+                        + '    <span>' + escapeHtml(company.label) + ' <span style="color:#888">(ID: ' + id + ')</span></span>'
+                        + '  </label>'
+                        + '</div>';
+                }).join('');
+            }
+        }
+
+        return ''
+            + '<div class="popup-target-wrap" onclick="event.stopPropagation();">'
+            + '  <div class="popup-target-help">'
+            + '    캠페인명: <b>' + escapeHtml(this.state.campaignName) + '</b><br>'
+            + '    기본값은 전체 사용입니다. 특정 회사만 지정하거나, 특정 회사만 제외하도록 설정할 수 있습니다.'
+            + '  </div>'
+            + '  <div class="popup-target-mode">'
+            + '    <label><input type="radio" name="campaign_target_mode" value="all" ' + (this.state.mode === 'all' ? 'checked' : '') + ' onchange="CampaignTargetModal.setMode(\'all\')"> 전체 사용</label>'
+            + '    <label><input type="radio" name="campaign_target_mode" value="selected" ' + (this.state.mode === 'selected' ? 'checked' : '') + ' onchange="CampaignTargetModal.setMode(\'selected\')"> 선택 회사만 사용</label>'
+            + '    <label><input type="radio" name="campaign_target_mode" value="exclude" ' + (this.state.mode === 'exclude' ? 'checked' : '') + ' onchange="CampaignTargetModal.setMode(\'exclude\')"> 선택 회사만 제외</label>'
+            + '  </div>'
+            + '  <div class="popup-target-panel">'
+            +      (this.state.mode === 'all'
+                    ? '<div class="popup-target-all-note">현재 설정: 전체 회사 사용</div>'
+                    : ''
+                        + '<div class="popup-target-toolbar" style="display:flex; align-items:center; gap:10px;">'
+                        + '  <input type="text" class="frm_input" style="flex:1" value="' + escapeHtml(this.state.keyword) + '" placeholder="회사명 또는 ID 검색" oninput="CampaignTargetModal.setKeyword(this.value)">'
+                        + '  <label style="white-space:nowrap; cursor:pointer;">'
+                        + '    <input type="checkbox" ' + (isAllChecked ? 'checked' : '') + ' onclick="CampaignTargetModal.toggleAll(this.checked)"> '
+                        + '    <span style="font-weight:bold; font-size:0.95em;">전체선택</span>'
+                        + '  </label>'
+                        + '</div>'
+                        + '<div class="popup-target-count" style="margin-bottom:10px; text-align:right;">선택 ' + this.state.companyIds.length + '곳 / 전체 ' + paidTargetCompanies.length + '곳</div>'
+                        + '<div class="popup-target-list">' + listHtml + '</div>')
+            + '  </div>'
+            + '</div>';
+    },
+
+    render: function() {
+        var footerHtml = ''
+            + '<button type="button" onclick="CampaignTargetModal.save()" ' + (this.state.saving ? 'disabled' : '') + '>저장</button>'
+            + '<button type="button" class="btn_cancel" onclick="PopupManager.close(\'popupOverlay\')">닫기</button>';
+
+        PopupManager.render('대상 회사 선택', this.buildBodyHtml(), footerHtml, { disableOutsideClose: false });
+        this.updateSelectedCount();
+    },
+
+    updateSelectedCount: function() {
+        var countEl = document.querySelector('.popup-target-count');
+        if (!countEl) return;
+        countEl.textContent = '선택 ' + this.state.companyIds.length + '곳 / 전체 ' + paidTargetCompanies.length + '곳';
+    },
+
+    save: function() {
+        if ((this.state.mode === 'selected' || this.state.mode === 'exclude') && this.state.companyIds.length < 1) {
+            alert('선택 회사 사용/제외 모드는 회사 1곳 이상을 선택하세요.');
+            return;
+        }
+
+        var fd = new FormData();
+        fd.append('token', <?php echo json_encode($admin_token, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP); ?>);
+        fd.append('ajax', 'save_campaign_targets');
+        fd.append('campaign_id', String(this.state.campaignId));
+        fd.append('use_scope', this.state.mode);
+        this.state.companyIds.forEach(function(id){
+            fd.append('company_ids[]', String(id));
+        });
+
+        this.state.saving = true;
+        fetch('./paid_campaign_list_update.php', {
+            method: 'POST',
+            body: fd,
+            credentials: 'same-origin'
+        })
+        .then(function(res){ return res.json(); })
+        .then(function(json){
+            if (!json || json.success === false) {
+                throw new Error((json && json.message) || '저장에 실패했습니다.');
+            }
+
+            paidCampaignTargetState[String(CampaignTargetModal.state.campaignId)] = json.state;
+
+            var summaryEl = document.getElementById('target_summary_' + CampaignTargetModal.state.campaignId);
+            if (summaryEl) {
+                summaryEl.textContent = json.state.summary_text || '전체 사용';
+                summaryEl.classList.toggle('mode-selected', json.state.mode === 'selected');
+                summaryEl.classList.toggle('mode-exclude', json.state.mode === 'exclude');
+            }
+
+            PopupManager.close('popupOverlay');
+            alert(json.message || '저장되었습니다.');
+        })
+        .catch(function(err){
+            alert('저장 실패: ' + err.message);
+        })
+        .finally(function(){
+            CampaignTargetModal.state.saving = false;
+        });
+    }
+};
 </script>
 
 <?php

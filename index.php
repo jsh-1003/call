@@ -9,7 +9,7 @@ if($is_member && $member['mb_level'] > 2) {
         header('Location: /adm/paid/paid_stats.php');
         exit;
     }
-    header('Location: /adm/call/');
+    header('Location: /adm/call/call_campaign_list.php');
 } else if($is_member && $member['mb_level'] <= 2) {
     header('Location: /bbs/logout.php');
 } else {

@@ -45,11 +45,11 @@ h2{font-size: 1.083em;font-weight: bold;margin:10px 0}
 .popup-content { background: #fff; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); width: 800px; overflow: hidden; }
 .popup-header, .popup-footer { padding: 18px 20px; display: flex; align-items: center; }
 .popup-header { justify-content: space-between; border-bottom: 1px solid #e0e0e0; }
-.popup-footer { gap: 20px; border-top: 1px solid #e0e0e0;}
+.popup-footer { gap: 20px; border-top: 1px solid #e0e0e0; justify-content:center}
 .popup-close-btn { background: none; border: none; color: #888; font-size: 20px; cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; transition: color 0.2s ease; }
 .popup-close-btn:hover { color: #333; }
 .popup-title { font-size: 18px; font-weight: 600; }
-.popup-body { padding: 20px; max-height: 400px; overflow-y: auto; color: #333; }
+.popup-body { padding: 20px; max-height: 550px; overflow-y: auto; color: #333; }
 .popup-footer button { background: #3d70ff; color: white; border: 1px solid #3d70ff; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: background 0.2s ease, border-color 0.2s ease; }
 .popup-footer button:hover { background: #2b3d9f; border-color: #2b3d9f; }
 

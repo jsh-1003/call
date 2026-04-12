@@ -14,6 +14,8 @@ add_stylesheet('<link rel="stylesheet" href="'.$board_skin_url.'/style.css">', 0
 <style>
 #fboardlist .td_subject {text-align:left;padding-left:20px;}
 #bo_list .td_name {text-align:center !important}
+#bo_list .td_name.pay .sv_member {font-weight:bold;color:#f57c00}
+#bo_list .pay a:link, #bo_list .pay a:visited {color:#f57c00}
 </style>
 <!-- 게시판 목록 시작 { -->
 <div id="bo_list" style="width:<?php echo $width; ?>">
@@ -118,10 +120,14 @@ add_stylesheet('<link rel="stylesheet" href="'.$board_skin_url.'/style.css">', 0
                 echo "<span class=\"bo_current\">열람중</span>";
             else
                 echo $list[$i]['num'];
-             ?>
+            $add_class = '';
+            if($list[$i]['wr_name'] == '결제관리') {
+                $add_class = 'pay';
+            }
+            ?>
             </td>
 
-            <td class="td_subject" style="padding-left:<?php echo $list[$i]['reply'] ? (strlen($list[$i]['wr_reply'])*10)+20 : '20'; ?>px">
+            <td class="td_subject <?php echo $add_class ?>" style="padding-left:<?php echo $list[$i]['reply'] ? (strlen($list[$i]['wr_reply'])*10)+20 : '20'; ?>px">
                 <?php
                 if ($is_category && $list[$i]['ca_name']) {
 				?>
@@ -145,7 +151,7 @@ add_stylesheet('<link rel="stylesheet" href="'.$board_skin_url.'/style.css">', 0
                     <?php if ($list[$i]['comment_cnt']) { ?><span class="sound_only">댓글</span><span class="cnt_cmt"><?php echo $list[$i]['wr_comment']; ?></span><span class="sound_only">개</span><?php } ?>
                 </div>
             </td>
-            <td class="td_name sv_use"><?php echo $list[$i]['name'] ?></td>
+            <td class="td_name sv_use <?php echo $add_class ?>"><?php echo $list[$i]['name'] ?></td>
             <td class="td_num"><?php echo $list[$i]['wr_hit'] ?></td>
             <?php if ($is_good) { ?><td class="td_num"><?php echo $list[$i]['wr_good'] ?></td><?php } ?>
             <?php if ($is_nogood) { ?><td class="td_num"><?php echo $list[$i]['wr_nogood'] ?></td><?php } ?>

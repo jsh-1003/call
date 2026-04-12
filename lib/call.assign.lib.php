@@ -233,6 +233,10 @@ function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min,
         $guard_company_ids = array_values(array_unique(array_map('intval', $guard_company_ids)));
     }
 
+    $where_campaign_company = function_exists('build_paid_campaign_company_scope_where_sql')
+        ? build_paid_campaign_company_scope_where_sql('c', $company_id)
+        : '';
+
     // 후보를 너무 많이 뽑지 않기 (스캔/부하 제한)
     $candidate_limit = isset($opts['candidate_limit']) ? max(10, (int)$opts['candidate_limit']) : min(100, max(30, $n * 30));
 
@@ -273,11 +277,6 @@ function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min,
                 $where_blacklist = "\n  AND b.blacklist_id IS NULL";
             }
 
-            $where_dnc = '';
-            // if ($exclude_dnc_flag) {
-            //     $where_dnc = "\n  AND t.do_not_call = 0";
-            // }
-
             $where_campaign = '';
             if ($campaign_id > 0) {
                 $where_campaign = "\n  AND t.campaign_id = {$campaign_id}";
@@ -288,6 +287,7 @@ function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min,
                   FROM call_target AS t FORCE INDEX (idx_target_paid_pick)
                   STRAIGHT_JOIN call_campaign AS c
                     ON c.campaign_id = t.campaign_id
+                   AND c.mb_group = 0
                    AND c.status = 1
                    AND c.deleted_at IS NULL
                    AND c.is_paid_db = 1
@@ -302,7 +302,7 @@ function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min,
                    AND t.assigned_status = {$assigned_status_filter}
                    AND t.rand_score >= {$seed}
                    {$where_campaign}
-                   {$where_dnc}
+                   {$where_campaign_company}
                    {$where_blacklist}
                  ORDER BY t.rand_score ASC, t.target_id ASC
                  LIMIT {$candidate_limit}
@@ -321,6 +321,7 @@ function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min,
                       FROM call_target AS t FORCE INDEX (idx_target_paid_pick)
                       STRAIGHT_JOIN call_campaign AS c
                         ON c.campaign_id = t.campaign_id
+                       AND c.mb_group = 0
                        AND c.status = 1
                        AND c.deleted_at IS NULL
                        AND c.is_paid_db = 1
@@ -335,7 +336,7 @@ function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min,
                        AND t.assigned_status = {$assigned_status_filter}
                        AND t.rand_score < {$seed}
                        {$where_campaign}
-                       {$where_dnc}
+                       {$where_campaign_company}
                        {$where_blacklist}
                      ORDER BY t.rand_score ASC, t.target_id ASC
                      LIMIT {$need_more}

@@ -32,7 +32,7 @@ $my_company_name = (string)($member['company_name'] ?? '');
 // 역할 라디오 필터
 $role_filter = isset($_GET['role_filter']) ? trim($_GET['role_filter']) : 'all';
 $allowed_role_filters = ($my_level >= 9)
-    ? ['all','company','leader','member','member-before','member-after']
+    ? ['all','paid_company','company','leader','member','member-before','member-after']
     : (($my_level >= 8) ? ['all','leader','member','member-before', 'member-after'] : ['all']);
 if (!in_array($role_filter, $allowed_role_filters, true)) $role_filter = 'all';
 
@@ -176,6 +176,8 @@ $where[] = "m.mb_no <> 363";
 if ($my_level >= 8) {
     if ($role_filter === 'company' && $my_level >= 9) {
         $where[] = "(m.mb_level = 8)";
+    } elseif ($role_filter === 'paid_company' && $my_level >= 9) {
+        $where[] = "(m.mb_level = 8 and is_paid_db = 1)";
     } elseif ($role_filter === 'leader') {
         $where[] = "(m.mb_level = 7)";
     } elseif ($role_filter === 'member') {
@@ -344,6 +346,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
         <span class="role-radio" style="margin-left:10px;">
             <label><input type="radio" name="role_filter" value="all" <?php echo $role_filter==='all'?'checked':''; ?>> 전체</label>
             <?php if ($my_level >= 9) { ?>
+                <label><input type="radio" name="role_filter" value="paid_company" <?php echo $role_filter==='paid_company'?'checked':''; ?>> 유료DB사용대표</label>
                 <label><input type="radio" name="role_filter" value="company" <?php echo $role_filter==='company'?'checked':''; ?>> 대표이사</label>
             <?php } ?>
             <label><input type="radio" name="role_filter" value="leader" <?php echo $role_filter==='leader'?'checked':''; ?>> 지점장</label>
