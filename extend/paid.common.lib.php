@@ -64,45 +64,6 @@ function get_paid_campaign_company_table(): string {
     return 'call_campaign_company';
 }
 
-/**
- * 유료DB 캠페인 대상 회사 매핑 테이블 존재 여부
- * - 테이블이 없으면 "전체 사용"으로 폴백한다.
- */
-function paid_campaign_company_table_exists(): bool {
-    static $exists = null;
-
-    if ($exists !== null) {
-        return $exists;
-    }
-
-    $table = sql_escape_string(get_paid_campaign_company_table());
-    $row = sql_fetch("SHOW TABLES LIKE '{$table}'", false);
-    $exists = is_array($row) && !empty($row);
-    return $exists;
-}
-
-/**
- * 대상 회사 매핑 테이블의 scope_mode 컬럼 존재 여부
- * - 없으면 과거 방식(전체/선택만)으로 해석한다.
- */
-function paid_campaign_company_scope_column_exists(): bool {
-    static $exists = null;
-
-    if ($exists !== null) {
-        return $exists;
-    }
-
-    if (!paid_campaign_company_table_exists()) {
-        $exists = false;
-        return $exists;
-    }
-
-    $table = get_paid_campaign_company_table();
-    $row = sql_fetch("SHOW COLUMNS FROM {$table} LIKE 'scope_mode'", false);
-    $exists = is_array($row) && !empty($row);
-    return $exists;
-}
-
 function normalize_paid_campaign_scope_mode(string $scope_mode): string {
     $scope_mode = strtolower(trim($scope_mode));
     if (!in_array($scope_mode, ['all', 'selected', 'exclude'], true)) {
@@ -122,32 +83,6 @@ function get_paid_campaign_scope_summary_text(string $scope_mode, int $company_c
         return '선택 회사 '.$company_count.'곳 제외';
     }
     return '전체 사용';
-}
-
-/**
- * 캠페인에 명시적으로 지정된 대상 회사 ID 목록
- * - 빈 배열이면 전체 사용으로 해석
- */
-function get_paid_campaign_target_company_ids(int $campaign_id): array {
-    if ($campaign_id < 1 || !paid_campaign_company_table_exists()) {
-        return [];
-    }
-
-    $table = get_paid_campaign_company_table();
-    $campaign_id = (int)$campaign_id;
-    $company_ids = [];
-
-    $res = sql_query("
-        SELECT company_id
-          FROM {$table}
-         WHERE campaign_id = {$campaign_id}
-         ORDER BY company_id ASC
-    ");
-    while ($row = sql_fetch_array($res)) {
-        $company_ids[] = (int)$row['company_id'];
-    }
-
-    return $company_ids;
 }
 
 /**
@@ -173,16 +108,11 @@ function get_paid_campaign_target_summaries(array $campaign_ids): array {
         ];
     }
 
-    if (!paid_campaign_company_table_exists()) {
-        return $summaries;
-    }
-
     $table = get_paid_campaign_company_table();
     $ids_sql = implode(',', $campaign_ids);
-    $scope_select = paid_campaign_company_scope_column_exists() ? 'scope_mode' : "'selected' AS scope_mode";
 
     $res = sql_query("
-        SELECT campaign_id, company_id, {$scope_select}
+        SELECT campaign_id, company_id, scope_mode
           FROM {$table}
          WHERE campaign_id IN ({$ids_sql})
          ORDER BY campaign_id ASC, company_id ASC
@@ -214,16 +144,6 @@ function get_paid_campaign_target_summaries(array $campaign_ids): array {
     return $summaries;
 }
 
-function get_paid_campaign_target_summary(int $campaign_id): array {
-    $list = get_paid_campaign_target_summaries([$campaign_id]);
-    return $list[$campaign_id] ?? [
-        'mode' => 'all',
-        'company_ids' => [],
-        'company_count' => 0,
-        'summary_text' => '전체 사용',
-    ];
-}
-
 /**
  * 유료DB 캠페인 대상 회사 동기화
  * - company_ids 비우면 전체 사용으로 전환
@@ -235,10 +155,6 @@ function sync_paid_campaign_target_companies(int $campaign_id, array $company_id
 
     if ($campaign_id < 1) {
         return ['ok' => false, 'message' => '캠페인 ID가 올바르지 않습니다.'];
-    }
-
-    if (!paid_campaign_company_table_exists()) {
-        return ['ok' => false, 'message' => '대상 회사 매핑 테이블이 없습니다.'];
     }
 
     $campaign = sql_fetch("SELECT campaign_id
@@ -280,11 +196,6 @@ function sync_paid_campaign_target_companies(int $campaign_id, array $company_id
     }
 
     $table = get_paid_campaign_company_table();
-    $has_scope_column = paid_campaign_company_scope_column_exists();
-
-    if ($scope_mode === 'exclude' && !$has_scope_column) {
-        return ['ok' => false, 'message' => '제외 모드를 사용하려면 scope_mode 컬럼을 추가해야 합니다.'];
-    }
 
     sql_query("START TRANSACTION");
 
@@ -294,23 +205,12 @@ function sync_paid_campaign_target_companies(int $campaign_id, array $company_id
         if ($scope_mode !== 'all' && $valid_company_ids) {
             $values = [];
             foreach ($valid_company_ids as $company_id) {
-                if ($has_scope_column) {
-                    $values[] = "({$campaign_id}, {$company_id}, '{$scope_mode}', ".($created_by > 0 ? $created_by : 'NULL').", NOW())";
-                } else {
-                    $values[] = "({$campaign_id}, {$company_id}, ".($created_by > 0 ? $created_by : 'NULL').", NOW())";
-                }
+                $values[] = "({$campaign_id}, {$company_id}, '{$scope_mode}', ".($created_by > 0 ? $created_by : 'NULL').", NOW())";
             }
-            if ($has_scope_column) {
-                $sql = "
-                    INSERT INTO {$table} (campaign_id, company_id, scope_mode, created_by, created_at)
-                    VALUES ".implode(',', $values)."
-                ";
-            } else {
-                $sql = "
-                    INSERT INTO {$table} (campaign_id, company_id, created_by, created_at)
-                    VALUES ".implode(',', $values)."
-                ";
-            }
+            $sql = "
+                INSERT INTO {$table} (campaign_id, company_id, scope_mode, created_by, created_at)
+                VALUES ".implode(',', $values)."
+            ";
             sql_query($sql);
         }
 
@@ -333,45 +233,11 @@ function build_paid_campaign_company_scope_where_sql(string $campaign_alias, int
     $campaign_alias = trim($campaign_alias);
     $company_id = (int)$company_id;
 
-    if ($campaign_alias === '' || !paid_campaign_company_table_exists()) {
+    if ($campaign_alias === '') {
         return '';
     }
 
     $table = get_paid_campaign_company_table();
-    if (paid_campaign_company_scope_column_exists()) {
-        return "
-           AND (
-                NOT EXISTS (
-                    SELECT 1
-                      FROM {$table} pct_any
-                     WHERE pct_any.campaign_id = {$campaign_alias}.campaign_id
-                )
-                OR EXISTS (
-                    SELECT 1
-                      FROM {$table} pct_in
-                     WHERE pct_in.campaign_id = {$campaign_alias}.campaign_id
-                       AND pct_in.scope_mode = 'selected'
-                       AND pct_in.company_id = {$company_id}
-                )
-                OR (
-                    EXISTS (
-                        SELECT 1
-                          FROM {$table} pct_ex_any
-                         WHERE pct_ex_any.campaign_id = {$campaign_alias}.campaign_id
-                           AND pct_ex_any.scope_mode = 'exclude'
-                    )
-                    AND NOT EXISTS (
-                        SELECT 1
-                          FROM {$table} pct_ex_me
-                         WHERE pct_ex_me.campaign_id = {$campaign_alias}.campaign_id
-                           AND pct_ex_me.scope_mode = 'exclude'
-                           AND pct_ex_me.company_id = {$company_id}
-                    )
-                )
-           )
-        ";
-    }
-
     return "
        AND (
             NOT EXISTS (
@@ -381,51 +247,28 @@ function build_paid_campaign_company_scope_where_sql(string $campaign_alias, int
             )
             OR EXISTS (
                 SELECT 1
-                  FROM {$table} pct_me
-                 WHERE pct_me.campaign_id = {$campaign_alias}.campaign_id
-                   AND pct_me.company_id = {$company_id}
+                  FROM {$table} pct_in
+                 WHERE pct_in.campaign_id = {$campaign_alias}.campaign_id
+                   AND pct_in.scope_mode = 'selected'
+                   AND pct_in.company_id = {$company_id}
+            )
+            OR (
+                EXISTS (
+                    SELECT 1
+                      FROM {$table} pct_ex_any
+                     WHERE pct_ex_any.campaign_id = {$campaign_alias}.campaign_id
+                       AND pct_ex_any.scope_mode = 'exclude'
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                      FROM {$table} pct_ex_me
+                     WHERE pct_ex_me.campaign_id = {$campaign_alias}.campaign_id
+                       AND pct_ex_me.scope_mode = 'exclude'
+                       AND pct_ex_me.company_id = {$company_id}
+                )
             )
        )
     ";
-}
-
-/**
- * 회사별 활성 유료DB 캠페인 목록
- * - 매핑 rows가 없으면 전체 사용
- * - 매핑 rows가 있으면 해당 회사가 지정된 캠페인만 반환
- */
-function get_active_paid_campaigns_by_company(int $company_id): array {
-    $company_id = (int)$company_id;
-    if ($company_id < 1) {
-        return [];
-    }
-
-    $where_target = build_paid_campaign_company_scope_where_sql('c', $company_id);
-
-    $list = [];
-    $res = sql_query("SELECT DISTINCT
-               c.campaign_id,
-               c.db_agency,
-               c.db_vendor,
-               c.paid_db_name,
-               c.campaign_memo,
-               c.is_open_number,
-               c.status,
-               c.created_at,
-               c.updated_at
-          FROM call_campaign c
-         WHERE c.is_paid_db = 1
-           AND c.mb_group = 0
-           AND c.status = 1
-           AND c.deleted_at IS NULL
-           {$where_target}
-         ORDER BY c.campaign_id DESC
-    ");
-    while ($row = sql_fetch_array($res)) {
-        $list[(int)$row['campaign_id']] = $row;
-    }
-
-    return $list;
 }
 
 // 유료DB 빌링 타입

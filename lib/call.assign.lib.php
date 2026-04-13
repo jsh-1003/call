@@ -233,9 +233,7 @@ function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min,
         $guard_company_ids = array_values(array_unique(array_map('intval', $guard_company_ids)));
     }
 
-    $where_campaign_company = function_exists('build_paid_campaign_company_scope_where_sql')
-        ? build_paid_campaign_company_scope_where_sql('c', $company_id)
-        : '';
+    $where_campaign_company = build_paid_campaign_company_scope_where_sql('c', $company_id);
 
     // 후보를 너무 많이 뽑지 않기 (스캔/부하 제한)
     $candidate_limit = isset($opts['candidate_limit']) ? max(10, (int)$opts['candidate_limit']) : min(100, max(30, $n * 30));

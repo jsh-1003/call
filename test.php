@@ -1,6 +1,6 @@
 <?php
 include_once('./_common.php');
-exit;
+// exit;
 
 function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min, $batch_id, $opts = [], $campaign_id = 0)
 {
@@ -46,23 +46,7 @@ function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min,
         $guard_company_ids = array_values(array_unique(array_map('intval', $guard_company_ids)));
     }
 
-    $where_campaign_company = '';
-    $campaign_company_table = get_paid_campaign_company_table();
-    $where_campaign_company = "
-                AND (
-                    NOT EXISTS (
-                        SELECT 1
-                            FROM {$campaign_company_table} pct_any
-                            WHERE pct_any.campaign_id = c.campaign_id
-                    )
-                    OR EXISTS (
-                        SELECT 1
-                            FROM {$campaign_company_table} pct_me
-                            WHERE pct_me.campaign_id = c.campaign_id
-                            AND pct_me.company_id = {$company_id}
-                    )
-                )";
-
+    $where_campaign_company = build_paid_campaign_company_scope_where_sql('c', $company_id);
 
     // 후보를 너무 많이 뽑지 않기 (스캔/부하 제한)
     $candidate_limit = isset($opts['candidate_limit']) ? max(10, (int)$opts['candidate_limit']) : min(100, max(30, $n * 30));
@@ -114,6 +98,7 @@ function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min,
                   FROM call_target AS t FORCE INDEX (idx_target_paid_pick)
                   STRAIGHT_JOIN call_campaign AS c
                     ON c.campaign_id = t.campaign_id
+                   AND c.mb_group = 0
                    AND c.status = 1
                    AND c.deleted_at IS NULL
                    AND c.is_paid_db = 1
@@ -136,7 +121,6 @@ function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min,
 
             $cands = [];
             $q = sql_query($cand_sql_1);
-            // echo $cand_sql_1.'<br>';
             while ($r = sql_fetch_array($q)) {
                 $cands[] = $r;
             }
@@ -144,12 +128,12 @@ function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min,
 
             // 부족하면 랩어라운드(0~seed) 구간도 추가
             if (count($cands) < $candidate_limit) {
-                echo '부족쓰';
                 $need_more = $candidate_limit - count($cands);
                 $cand_sql_2 = "SELECT t.target_id
                       FROM call_target AS t FORCE INDEX (idx_target_paid_pick)
                       STRAIGHT_JOIN call_campaign AS c
                         ON c.campaign_id = t.campaign_id
+                       AND c.mb_group = 0
                        AND c.status = 1
                        AND c.deleted_at IS NULL
                        AND c.is_paid_db = 1
@@ -186,43 +170,6 @@ function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min,
                 $tid = (int)$tid;
                 if ($tid <= 0) continue;
 
-                // 트랜잭션은 "성공 가능성 있는 1건"에 대해서만 아주 짧게
-                // sql_query("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED");
-                // sql_query("START TRANSACTION");
-
-                // $upd_sql = "UPDATE call_target
-                //        SET assigned_status      = {$assigned_status_to},
-                //            assigned_mb_no       = {$mb_no},
-                //            assigned_at          = NOW(),
-                //            assign_lease_until   = DATE_ADD(NOW(), INTERVAL {$lease_min} MINUTE),
-                //            assign_batch_id      = {$batch_id},
-                //            company_id           = {$company_id},
-                //            mb_group             = {$mb_group},
-                //            paid_db_billing_type = {$paid_db_billing_type}
-                //      WHERE target_id = {$tid}
-                //        AND is_paid_db = 1
-                //        AND assigned_status = {$assigned_status_filter}
-                //      LIMIT 1
-                // ";
-                // sql_query($upd_sql);
-                // $aff = function_exists('sql_affected_rows') ? (int)sql_affected_rows() : 0;
-
-                // if ($aff !== 1) {
-                //     sql_query("ROLLBACK");
-                //     continue; // 다른 세션이 먼저 가져감(정상)
-                // }
-
-                // // 배정 이력
-                // $ins_hist_sql = "INSERT INTO call_assignment (campaign_id, mb_group, target_id, mb_no, assigned_at, status)
-                //     SELECT t.campaign_id, {$mb_group}, t.target_id, {$mb_no}, NOW(), 1
-                //       FROM call_target t
-                //      WHERE t.target_id = {$tid}
-                //      LIMIT 1
-                // ";
-                // sql_query($ins_hist_sql);
-
-                // sql_query("COMMIT");
-
                 $picked_ids[] = $tid;
             }
 
@@ -237,15 +184,9 @@ function call_assign_paid_db_pick_and_lock($mb_group, $mb_no, $need, $lease_min,
         return ['ok'=>true, 'picked'=>count($picked_ids), 'ids'=>$picked_ids, 'err'=>null];
 
     } catch (Exception $e) {
-        //@sql_query("ROLLBACK");
         return ['ok'=>false, 'picked'=>0, 'ids'=>[], 'err'=>$e->getMessage()];
-    } finally {
-        if ($use_user_lock && $lock_name !== '') {
-            //@sql_query("SELECT RELEASE_LOCK('{$lock_name}')");
-        }
     }
 }
-
 
 $mb_group = 620;
 $mb_no = 621;
