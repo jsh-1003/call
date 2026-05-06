@@ -60,8 +60,10 @@ if($is_admin_pay) {
         array('200770', '포인트확인', G5_ADMIN_URL . '/paid/paid_point_list.php', 'paid_point'),    
         array('200765', '유료DB파일', G5_ADMIN_URL . '/paid/paid_campaign_list.php', 'paid_campaign'),    
         array('200767', '유료DB리스트', G5_ADMIN_URL . '/paid/paid_db_list.php', 'paid_campaign'),
-        array('200000', '---', '#this', 'line'),
+        array('200000', '---DB', '#this', 'line'),
         array('200791', '동의자', G5_BBS_URL . '/board.php?bo_table=agree', 'paid_agree'),
         array('200792', '철회자', G5_BBS_URL . '/board.php?bo_table=withdraw', 'paid_withdraw'),
-   ); 
+        array('200000', '---납품', '#this', 'line'),
+        array('200810', '한화손보', G5_BBS_URL . '/board.php?bo_table=hwgi', 'paid_hwgi'),
+    ); 
 }

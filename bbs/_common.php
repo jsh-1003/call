@@ -1,9 +1,17 @@
 <?php
 $sub_menu = '700950';
-if(!empty($_REQUEST['bo_table']) && $_REQUEST['bo_table'] == 'agree') {
-    $sub_menu = '200791';
-} else if(!empty($_REQUEST['bo_table']) && $_REQUEST['bo_table'] == 'withdraw') {
-    $sub_menu = '200792';
+if(empty($_REQUEST['bo_table'])) $_REQUEST['bo_table'] = '';
+
+switch ($_REQUEST['bo_table'] ?? '') {
+    case 'agree':
+        $sub_menu = '200791';
+        break;
+    case 'withdraw':
+        $sub_menu = '200792';
+        break;
+    case 'hwgi':
+        $sub_menu = '200810';
+        break;
 }
 include_once('../common.php');
 

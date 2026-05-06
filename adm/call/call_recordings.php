@@ -185,7 +185,7 @@ $agent_options = $build_org_select_options['agent_options'];
 // 총 건수
 // - 회사 필터는 agent 조인(m.company_id) 기준으로 동작
 // -----------------------------
-$sql_cnt = "SELECT COUNT(*) AS cnt
+$sql_cnt = "SELECT STRAIGHT_JOIN COUNT(*) AS cnt
       FROM call_recording r
       JOIN call_log l
         ON l.call_id = r.call_id
@@ -205,7 +205,7 @@ $total_count = (int)($row_cnt['cnt'] ?? 0);
 // -----------------------------
 // 상세 목록
 // -----------------------------
-$sql_list = "SELECT
+$sql_list = "SELECT STRAIGHT_JOIN 
         r.recording_id, 
         r.created_at        AS rec_created_at,
         r.file_size,
@@ -322,6 +322,15 @@ audio {max-width:260px;max-height:30px;}
         <?php if ($where_sql) { ?>
         <a href="./call_recordings.php" class="btn btn_02">초기화</a>
         <?php } ?>
+        <?php if($my_company_id == 71) { ?>
+        <button type="button" class="btn btn_03" id="btnBulkDown" title="현재 검색 조건의 전체 녹취파일을 ZIP으로 다운로드합니다">
+            📦 ZIP 다운로드
+            <?php if ($total_count > 0) { ?>
+                <span class="small-muted">(<?php echo number_format($total_count); ?>건)</span>
+            <?php } ?>
+        </button>
+        <?php } ?>
+
         <span class="small-muted">권한:
             <?php
             if     ($mb_level >= 8) echo '전체';
@@ -399,6 +408,19 @@ audio {max-width:260px;max-height:30px;}
     </form>
 </div>
 
+<!-- 압축 다운로드용 숨김 폼 (POST) -->
+<form method="post" action="./rec_bulk_download.php" id="bulkDownForm" style="display:none">
+    <input type="hidden" name="start"      value="">
+    <input type="hidden" name="end"        value="">
+    <input type="hidden" name="q"          value="">
+    <input type="hidden" name="q_type"     value="">
+    <input type="hidden" name="status"     value="">
+    <input type="hidden" name="company_id" value="">
+    <input type="hidden" name="mb_group"   value="">
+    <input type="hidden" name="agent"      value="">
+    <input type="hidden" name="token"      value="<?php echo $token; ?>">
+</form>
+
 <!-- 상세 목록 -->
 <div class="tbl_head01 tbl_wrap">
     <table class="table-fixed">
@@ -442,8 +464,11 @@ audio {max-width:260px;max-height:30px;}
                 $ui       = !empty($status_ui[$row['call_status']]) ? $status_ui[$row['call_status']] : 'secondary';
                 $status_class = 'status-col status-'.get_text($ui);
 
-                $dl_url   = make_recording_url($row['recording_id']);
-                $mime     = guess_audio_mime($row['s3_key'], $row['content_type']);
+                $rec_created_at = strtotime($row['rec_created_at']);
+                $is_glaciered = (time() - $rec_created_at) > (60 * 86400);
+
+                $dl_url = $is_glaciered ? null : make_recording_url($row['recording_id']);
+                $mime   = $is_glaciered ? null : guess_audio_mime($row['s3_key'], $row['content_type']);
                 ?>
                 <tr>
                     <td><?php echo get_text($gname); ?></td>
@@ -458,12 +483,22 @@ audio {max-width:260px;max-height:30px;}
                     <td><?php echo get_text($hp_fmt); ?></td>
                     <td><?php echo fmt_bytes($row['file_size']); ?></td>
                     <td class="audio-ctl">
-                        <audio controls preload="none" class="audio">
-                            <source src="<?php echo $dl_url; ?>" type="<?php echo get_text($mime); ?>">
-                            브라우저가 audio 태그를 지원하지 않습니다.
-                        </audio>
+                        <?php if ($is_glaciered): ?>
+                            <span class="text-muted" style="font-size:11px;">보관중</span>
+                        <?php else: ?>
+                            <audio controls preload="none" class="audio">
+                                <source src="<?php echo $dl_url; ?>" type="<?php echo get_text($mime); ?>">
+                                브라우저가 audio 태그를 지원하지 않습니다.
+                            </audio>
+                        <?php endif; ?>
                     </td>
-                    <td><a href="<?php echo $dl_url; ?>" class="btn btn_02">다운</a></td>
+                    <td>
+                        <?php if ($is_glaciered): ?>
+                            <span class="text-muted" style="font-size:11px;">-</span>
+                        <?php else: ?>
+                            <a href="<?php echo $dl_url; ?>" class="btn btn_02">다운</a>
+                        <?php endif; ?>
+                    </td>
                     <td><?php echo fmt_datetime(get_text($row['rec_created_at']), 'mdhis'); ?></td>
                     <td style="font-size:11px;letter-spacing:-1px"><?php echo get_text($row['campaign_name'] ?: '-'); ?></td>
                 </tr>
@@ -531,6 +566,27 @@ $base = './call_recordings.php?'.http_build_query($qstr);
             $form.submit();
         });
     }
+    // ZIP 다운로드 버튼
+    document.getElementById('btnBulkDown').addEventListener('click', function(){
+        var total = <?php echo $total_count; ?>;
+        if (total === 0) { alert('다운로드할 파일이 없습니다.'); return; }
+        if (total > 3000) {
+            alert('3천건 까지만 지원합니다. 검색 조건을 좁혀주십시오.');
+            return;
+        } else if (total > 500) {
+            if (!confirm(total+'건입니다. 시간이 오래 걸릴 수 있습니다. 계속하시겠습니까?')) return;
+        }
+
+        // searchForm의 현재 값을 bulkDownForm에 복사
+        var sf = document.getElementById('searchForm');
+        var bf = document.getElementById('bulkDownForm');
+        ['start','end','q','q_type','status','company_id','mb_group','agent'].forEach(function(n){
+            var el = sf.elements[n];
+            if (el) bf.elements[n].value = el.value;
+        });
+        bf.submit();
+    });
+    
 })();
 </script>
 
