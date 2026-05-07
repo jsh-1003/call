@@ -19,10 +19,10 @@ define('CALL_SHOP_API_TOKEN', 'a7df2c6e9b814f0dac3f5c12990e4fd8c5bfc79ab3e64d69f
 /* -----------------------------------------------------------
  * 유료DB 단가 관련
  * --------------------------------------------------------- */
-define('AGENCY_PRICE_CONN', 10);
+define('AGENCY_PRICE_CONN', 20); // 제휴수수료
 define('AGENCY_PRICE_10S',  20);
 
-define('MEDIA_PRICE_CONN',  20);
+define('MEDIA_PRICE_CONN',  20); // 매체수수료
 define('MEDIA_PRICE_10S',   40);
 
 define('PAID_PRICE_TYPE_1', 160); // 1번 : 통화10초시 과금, 160원
