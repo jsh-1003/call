@@ -16,7 +16,7 @@ add_stylesheet('<link rel="stylesheet" href="'.$board_skin_url.'/style.css">', 0
 #bo_list .td_name {text-align:center !important}
 #bo_list .td_name.pay .sv_member {font-weight:bold;color:#f57c00}
 #bo_list .pay a:link, #bo_list .pay a:visited {color:#f57c00}
-.tbl_head01.tbl_wrap table thead th {background-color:#373331 !important;}
+.tbl_head01.tbl_wrap table thead th {background-color:#009658 !important;}
 </style>
 <!-- 게시판 목록 시작 { -->
 <div id="bo_list" style="width:<?php echo $width; ?>">

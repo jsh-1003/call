@@ -12,6 +12,9 @@ switch ($_REQUEST['bo_table'] ?? '') {
     case 'hwgi':
         $sub_menu = '200810';
         break;
+    case 'dbgi':
+        $sub_menu = '200820';
+        break;
 }
 include_once('../common.php');
 
