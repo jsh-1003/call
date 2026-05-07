@@ -227,6 +227,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // 지점 선택 제약: 상담원일 때만 필요, 8레벨/10레벨에서만 변경 가능
     if ($post_level <= 5) {
+        // 7레벨은 본인 지점으로 강제 배정
+        if ($my_level == 7) $post_mb_group = $my_mb_no;
         if ($my_level >= 8 && $post_mb_group <= 0) alert('지점을 선택하세요.');
         if ($my_level == 8 && !in_array($post_mb_group, $allowed_group_ids, true)) alert('같은 회사의 지점으로만 배정할 수 있습니다.');
         if ($my_level >= 10 && $post_company_id > 0) {
@@ -375,14 +377,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
                 if ($post_mb_group > 0) $set[] = "mb_group='".(int)$post_mb_group."'";
-
-                if ((int)$target['mb_level'] == 3) {
-                    $set[] = "is_paid_db='".(int)$is_paid_db."'";
-                    $set[] = "paid_db_billing_type='".(int)$paid_db_billing_type."'";
-                }
-                
+            }
+            if ($my_level >= 7 && (int)$target['mb_level'] == 3) {
+                $set[] = "is_paid_db='".(int)$is_paid_db."'";
+                $set[] = "paid_db_billing_type='".(int)$paid_db_billing_type."'";
             }
             $set[] = "mb_group_name=''";
+            
+            if ($target['mb_level'] == 2 && $is_paid_db) {
+                alert('승인 전 상담원은 유료DB 변경이 불가능합니다.');
+            }
         }
 
         if($is_admin_pay) {
@@ -405,6 +409,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $sql = "UPDATE {$g5['member_table']} SET ".implode(',', $set)." WHERE mb_id='".sql_escape_string($post_id)."'";
+        if($_SERVER['REMOTE_ADDR'] == '116.43.150.20') {
+            echo $sql;
+            exit;
+        }
         sql_query($sql);
         goto_url('./call_member_list.php');
 
@@ -422,6 +430,7 @@ $stat_label  = '';
 if (!$is_new) {
     if (!empty($mb['mb_leave_date']))         $stat_label = '탈퇴('.$mb['mb_leave_date'].')';
     elseif (!empty($mb['mb_intercept_date'])) $stat_label = '차단('.$mb['mb_intercept_date'].')';
+    elseif ($mb['mb_level']==2) $stat_label = '<span style="color:#d73bb0;font-weight:bold">승인전</span>';
     else $stat_label = '정상';
 }
 ?>
@@ -552,8 +561,16 @@ if (!$is_new) {
                     </tr>
                     <input type="hidden" name="company_id" value="<?php echo (int)$my_company_id; ?>">
                     <input type="hidden" name="company_name" value="<?php echo get_text($my_company_name); ?>">
+                <?php } else if ($my_level == 7) { ?>
+                    <tr>
+                        <th scope="row">회사</th>
+                        <td><?php echo $my_company_id ? get_text($my_company_name) : '회사 미지정'; ?></td>
+                        <th scope="row">지점</th>
+                        <td><?php echo $member['mb_group_name']; ?></td>
+                    </tr>
+                    <input type="hidden" name="company_id" value="<?php echo (int)$my_company_id; ?>">
+                    <input type="hidden" name="company_name" value="<?php echo get_text($my_company_name); ?>">
                 <?php } else { ?>
-                    <!-- 7레벨: 표시만 -->
                     <tr>
                         <th scope="row">회사</th>
                         <td colspan="3"><?php echo $my_company_id ? get_text($my_company_name) : '회사 미지정'; ?></td>
@@ -582,7 +599,7 @@ if (!$is_new) {
                     </td>
                 </tr>
 
-                <?php if($my_level >= 8) { ?>
+                <?php if($my_level >= 7) { ?>
                 <tr id="row_only_member" style="display:none;">
                     <th scope="row"><label for="mb_name">유료DB 사용</label></th>
                     <td>
@@ -595,7 +612,7 @@ if (!$is_new) {
                             사용
                         </label>
                     </td>
-                    <th scope="row"><label for="mb_name">과금 방식 선택</label></th>
+                    <th scope="row"><label for="mb_name">과금 방식</label></th>
                     <td>
                         <?php /*
                         <label class="mgr12">
@@ -692,7 +709,7 @@ if (!$is_new) {
             show(rowCompanyName, (role==='company'));
         }
         show(rowGroupPicker, ((role==='member' || role==='member-before' || role==='member-after') && myLevel >= 8));
-        show(rowOnlyMember, ((role==='member' || role==='member-before') && myLevel >= 8));
+        show(rowOnlyMember, ((role==='member' || role==='member-before') && myLevel >= 7));
         show(rowGroupName, (role==='leader'));
     }
     roleInputs.forEach(function(r){ r.addEventListener('change', syncVisibility); });

@@ -416,6 +416,8 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                     $status_label = '<span class="mb_leave_msg">탈퇴</span>';
                 } elseif (!empty($row['mb_intercept_date'])) {
                     $status_label = '<span class="mb_intercept_msg">차단</span>';
+                } elseif ((int)$row['mb_level'] == 2) {
+                    $status_label = '<span style="color:#d73bb0;font-weight:bold">승인전</span>';
                 }
 
                 // 권한 배지
