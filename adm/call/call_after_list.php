@@ -121,11 +121,11 @@ if ($q !== '' && $q_type !== '') {
 // 권한 기반 / 조직 기반 범위
 if ($mb_level == 7) {
     $where[] = "l.mb_group = {$my_group}";
-} elseif ($mb_level == 5) {
+} elseif ($mb_level == 5 || $mb_level == 6) {
     $where[] = "tk.assigned_after_mb_no = {$mb_no}";
 } elseif ($mb_level < 5) {
     $where[] = "l.mb_no = {$mb_no}";
-} else {
+} else if($mb_level > 7) {
     // 8+
     if ($sel_mb_group > 0) {
         $where[] = "l.mb_group = {$sel_mb_group}";

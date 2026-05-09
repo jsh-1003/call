@@ -2,11 +2,11 @@
 // /adm/call/call_recordings.php
 $sub_menu = '700300';
 require_once './_common.php';
-
+include_once(G5_LIB_PATH.'/call.renew.php');
 // -----------------------------
 // 접근 권한: 레벨 7 미만 금지
 // -----------------------------
-if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
+if ($is_admin !== 'super' && (int)$member['mb_level'] < 6) {
     alert('접근 권한이 없습니다.');
 }
 
@@ -28,18 +28,12 @@ $default_end   = $today;
 // -----------------------------
 $start_date = _g('start', $default_start);
 $end_date   = _g('end',   $default_end);
-
-//
-// ★ 변경된 권한 스코프에 따른 "회사/지점" 선택 값
-//
-if ($mb_level >= 9) {
-    $sel_company_id = (int)($_GET['company_id'] ?? 0); // 0=전체 회사
-} else {
-    $sel_company_id = $my_company_id; // 8/7은 자기 회사 고정
-}
-
-$sel_mb_group = ($mb_level >= 8) ? (int)($_GET['mb_group'] ?? 0) : $my_group; // 8+=전체/특정지점, 7=본인지점
-$sel_agent_no = (int)($_GET['agent'] ?? 0); // 상담원 선택(선택사항)
+$sel_company_id = (int)(_g('company_id', 0));
+$sel_mb_group   = (int)(_g('mb_group', 0));
+$sel_info = rn_select_company_mb_group_id($mb_level, $sel_company_id, $sel_mb_group);
+$sel_company_id = $sel_info['company_id'][0];
+$sel_mb_group = $sel_info['mb_group'][0];
+$sel_agent_no = (int)(_g('agent', 0));
 
 // 검색/필터
 $q         = _g('q', '');
@@ -109,7 +103,10 @@ if ($q !== '' && $q_type !== '') {
 //
 if ($mb_level == 7) {
     $where[] = "l.mb_group = {$my_group}";
-    // 회사 스코프는 자연스럽게 지점에 종속되어 생략
+} elseif ($mb_level == 6) {
+    // 모니터링 회원
+    $grp_ids = rn_get_group_ids_from_company_ids($sel_info['company_id']);
+    $where[] = $grp_ids ? ("l.mb_group IN (".implode(',', $grp_ids).")") : "1=0";
 } elseif ($mb_level < 7) {
     $where[] = "l.mb_no = {$mb_no}";
 } else {
@@ -138,8 +135,7 @@ $where_sql = $where ? ('WHERE '.implode(' AND ', $where)) : '';
 // 상태코드 목록 (셀렉트용)
 // -----------------------------
 $codes = [];
-$qc = "
-    SELECT call_status, name_ko, status
+$qc = "SELECT call_status, name_ko, status
       FROM call_status_code
      WHERE mb_group=0
      ORDER BY sort_order ASC, call_status ASC
@@ -150,8 +146,7 @@ while ($r = sql_fetch_array($rc)) $codes[] = $r;
 // 상태 라벨/컬러 매핑
 $code_list_status = [];
 $status_ui = [];
-$qcl = "
-    SELECT call_status, name_ko, ui_type
+$qcl = "SELECT call_status, name_ko, ui_type
       FROM call_status_code
      WHERE mb_group=0
      ORDER BY sort_order ASC, call_status ASC
@@ -377,11 +372,12 @@ audio {max-width:260px;max-height:30px;}
                 }
                 ?>
             </select>
-        <?php } else { ?>
+        <?php } else if((int)$member['member_type'] !== 3) { ?>
             <input type="hidden" name="mb_group" value="<?php echo $sel_mb_group; ?>">
             <span class="small-muted">지점: <?php echo get_text(get_group_name_cached($sel_mb_group)); ?></span>
         <?php } ?>
-
+        
+        <?php if((int)$member['member_type'] !== 3) { ?>
         <select name="agent" id="agent" style="width:120px">
             <option value="0">전체 상담사</option>
             <?php
@@ -404,7 +400,7 @@ audio {max-width:260px;max-height:30px;}
             }
             ?>
         </select>
-                
+        <?php } ?>
     </form>
 </div>
 

@@ -112,7 +112,8 @@ if (!empty($_COOKIE['g5_admin_btn_gnb'])) {
 <style>
 body, #hd_top, #wrapper {min-width:1100px}
 #hd_top {background:#344a57 !important}
-#logo {background:#212c33 !important;padding:0;padding-left:50px}
+/* #logo {background:#212c33 !important;padding:0;padding-left:50px} */
+#logo {background:#fff !important;padding:0;padding-left:50px}
 #logo img {height:50px;}
 .top_after_badge {float:right;padding:14px;}
 /* 토글 버튼 */
@@ -134,7 +135,7 @@ body, #hd_top, #wrapper {min-width:1100px}
     <h1><?php echo $config['cf_title'] ?></h1>
     <div id="hd_top">
         <button type="button" id="btn_gnb" class="btn_gnb_close <?php echo $adm_menu_cookie['btn_gnb']; ?>">메뉴</button>
-        <div id="logo"><a href="<?php echo correct_goto_url(G5_ADMIN_URL); ?>"><img src="<?php echo G5_ADMIN_URL ?>/img/admin_logo.png" alt="<?php echo get_text($config['cf_title']); ?> 관리자"></a></div>
+        <div id="logo"><a href="<?php echo correct_goto_url(G5_ADMIN_URL); ?>"><img src="<?php echo G5_IMG_URL ?>/logo_callpro.png" alt="<?php echo get_text($config['cf_title']); ?> 관리자"></a></div>
         <?php 
         if(!$member['member_type']) {
             echo latest('basic', 'notice', 2, 50);

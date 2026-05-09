@@ -8,6 +8,10 @@ if($is_paid_company) {
     header('Location: /adm/paid/paid_stats.php');
     exit;
 }
+if($member['mb_level'] == 6) {
+    header('Location: /adm/call/call_monitor.php');
+    exit;
+}
 header('Location: /adm/call/call_campaign_list.php');
 exit;
 $sub_menu = '100000';

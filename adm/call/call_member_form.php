@@ -95,7 +95,7 @@ if ($my_level >= 10) {
 // 지점장 목록: 8레벨은 본인 회사만, 10레벨은 전체(회사별 필터링 용)
 $leaders = [];
 if ($my_level >= 8) {
-    $where = " WHERE m.mb_level = 7 ";
+    $where = " WHERE m.mb_level = 7 AND (mb_leave_date IS NULL OR mb_leave_date='') ";
     if ($my_level < 10) {
         $where .= " AND m.company_id = '{$my_company_id}' ";
     }

@@ -1,12 +1,13 @@
 <?php
 // /adm/call/ajax_call_monitor.php
 include_once('./_common.php');
+include_once(G5_LIB_PATH.'/call.renew.php');
 
 // JSON 응답
 header('Content-Type: application/json; charset=utf-8');
 
 // 접근 권한: 관리자 레벨 7 이상만
-if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
+if ($is_admin !== 'super' && (int)$member['mb_level'] < 6) {
     die('접근 권한이 없습니다.');
 }
 
@@ -28,16 +29,22 @@ $end   = _g('end',   $default_end);
 $f_status = isset($_GET['status']) ? (int)$_GET['status'] : 0;
 
 // 조직 선택(레벨 규칙)
-if ($mb_level >= 9) {
-    $sel_company_id = (int)(_g('company_id', 0));
-    $sel_mb_group   = (int)(_g('mb_group', 0));
-} elseif ($mb_level >= 8) {
-    $sel_company_id = $my_company_id;
-    $sel_mb_group   = (int)(_g('mb_group', 0));
-} else {
-    $sel_company_id = $my_company_id;
-    $sel_mb_group   = $my_group;
-}
+$sel_company_id = (int)(_g('company_id', 0));
+$sel_mb_group   = (int)(_g('mb_group', 0));
+$sel_info = rn_select_company_mb_group_id($mb_level, $sel_company_id, $sel_mb_group);
+$sel_company_id = $sel_info['company_id'][0];
+$sel_mb_group = $sel_info['mb_group'][0];
+
+// if ($mb_level >= 9) {
+//     $sel_company_id = (int)(_g('company_id', 0));
+//     $sel_mb_group   = (int)(_g('mb_group', 0));
+// } elseif ($mb_level >= 8) {
+//     $sel_company_id = $my_company_id;
+//     $sel_mb_group   = (int)(_g('mb_group', 0));
+// } else {
+//     $sel_company_id = $my_company_id;
+//     $sel_mb_group   = $my_group;
+// }
 $sel_agent_no = (int)($_GET['agent'] ?? 0);
 $type = _g('type', '');
 
@@ -67,11 +74,17 @@ function cm_cache_key($suffix='') {
    WHERE 빌더
    ========================== */
 // 활성 캠페인/타깃 기준 지점(+회사) 필터 (날짜와 무관, cc 별칭 기준)
-function build_campaign_group_where($mb_level, $my_group, $sel_mb_group, $sel_company_id) {
+function build_campaign_group_where($mb_level, $my_group, $sel_mb_group, $sel_company_id, $sel_info=array()) {
     global $g5, $my_company_id;
     $w = [];
     if ($mb_level == 7) {
         $w[] = "cc.mb_group = {$my_group}";
+    } elseif ($mb_level == 6) {
+        // 모니터링
+        $grp_ids = [];
+        $res = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".implode(',',$sel_info['company_id'])."'");
+        while ($r = sql_fetch_array($res)) $grp_ids[] = (int)$r['mb_no'];
+        $w[] = $grp_ids ? ("cc.mb_group IN (".implode(',', $grp_ids).")") : "1=0";
     } elseif ($mb_level < 7) {
         $w[] = "cc.mb_group = {$my_group}";
     } else {
@@ -93,7 +106,7 @@ function build_campaign_group_where($mb_level, $my_group, $sel_mb_group, $sel_co
 }
 
 // 통화 로그 스코프 (l 별칭)
-function build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_status, $sel_company_id, $sel_mb_group, $sel_agent_no) {
+function build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_status, $sel_company_id, $sel_mb_group, $sel_agent_no, $sel_info=array()) {
     global $g5, $my_company_id;
     $w = [];
     $start_sql = sql_escape_string(str_replace('T',' ',$start).':00');
@@ -104,6 +117,9 @@ function build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_statu
 
     if ($mb_level == 7) {
         $w[] = "l.mb_group = {$my_group}";
+    } elseif ($mb_level == 6) {
+        $grp_ids = rn_get_group_ids_from_company_ids($sel_info['company_id']);
+        $w[] = $grp_ids ? ("l.mb_group IN (".implode(',', $grp_ids).")") : "1=0";
     } elseif ($mb_level < 7) {
         $w[] = "l.mb_no = {$mb_no}";
     } else {
@@ -111,14 +127,10 @@ function build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_statu
             $w[] = "l.mb_group = {$sel_mb_group}";
         } else {
             if ($mb_level >= 9 && $sel_company_id > 0) {
-                $grp_ids = [];
-                $gr = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$sel_company_id."'");
-                while ($rr = sql_fetch_array($gr)) $grp_ids[] = (int)$rr['mb_no'];
+                $grp_ids = rn_get_group_ids_from_company_ids([$sel_company_id]);
                 $w[] = $grp_ids ? ("l.mb_group IN (".implode(',', $grp_ids).")") : "1=0";
             } elseif ($mb_level == 8) {
-                $grp_ids = [];
-                $gr = sql_query("SELECT m.mb_no FROM {$g5['member_table']} m WHERE m.mb_level=7 AND m.company_id='".(int)$my_company_id."'");
-                while ($rr = sql_fetch_array($gr)) $grp_ids[] = (int)$rr['mb_no'];
+                $grp_ids = rn_get_group_ids_from_company_ids([$my_company_id]);
                 $w[] = $grp_ids ? ("l.mb_group IN (".implode(',', $grp_ids).")") : "1=0";
             }
         }
@@ -210,7 +222,7 @@ foreach($code_list as $v) {
 /* ==========================
    캐시
    ========================== */
-$where_sql = build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_status, $sel_company_id, $sel_mb_group, $sel_agent_no);
+$where_sql = build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_status, $sel_company_id, $sel_mb_group, $sel_agent_no, $sel_info);
 
 // 버킷(30분)
 $start_ts = strtotime(str_replace('T',' ',$start).':00');
@@ -253,7 +265,7 @@ if ($type === 'kpi') {
     $r = sql_fetch($sql);
 
     // 잔여DB (캠페인+지점 동등조인, 조직 스코프 cc.mb_group)
-    $pending_where = build_campaign_group_where($mb_level, $my_group, $sel_mb_group, $sel_company_id);
+    $pending_where = build_campaign_group_where($mb_level, $my_group, $sel_mb_group, $sel_company_id, $sel_info);
     $sql_pending = "
         SELECT COUNT(*) AS remain_cnt
         FROM call_target t
@@ -635,7 +647,7 @@ elseif ($type === 'recent_detail') {
           ON cc.campaign_id = l.campaign_id
          AND (cc.mb_group    = l.mb_group OR (cc.is_paid_db = 1 AND cc.mb_group = 0))
          AND cc.status      IN (0,1)
-        ".build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_status, $sel_company_id, $sel_mb_group, $sel_agent_no)."
+        ".build_common_where($mb_level, $my_group, $mb_no, $start, $end, $f_status, $sel_company_id, $sel_mb_group, $sel_agent_no, $sel_info)."
         ORDER BY l.call_start DESC, l.call_id DESC
         LIMIT 50
     ";

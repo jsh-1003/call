@@ -6,7 +6,10 @@ $menu['menu200'] = array(
     array('200750', '사용통계', G5_ADMIN_URL . '/paid/paid_stats.php', 'paid_stats'),
 );
 
-if($member['mb_level'] < 5) return;
+if($member['mb_level'] < 7) {
+    unset($menu['menu200']);
+    return;
+}
 if($member['member_type'] ==0 && $member['mb_level'] < 10) {
     $is_paid_db_use_company = is_paid_db_use_company($member['mb_no']);
     if($is_paid_db_use_company < 1) return;
@@ -58,7 +61,7 @@ if($is_admin_pay) {
         array('200710', '회원관리', G5_ADMIN_URL . '/paid/paid_member_list.php', 'mb_list'),
         array('200750', '사용통계', G5_ADMIN_URL . '/paid/paid_stats.php', 'paid_stats'),
         array('200770', '포인트확인', G5_ADMIN_URL . '/paid/paid_point_list.php', 'paid_point'),    
-        array('200765', '유료DB파일', G5_ADMIN_URL . '/paid/paid_campaign_list.php', 'paid_campaign'),    
+        array('200765', '유료DB파일', G5_ADMIN_URL . '/paid/paid_campaign_list.php', 'paid_campaign'),
         array('200767', '유료DB리스트', G5_ADMIN_URL . '/paid/paid_db_list.php', 'paid_campaign'),
         array('200000', '---DB', '#this', 'line'),
         array('200791', 'ㄴ 동의자', G5_BBS_URL . '/board.php?bo_table=agree', 'paid_agree'),

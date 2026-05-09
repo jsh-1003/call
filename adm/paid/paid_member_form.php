@@ -28,6 +28,7 @@ function role_to_level($role) {
     switch ($role) {
         case 'company':         return 8;  // 에이전시
         case 'leader':          return 7;  // 매체사
+        case 'monitor':         return 6;  // 납품사 모니터링
         case 'admin':           return 10; // (UI 미노출) 플랫폼 슈퍼관리자
         default:                return 0;
     }
@@ -36,12 +37,13 @@ function level_to_role($lv) {
     if ($lv >= 10) return 'admin';
     if ($lv >= 8)  return 'company';
     if ($lv == 7)  return 'leader';
+    if ($lv == 6)  return 'monitor';
     return 'before';
 }
 
 // 내가 생성/수정 시 허용되는 역할(신규일 때만 의미, 수정은 고정)
 $allowed_roles = [];
-if     ($my_level >= 10) $allowed_roles = ['company','leader','before'];
+if     ($my_level >= 10) $allowed_roles = ['company','leader','before','monitor'];
 elseif ($my_level >= 8)  $allowed_roles = ['leader'];
 else                     $allowed_roles = [];
 
@@ -51,6 +53,7 @@ else                     $allowed_roles = [];
 function same_company_or_admin($my_level, $my_company_id, $target_company_id){
     if ($my_level >= 10) return true; // 슈퍼관리자
     if ($my_level >= 7)  return ($my_company_id === (int)$target_company_id);
+    if ($my_level >= 6)  return ($my_company_id === (int)$target_company_id);
     return false;
 }
 
@@ -208,7 +211,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         // 리더/상담원
         if ($my_level >= 10) {
-            if ($post_w === '' && $post_company_id <= 0) alert('에이전시를 선택하세요.');
+            if ($post_w === '' && $post_company_id <= 0 && $post_role != 'monitor') alert('에이전시를 선택하세요.');
         } else {
             $post_company_id   = $my_company_id;
             $post_company_name = $my_company_name;
@@ -250,6 +253,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $set[] = "company_name=".($post_company_name!=='' ? "'".sql_escape_string($post_company_name)."'" : "''");
             $set[] = "mb_group='0'";
             $set[] = "is_after_call='1'";
+            $set[] = "mb_group_name=".($post_group_name!=='' ? "'".sql_escape_string($post_group_name)."'" : "''");
+        } elseif ($post_level == 6) {
+            $set[] = "company_id='".(int)$post_company_id."'";
+            $set[] = "member_type='3'";
+            $set[] = "company_name=".($post_company_name!=='' ? "'".sql_escape_string($post_company_name)."'" : "''");
+            $set[] = "mb_group='0'";
             $set[] = "mb_group_name=".($post_group_name!=='' ? "'".sql_escape_string($post_group_name)."'" : "''");
         }
 
@@ -390,11 +399,15 @@ if (!$is_new) {
                                 <input type="radio" name="role" value="leader" <?php echo ($default_role==='leader'?'checked':''); ?>>
                                 매체사
                             </label>
+                            <label class="mgr12">
+                                <input type="radio" name="role" value="monitor" <?php echo ($default_role==='monitor'?'checked':''); ?>>
+                                모니터
+                            </label>
                         <?php } else { // 수정 시 고정 표기 ?>
                             <div style="padding:6px 0;">
                                 <strong>
                                     <?php
-                                        $label = ($default_role==='company'?'에이전시':($default_role==='leader'?'매체사':'-'));
+                                        $label = ($default_role==='company'?'에이전시':($default_role==='leader'?'매체사':'모니터'));
                                         echo $label;
                                     ?>
                                 </strong>
@@ -420,13 +433,10 @@ if (!$is_new) {
                     <td><?php echo $is_new ? '-' : $stat_label; ?></td>
                 </tr>
                 <?php if($is_admin_pay) { ?>
-                <tr>
+                <tr id="row_paid_date" >
                     <th scope="row"><label for="pay_start_date">유료시작일</label></th>
                     <td colspan="3">유료시작일 : <input type="date" id="pay_start_date" name="pay_start_date" value="<?php echo $mb['pay_start_date'] ?>" class="frm_input"></td>
                 </tr>
-                <?php } ?>
-                <!-- 에이전시 섹션 -->
-                <?php if ($my_level >= 10) { ?>
                 <tr id="row_company_picker" style="display:<?php echo (($is_new && ($default_role==='member' || $default_role==='leader')) || (!$is_new && ($default_role==='member' || $default_role==='leader'))) ? '' : 'none'; ?>;">
                     <th scope="row"><label for="company_id">에이전시</label></th>
                     <td colspan="3">
@@ -484,7 +494,7 @@ if (!$is_new) {
                 </tr>
                 
                 <?php if ($my_level >= 10) { ?>
-                <tr>
+                <tr id="row_paid_set" style="display:<?php echo ($default_role==='leader' ? '' : 'none'); ?>;">
                     <th scope="row"><label for="mb_name">유료DB 사용</label></th>
                     <td colspan="3">
                         <label class="mgr12">
@@ -529,6 +539,8 @@ if (!$is_new) {
     var rowGroupPicker     = document.getElementById('row_group_picker');     // 상담원 전용
     var rowOnlyMember      = document.getElementById('row_only_member');      // 상담원 전용
     var rowGroupName       = document.getElementById('row_group_name');       // 리더 전용(매체사명)
+    var rowPaidSet         = document.getElementById('row_paid_set');        // 리더 전용(유료DB사용)
+    var rowPaidDate        = document.getElementById('row_paid_date');        // 리더 전용(유료DB사용시작일)
 
     function syncVisibility(){
         var role = selectedRole();
@@ -539,6 +551,8 @@ if (!$is_new) {
         show(rowGroupPicker, ((role==='member' || role==='member-before' || role==='member-after') && myLevel >= 8));
         show(rowOnlyMember, ((role==='member' || role==='member-before') && myLevel >= 8));
         show(rowGroupName, (role==='leader'));
+        show(rowPaidSet, (role==='leader' || role==='company'));
+        show(rowPaidDate, (role==='leader' || role==='company'));
     }
     roleInputs.forEach(function(r){ r.addEventListener('change', syncVisibility); });
     syncVisibility();

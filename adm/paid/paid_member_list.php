@@ -59,6 +59,7 @@ function role_label_and_class($lv){
     if ($lv >= 10) return ['플랫폼관리자','badge-admin'];
     if ($lv >= 8)  return ['에이전시','badge-company'];
     if ($lv == 7)  return ['매체사','badge-leader'];
+    if ($lv == 6)  return ['모니터링','badge-member-before'];
     return ['-','badge-member-before'];
 }
 
@@ -383,7 +384,7 @@ $qstr_member_list = "company_id={$sel_company_id}&mb_group={$sel_mb_group}&role_
                     <?php } ?>
                     <td class="td_left"><?php echo get_text($disp_company); ?></td>
                     <td class="td_left"><?php echo get_text($disp_group); ?></td>
-                    <?php if ($my_level >= 9 && $is_toggle_target) { ?>
+                    <?php if ($my_level >= 9) { ?>
                     <td class="td_center td_mng td_mng_s">
                         <button type="button"
                                 class="toggle-is-paid-db <?php echo $is_paid_db ? 'on':'off'; ?>"

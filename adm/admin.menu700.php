@@ -1,5 +1,16 @@
 <?php
-if($member['member_type'] !=0 && $member['mb_level'] < 10) return;
+if($member['member_type'] == 3) {
+    $menu["menu700"] = array(
+        array('700110', '관리', '' . G5_ADMIN_URL.'/call/call_monitor.php', 'call'),
+        array('700110', '모니터링', '' . G5_ADMIN_URL.'/call/call_monitor.php', 'call'),
+        array('700300', '녹취내역', '' . G5_ADMIN_URL.'/call/call_recordings.php', 'call'),
+        array('700320', '수동녹취', '' . G5_ADMIN_URL.'/call/call_manual_recordings.php', 'call'),
+        array('700765', '유료DB파일', G5_ADMIN_URL . '/paid/paid_campaign_list_monitor.php', 'paid_campaign'),
+    );
+    return;
+}
+else if($member['member_type'] !=0 && $member['mb_level'] < 10) return;
+
 $menu["menu700"] = array(
     array('700400', '접수관리', '' . G5_ADMIN_URL.'/call/call_after_list.php', 'call'),
     array('700400', '접수관리', '' . G5_ADMIN_URL.'/call/call_after_list.php', 'call'),
