@@ -241,7 +241,7 @@ function handle_call_upload(): void {
     ), 0, 36);
 
     // 4) 트랜잭션 시작 (DB 기록만 포함)
-    sql_query("START TRANSACTION");
+    // sql_query("START TRANSACTION");
 
     // 5) 통화 로그 적재
     $call_end_sql = $call_end ? ("'".sql_escape_string($call_end)."'") : "NULL";
@@ -313,12 +313,14 @@ function handle_call_upload(): void {
     ";
     $ok = sql_query($uq, true);
     if (!$ok) {
-        sql_query("ROLLBACK");
+        $sql = "INSERT INTO tmp_log SET target_id = '{$target_id}', call_id = '{$call_id}', chk_mode = 1 ";
+        sql_query($sql);
+        // sql_query("ROLLBACK");
         send_json(['success'=>false, 'message'=>'failed to update target'], 500);
     }
 
     // ✅ 7) 커밋 - 여기까지가 DB 트랜잭션 (락 즉시 해제)
-    sql_query("COMMIT");
+    // sql_query("COMMIT");
 
     // 8) (선택) 블랙리스트 등록 - 트랜잭션 밖
     if ((int)$meta['is_do_not_call'] === 1) {
@@ -345,6 +347,8 @@ function handle_call_upload(): void {
             );
         }
     } catch (Throwable $e) {
+        $sql = "INSERT INTO tmp_log SET target_id = '{$target_id}', call_id = '{$call_id}', chk_mode = 2 ";
+        sql_query($sql);
         error_log('[aftercall] issue/assign failed: '.$e->getMessage());
         $ac_result = ['success'=>false, 'message'=>'aftercall error: '.$e->getMessage()];
     }
@@ -380,6 +384,8 @@ function handle_call_upload(): void {
             }
         }
     } catch (Throwable $e) {
+        $sql = "INSERT INTO tmp_log SET target_id = '{$target_id}', call_id = '{$call_id}', chk_mode = 3 ";
+        sql_query($sql);
         error_log('[aftercall-api] 전송실패: '.$e->getMessage());
     }
 
@@ -390,6 +396,8 @@ function handle_call_upload(): void {
     if (is_multipart() && isset($_FILES['file']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
         if (!class_exists(\Aws\S3\S3Client::class)) {
             // SDK 없으면 업로드 스킵하고 빈값 반환
+            $sql = "INSERT INTO tmp_log SET target_id = '{$target_id}', call_id = '{$call_id}', chk_mode = 4 ";
+            sql_query($sql);
             error_log('[s3] aws sdk not installed');
         } else {
             $tmp_path  = $_FILES['file']['tmp_name'];
@@ -442,10 +450,14 @@ function handle_call_upload(): void {
                     }
 
                 } else {
+                    $sql = "INSERT INTO tmp_log SET target_id = '{$target_id}', call_id = '{$call_id}', chk_mode = 5 ";
+                    sql_query($sql);
                     error_log('[s3] call_recording insert failed (but upload ok)');
                 }
             } catch (\Throwable $e) {
                 // 실패해도 DB 롤백/삭제 없음. 빈값으로 응답.
+                $sql = "INSERT INTO tmp_log SET target_id = '{$target_id}', call_id = '{$call_id}', chk_mode = 6 ";
+                sql_query($sql);
                 error_log('[s3 upload failed] '.$e->getMessage());
             }
         }
