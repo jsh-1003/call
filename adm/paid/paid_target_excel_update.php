@@ -27,6 +27,9 @@ if (!$chk) {
 }
 
 $is_validate = (isset($_POST['is_validate']) && (int)$_POST['is_validate'] === 1) ? 1 : 0;
+$is_age_validate = (isset($_POST['is_age_validate']) && (int)$_POST['is_age_validate'] === 1) ? 1 : 0;
+$is_age_min = isset($_POST['is_age_min']) ? (int)$_POST['is_age_min'] : 0;
+$is_age_max = isset($_POST['is_age_min']) ? (int)$_POST['is_age_min'] : 100;
 
 // 유료DB 캠페인 소스 정보
 $db_agency = isset($_POST['db_agency']) ? (int)$_POST['db_agency'] : 0;
@@ -157,8 +160,7 @@ function create_paid_campaign_from_filename($orig_name, $memo, $db_agency, $db_v
     $stamp = date('ymd_Hi');
     $paid_db_name = mb_substr($base, 0, 80) . '_' . $stamp; // 기존 로직의 name 생성분을 paid_db_name으로
 
-    $sql = "
-        INSERT INTO call_campaign
+    $sql = "INSERT INTO call_campaign
             (db_agency, db_vendor, is_paid_db, mb_group, name, paid_db_name, campaign_memo, is_open_number, status, created_at, updated_at)
         VALUES
             ('".(int)$db_agency."',
@@ -169,7 +171,7 @@ function create_paid_campaign_from_filename($orig_name, $memo, $db_agency, $db_v
              '".sql_escape_string($paid_db_name)."',
              '".sql_escape_string(k_nfc($memo))."',
              0,
-             1,
+             0,
              NOW(),
              NOW()
             )
@@ -357,11 +359,9 @@ if ($step === 'preview') {
             $man_age = calc_age_years($birth_date);
             if ($man_age < 62 && $man_age > 10) $db_age_type = 1;
             else if ($man_age <= 70 && $man_age >= 62) $db_age_type = 2;
-            if ($man_age < 40 || $man_age > 69) {
-                if ($is_validate) {
-                    $status = '제외';
-                    $reason = '대상 나이 아님';
-                }
+            if ($is_age_validate && ($man_age < $is_age_min || $man_age > $is_age_max)) {
+                $status = '제외';
+                $reason = '대상 나이 아님';
             }
         } else if($is_validate) {
             $status = '제외';
@@ -481,6 +481,9 @@ if ($step === 'preview') {
             <input type="hidden" name="csrf_token" value="<?php echo get_text($_POST['csrf_token']); ?>">
             <input type="hidden" name="token" value="<?php echo get_admin_token(); ?>">
             <input type="hidden" name="is_validate" value="<?php echo (int)$is_validate; ?>">
+            <input type="hidden" name="is_age_validate" value="<?php echo (int)$is_age_validate; ?>">
+            <input type="hidden" name="is_age_min" value="<?php echo (int)$is_age_min; ?>">
+            <input type="hidden" name="is_age_max" value="<?php echo (int)$is_age_max; ?>">
             <input type="hidden" name="step" value="commit">
             <input type="hidden" name="memo" value="<?php echo htmlspecialchars($memo, ENT_QUOTES); ?>">
             <input type="hidden" name="saved_file" value="<?php echo htmlspecialchars($saved_basename, ENT_QUOTES); ?>">
@@ -609,7 +612,7 @@ try {
             $man_age = calc_age_years($birth_date);
             if ($man_age < 62 && $man_age > 10) $db_age_type = 1;
             else if ($man_age <= 70 && $man_age >= 62) $db_age_type = 2;
-            if ($man_age < 40 || $man_age > 69) {
+            if ($is_age_validate && ($man_age < $is_age_min || $man_age > $is_age_max)) {                
                 $skip_count++;
                 if ($is_validate && count($fail_msgs) < 20) $fail_msgs[] = "행 {$i}: 대상 나이 아님 ";
                 continue;
@@ -690,7 +693,8 @@ include_once(G5_PATH.'/head.sub.php');
         <p>
             <strong>캠페인ID:</strong> <?php echo (int)$campaign_id; ?> /
             <strong>배치ID:</strong> <?php echo (int)$batch_id; ?> /
-            <strong>공개여부:</strong> 1차 비공개
+            <strong>공개여부:</strong> 1차 비공개 /
+            <strong>나이:</strong> <?php echo $is_age_min.' ~ '.$is_age_max; ?> /
         </p>
     </div>
 

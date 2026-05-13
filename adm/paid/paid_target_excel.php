@@ -121,6 +121,13 @@ body {min-width:100%}
                 <input type="checkbox" id="is_validate" name="is_validate" value="1" checked>
                 DB 유효성 검사 진행 <span>&lt;이름/전화번호&gt;</span>
             </label>
+            <br><br>
+            <label for="is_age_min"><input type="number" class="frm_input" name="is_age_min" style="width:50px" value="40">세</label>
+            <label for="is_age_max"> ~ <input type="number" class="frm_input" name="is_age_max" style="width:50px" value="69">세</label>
+            <label for="is_age_validate">
+                <input type="checkbox" id="is_age_validate" name="is_age_validate" value="1" checked>
+                나이제한 진행
+            </label>
         </div>
 
         <div class="input_wrap">
