@@ -1,17 +1,17 @@
 <?php
 // /adm/call/rec_proxy.php
 require_once './_common.php';
+include_once(G5_LIB_PATH.'/call.renew.php');
 
 // 접근권한
-if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
+if ($is_admin !== 'super' && (int)$member['mb_level'] < 6) {
     http_response_code(403); exit('denied');
 }
 
 $rid = (int)($_GET['rid'] ?? 0);
 if ($rid <= 0) { http_response_code(400); exit('invalid'); }
 
-$row = sql_fetch("
-    SELECT r.recording_id, r.mb_group, r.campaign_id, r.call_id,
+$row = sql_fetch("SELECT r.recording_id, r.mb_group, r.campaign_id, r.call_id,
            r.s3_bucket, r.s3_key, r.content_type,
            l.mb_no AS agent_id
       FROM call_recording r
@@ -25,7 +25,12 @@ if (!$row) { http_response_code(404); exit('not found'); }
 $mb_level = (int)$member['mb_level'];
 $my_group = (int)($member['mb_group'] ?? 0);
 if ($mb_level == 7 && (int)$row['mb_group'] !== $my_group) { http_response_code(403); exit('denied'); }
-if ($mb_level < 7 && (int)$row['agent_id'] !== (int)$member['mb_no']) { http_response_code(403); exit('denied'); }
+if ($mb_level == 6) {
+    $sel_info = rn_select_company_mb_group_id($mb_level);
+    $grp_ids = rn_get_group_ids_from_company_ids($sel_info['company_id']);
+    if(!in_array((int)$row['mb_group'], $grp_ids)) { http_response_code(403); exit('denied'); }
+}
+if ($mb_level < 6 && (int)$row['agent_id'] !== (int)$member['mb_no']) { http_response_code(403); exit('denied'); }
 
 $force_download = (isset($_GET['dl']) && $_GET['dl']=='1');
 

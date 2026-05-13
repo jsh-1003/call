@@ -409,10 +409,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $sql = "UPDATE {$g5['member_table']} SET ".implode(',', $set)." WHERE mb_id='".sql_escape_string($post_id)."'";
-        if($_SERVER['REMOTE_ADDR'] == '116.43.150.20') {
-            echo $sql;
-            exit;
-        }
+        // if($_SERVER['REMOTE_ADDR'] == '116.43.150.20') {
+        //     echo $sql;
+        //     exit;
+        // }
         sql_query($sql);
         goto_url('./call_member_list.php');
 

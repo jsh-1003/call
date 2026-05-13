@@ -6,7 +6,7 @@ include_once(G5_LIB_PATH.'/call.renew.php');
 // -----------------------------
 // 접근 권한: 레벨 7 미만 금지
 // -----------------------------
-if ($is_admin !== 'super' && (int)$member['mb_level'] < 7) {
+if ($is_admin !== 'super' && (int)$member['mb_level'] < 6) {
     alert('접근 권한이 없습니다.');
 }
 
@@ -103,6 +103,10 @@ if ($q !== '' && $q_type !== '') {
 //
 if ($mb_level == 7) {
     $where[] = "l.mb_group = {$my_group}";
+} elseif ($mb_level == 6) {
+    // 모니터링 회원
+    $grp_ids = rn_get_group_ids_from_company_ids($sel_info['company_id']);
+    $where[] = $grp_ids ? ("l.mb_group IN (".implode(',', $grp_ids).")") : "1=0";
 } elseif ($mb_level < 7) {
     $where[] = "l.mb_no = {$mb_no}";
 } else {
@@ -368,11 +372,12 @@ audio {max-width:260px;max-height:30px;}
                 }
                 ?>
             </select>
-        <?php } else { ?>
+        <?php } else if((int)$member['member_type'] !== 3) { ?>
             <input type="hidden" name="mb_group" value="<?php echo $sel_mb_group; ?>">
             <span class="small-muted">지점: <?php echo get_text(get_group_name_cached($sel_mb_group)); ?></span>
         <?php } ?>
         
+        <?php if((int)$member['member_type'] !== 3) { ?>
         <select name="agent" id="agent" style="width:120px">
             <option value="0">전체 상담사</option>
             <?php
@@ -395,7 +400,7 @@ audio {max-width:260px;max-height:30px;}
             }
             ?>
         </select>
-
+        <?php } ?>
     </form>
 </div>
 
@@ -525,61 +530,6 @@ $base = './call_recordings.php?'.http_build_query($qstr);
     </span>
 </div>
 
-<script>
-(function(){
-    var $form = document.getElementById('searchForm');
-    // ★ 회사 변경 시 지점/담당자 초기화 후 자동검색
-    var companySel = document.getElementById('company_id');
-    if (companySel) {
-        companySel.addEventListener('change', function(){
-            var g = document.getElementById('mb_group');
-            if (g) g.selectedIndex = 0;
-            var a = document.getElementById('agent');
-            if (a) a.selectedIndex = 0;
-            $form.submit();
-        });
-    }
-
-    // 지점 변경 시 담당자 초기화 후 자동검색
-    var mbGroup = document.getElementById('mb_group');
-    if (mbGroup) {
-        mbGroup.addEventListener('change', function(){
-            var agent = document.getElementById('agent');
-            if (agent) agent.selectedIndex = 0;
-            $form.submit();
-        });
-    }
-
-    // 담당자 변경 시 자동검색
-    var agentSel = document.getElementById('agent');
-    if (agentSel) {
-        agentSel.addEventListener('change', function(){
-            $form.submit();
-        });
-    }
-    // ZIP 다운로드 버튼
-    document.getElementById('btnBulkDown').addEventListener('click', function(){
-        var total = <?php echo $total_count; ?>;
-        if (total === 0) { alert('다운로드할 파일이 없습니다.'); return; }
-        if (total > 3000) {
-            alert('3천건 까지만 지원합니다. 검색 조건을 좁혀주십시오.');
-            return;
-        } else if (total > 500) {
-            if (!confirm(total+'건입니다. 시간이 오래 걸릴 수 있습니다. 계속하시겠습니까?')) return;
-        }
-
-        // searchForm의 현재 값을 bulkDownForm에 복사
-        var sf = document.getElementById('searchForm');
-        var bf = document.getElementById('bulkDownForm');
-        ['start','end','q','q_type','status','company_id','mb_group','agent'].forEach(function(n){
-            var el = sf.elements[n];
-            if (el) bf.elements[n].value = el.value;
-        });
-        bf.submit();
-    });
-    
-})();
-</script>
 
 <?php
 include_once(G5_ADMIN_PATH.'/admin.tail.php');

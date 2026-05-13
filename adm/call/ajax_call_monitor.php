@@ -599,8 +599,7 @@ elseif ($type === 'presence') {
 }
 elseif ($type === 'recent_detail') {
     // 최근 50건 상세. 레코딩은 call_id 유니크라고 했으므로 직접 조인
-    $sql = "
-        SELECT
+    $sql = "SELECT
             l.call_id, 
             l.mb_group,
             COALESCE(g.mv_group_name, CONCAT('지점 ', l.mb_group))   AS group_name,
@@ -652,9 +651,6 @@ elseif ($type === 'recent_detail') {
         LIMIT 50
     ";
     $res = sql_query($sql);
-    if(!empty($aaa)) {
-        echo $sql;
-    }
     $rows = [];
     while ($r = sql_fetch_array($res)) {
         // 메타 축약
@@ -690,9 +686,10 @@ elseif ($type === 'recent_detail') {
 
         $ui = !empty($status_ui[$r['call_status']]) ? $status_ui[$r['call_status']] : 'secondary';
         $class_name = 'status-col status-'.get_text($ui);
-
+        $gid = (int)$r['mb_group'];
+        $gname = get_group_name_cached($gid);
         $rows[] = [
-            'group_name'   => get_text($r['group_name'] ?: ('지점 '.(int)$r['mb_group'])),
+            'group_name'   => get_text($gname ?: ('지점 '.$gid)),
             'agent_mb_id'  => get_text($r['agent_mb_id']),
             'agent_name'   => get_text($r['agent_name'] ?: (string)$r['agent_mb_id']),
             'agent_phone'  => $agent_phone,

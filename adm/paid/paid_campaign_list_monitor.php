@@ -44,11 +44,15 @@ elseif ($status_filter === 'inactive') $status_cond = " c.status=0 ";
 // -------------------------
 // 검색 조건 SQL
 // -------------------------
-$sql_search = " WHERE cc.company_id in (".$sel_company_id.")
-                 AND cc.scope_mode = 'selected'
+$sql_search = " WHERE EXISTS (SELECT 1
+            FROM call_campaign_company cc
+           WHERE cc.campaign_id = c.campaign_id
+             AND cc.company_id IN (".$sel_company_id.")
+             AND cc.scope_mode = 'selected'
+        )
                  AND c.is_paid_db=1
                  AND c.deleted_at IS NULL
-                 AND {$status_cond} ";
+                 AND {$status_cond} ";             
 
 // 검색어
 if ($stx !== '') {
@@ -70,7 +74,6 @@ if ($stx !== '') {
 // 정렬
 $sql_order = " ORDER BY c.{$sst} {$sod} ";
 $sql = "SELECT COUNT(*) AS cnt FROM call_campaign c 
-        JOIN call_campaign_company as cc ON cc.campaign_id = c.campaign_id
         {$sql_search}";
 // 카운트/페이징
 $row = sql_fetch($sql);
@@ -87,7 +90,6 @@ $result = sql_query("SELECT c.campaign_id, c.db_agency, c.db_vendor,
            c.is_open_number, c.status,
            c.created_at
       FROM call_campaign c
-      JOIN call_campaign_company as cc ON cc.campaign_id = c.campaign_id
       {$sql_search}
       {$sql_order}
       LIMIT {$from_record}, {$rows}
@@ -233,7 +235,7 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
 .status-toggle label { margin-right:10px; }
 .td_cnt {width:60px;font-weight:bold;font-size:1.05em;font-family:sans-serif}
 .td_cntsmall {width:56px}
-.td_cam_name {font-size:0.85em;letter-spacing:-1px;}
+.td_cam_name {font-size:0.9em;letter-spacing:-1px;}
 .td_src {line-height:1.1em;}
 .target-summary {
     display:block;
@@ -286,12 +288,14 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
     <caption><?php echo $g5['title']; ?></caption>
     <thead>
     <tr>
+        <?php /*
         <th scope="col">
             <label for="chkall" class="sound_only">전체</label>
             <input type="checkbox" id="chkall" onclick="check_all(this.form)">
         </th>
         <th scope="col">에이전시 / 벤더사</th>
         <th scope="col">메모</th>
+        */ ?>
         <th scope="col"><?php echo subject_sort_link('paid_db_name', "db_agency={$db_agency}&db_vendor={$db_vendor}&sfl={$sfl}&stx={$stx}&status={$status_filter}"); ?>파일명</a></th>
         <th scope="col">잔여율</th>
         <th scope="col">총합</th>
@@ -339,6 +343,7 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
             );
             ?>
             <tr class="<?php echo $bg; ?> <?php echo $inactive ? 'row-inactive' : ''; ?>">
+                <?php /*
                 <td class="td_chk">
                     <input type="checkbox" name="chk[]" value="<?php echo $cid; ?>" title="선택">
                 </td>
@@ -347,18 +352,19 @@ tr.row-inactive td .name-text { text-decoration: line-through; }
                     <?php echo $vendor_nm; ?></span>
                 </td>
                 <td class="td_left"><?php echo get_text($r['campaign_memo']); ?></td>
+                */ ?>
                 <td class="td_left td_cam_name" style='background:<?php echo $bg_rate ?>;'>
-                    <a href="./paid_db_list.php?campaign_id=<?php echo $cid ?>" target="_blank">
+                    <!-- <a href="./paid_db_list.php?campaign_id=<?php echo $cid ?>" target="_blank"> -->
                         <span class="name-text"><?php echo get_text($r['paid_db_name']); ?></span>
                         <?php if ($inactive) { ?>
                             <span class="badge badge-inactive">비활성</span>
                         <?php } else { ?>
                             <span class="badge badge-active">활성</span>
                         <?php } ?>
-                    </a>
-                    <div style="margin-top:4px;color:#888;font-size:11px;">
+                    <!-- </a> -->
+                    <!-- <div style="margin-top:4px;color:#888;font-size:11px;">
                         캠페인ID: <?php echo $cid; ?>
-                    </div>
+                    </div> -->
                 </td>
                 <td class="td_cnt"><?php echo $rate ?>%</td>
                 <td class="td_cntsmall"><?php echo number_format($total); ?></td>
